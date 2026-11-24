@@ -1,7 +1,8 @@
 import { Decoration, EditorView, ViewPlugin, WidgetType } from '@codemirror/view'
 import type { ViewUpdate } from '@codemirror/view'
 import { syntaxTree } from '@codemirror/language'
-import type { Range } from '@codemirror/state'
+import { RangeSet, StateEffect, StateField, Transaction } from '@codemirror/state'
+import type { EditorState, Range } from '@codemirror/state'
 import type { EditorOptions, OutlineEntry } from '../contracts'
 import { renderMarkdown, safeUrl } from './render'
 import { frontMatter } from './front-matter'
@@ -11,18 +12,32 @@ const marks: Record<string, string> = {
   Link: 'link', Autolink: 'link', LinkReference: 'reference', TableCell: 'cell',
 }
 const inlineTags: Record<string, string> = { Highlight: 'mark', Subscript: 'sub', Superscript: 'sup' }
-const markers = new Set(['EmphasisMark', 'StrikethroughMark', 'CodeMark', 'HeaderMark', 'LinkMark', 'HighlightMark', 'SubscriptMark', 'SuperscriptMark'])
+const markers = new Set(['EmphasisMark', 'StrikethroughMark', 'CodeMark', 'HeaderMark', 'LinkMark', 'HighlightMark', 'SubscriptMark', 'SuperscriptMark', 'QuoteMark'])
 const blocks: Record<string, string> = {
   Blockquote: 'quote', Table: 'table', FencedCode: 'fence', CodeBlock: 'fence', HorizontalRule: 'rule',
 }
 
 class Preview extends WidgetType {
-  constructor(readonly source: string, readonly options: EditorOptions, readonly inline: boolean) { super() }
-  eq(other: Preview) { return other.source === this.source && other.inline === this.inline }
+  constructor(readonly source: string, readonly options: EditorOptions, readonly inline: boolean, readonly readOnly = false) { super() }
+  eq(other: Preview) { return other.source === this.source && other.inline === this.inline && other.readOnly === this.readOnly }
   toDOM(view: EditorView) {
-    const element = view.dom.ownerDocument.createElement('span')
+    const element = view.dom.ownerDocument.createElement(this.inline ? 'span' : 'div')
     element.className = this.inline ? 'live-inline-preview' : 'live-block-preview'
     element.contentEditable = 'false'
+    if (!this.inline && !this.readOnly) {
+      element.tabIndex = 0
+      element.setAttribute('aria-label', '编辑此 Markdown 块')
+      const edit = (event: Event) => {
+        if ((event.target as HTMLElement)?.closest?.('a[href]')) return
+        event.preventDefault()
+        event.stopPropagation()
+        const anchor = view.posAtDOM(element)
+        view.dispatch({ selection: { anchor } })
+        view.focus()
+      }
+      element.addEventListener('click', edit)
+      element.addEventListener('keydown', event => { if ((event as KeyboardEvent).key === 'Enter') edit(event) })
+    }
     void renderMarkdown(this.source, this.options).then(html => {
       if (!element.isConnected) return
       element.innerHTML = html
@@ -31,6 +46,16 @@ class Preview extends WidgetType {
     return element
   }
   ignoreEvent(event: Event) { return event.type !== 'click' }
+}
+
+class Bullet extends WidgetType {
+  eq() { return true }
+  toDOM(view: EditorView) {
+    const bullet = view.dom.ownerDocument.createElement('span')
+    bullet.className = 'live-bullet'
+    bullet.textContent = '•'
+    return bullet
+  }
 }
 
 class TaskCheckbox extends WidgetType {
@@ -84,8 +109,100 @@ class Toc extends WidgetType {
   destroy(dom: HTMLElement) { dom.ownerDocument.defaultView?.clearTimeout(this.timer) }
 }
 
-export function liveDecoration(options: EditorOptions, outline: () => OutlineEntry[], jump: (from: number) => void) {
+function overlapsSelection(state: EditorState, from: number, to: number) {
+  return !state.readOnly && state.selection.ranges.some(range => range.from <= to && range.to >= from)
+}
+
+const replaceBlocks = StateEffect.define<ReturnType<typeof Decoration.set>>()
+const blockPreviews = StateField.define<ReturnType<typeof Decoration.set>>({
+  create: () => Decoration.none,
+  update(previous, transaction) {
+    for (const effect of transaction.effects) if (effect.is(replaceBlocks)) return effect.value
+    // 光标移入时立即展开，正在输入的范围不交给延迟渲染处理。
+    const mapped = transaction.docChanged
+      ? previous.update({ filter: (from, to) => !transaction.changes.touchesRange(from, to) }).map(transaction.changes)
+      : previous
+    return transaction.selection && !transaction.startState.readOnly ? mapped.update({
+      filter: (from, to) => !transaction.newSelection.ranges.some(range => range.from <= to && range.to >= from),
+    }) : mapped
+  },
+  provide: field => EditorView.decorations.from(field),
+})
+
+function visibleBlocks(view: EditorView, options: EditorOptions) {
+  const state = view.state
+  const { doc } = state
+  const ranges: Range<Decoration>[] = []
+  const tree = syntaxTree(state)
+  const start = doc.lineAt(view.viewport.from)
+  const end = doc.lineAt(view.viewport.to)
+  function insert(from: number, to: number) {
+    if (from >= to || overlapsSelection(state, from, to)) return
+    const widget = new Preview(doc.sliceString(from, to), options, false, state.readOnly)
+    ranges.push(Decoration.replace({ block: true, widget }).range(from, to))
+  }
+  tree.iterate({
+    from: start.from, to: end.to,
+    enter(node) {
+      if (!/^(Table|FencedCode|CodeBlock)$/.test(node.name)) return
+      // 只替换完整块。缩进列表里的局部语法继续保留原本的行结构。
+      const first = doc.lineAt(node.from)
+      const last = doc.lineAt(node.to)
+      const limit = node.name === 'Table' ? 16_000 : 32_000
+      if (node.from === first.from && node.to === last.to && node.to - node.from <= limit) insert(node.from, node.to)
+      return false
+    },
+  })
+  for (let line = start.number; line <= end.number; line++) {
+    const first = doc.line(line)
+    if (!/^\s*\$\$\s*$/.test(first.text)) continue
+    let inside = tree.resolveInner(first.from, 1)
+    let fenced = false
+    while (inside.parent) {
+      if (inside.name === 'FencedCode' || inside.name === 'CodeBlock') { fenced = true; break }
+      inside = inside.parent
+    }
+    if (fenced) continue
+    const tail = doc.sliceString(first.to, Math.min(first.to + 8192, doc.length))
+    const match = /^\n[\s\S]+?^[ \t]*\$\$[ \t]*$/m.exec(tail)
+    if (match?.index !== 0) continue
+    const last = doc.lineAt(first.to + match[0].length)
+    insert(first.from, last.to)
+    line = last.number
+  }
+  return Decoration.set(ranges, true)
+}
+
+function blockProjection(options: EditorOptions) {
   return ViewPlugin.fromClass(class {
+    private frame = 0
+    constructor(private view: EditorView) { this.schedule() }
+    update(update: ViewUpdate) {
+      if (update.docChanged || update.selectionSet || update.viewportChanged ||
+          update.startState.readOnly !== update.state.readOnly ||
+          syntaxTree(update.startState) !== syntaxTree(update.state)) this.schedule()
+    }
+
+    private schedule() {
+      if (this.frame) return
+      const view = this.view
+      this.frame = view.dom.ownerDocument.defaultView!.requestAnimationFrame(() => {
+        this.frame = 0
+        if (view.composing) return
+        const before = view.state.field(blockPreviews)
+        const next = visibleBlocks(view, options)
+        if (!RangeSet.eq([before], [next])) {
+          view.dispatch({ effects: replaceBlocks.of(next), annotations: Transaction.addToHistory.of(false) })
+        }
+      })
+    }
+
+    destroy() { this.view.dom.ownerDocument.defaultView?.cancelAnimationFrame(this.frame) }
+  })
+}
+
+export function liveDecoration(options: EditorOptions, outline: () => OutlineEntry[], jump: (from: number) => void) {
+  const inline = ViewPlugin.fromClass(class {
     decorations: ReturnType<typeof Decoration.set>
 
     constructor(view: EditorView) { this.decorations = this.build(view) }
@@ -111,9 +228,6 @@ export function liveDecoration(options: EditorOptions, outline: () => OutlineEnt
       }
       const mark = (from: number, to: number, name: string) => {
         if (from < to) ranges.push(Decoration.mark({ class: 'live-' + name }).range(from, to))
-      }
-      const widget = (pos: number, source: string, inline = false) => {
-        ranges.push(Decoration.widget({ widget: new Preview(source, options, inline), side: 1 }).range(pos))
       }
       // YAML 中的横线可能被增量语法树识别为标题标记。在装饰阶段先划定它的范围。
       const yamlEnd = doc.line(1).text.trimEnd() === '---' && view.viewport.from < 65_536
@@ -151,9 +265,15 @@ export function liveDecoration(options: EditorOptions, outline: () => OutlineEnt
               if (name === 'LinkMark' || (name === 'HeaderMark' && doc.lineAt(to).number !== first.number)) {
                 mark(from, to, 'punctuation')
               } else if (to <= first.to) {
-                const end = name === 'HeaderMark' && doc.sliceString(to, to + 1) === ' ' ? to + 1 : to
+                const end = (name === 'HeaderMark' || name === 'QuoteMark') && doc.sliceString(to, to + 1) === ' ' ? to + 1 : to
                 ranges.push(Decoration.replace({}).range(from, end))
               }
+            }
+            if (name === 'ListMark' && !reveal && /^[-+*]$/.test(doc.sliceString(from, to))) {
+              const rest = doc.sliceString(to, first.to)
+              const task = /^([ \t]+)\[[ xX]\]/.exec(rest)
+              if (task) ranges.push(Decoration.replace({}).range(from, to + task[1].length))
+              else ranges.push(Decoration.replace({ widget: new Bullet() }).range(from, to))
             }
             if (name === 'TaskMarker' && !reveal) {
               ranges.push(Decoration.replace({
@@ -168,26 +288,26 @@ export function liveDecoration(options: EditorOptions, outline: () => OutlineEnt
                 const label = parent.name === 'Autolink' ? node.node : parent.getChildren('LinkMark')[1]
                 const start = parent.name === 'Autolink' ? from : parent.from + 1
                 const end = parent.name === 'Autolink' ? to : label?.from
-                if (end !== undefined && end > start) ranges.push(Decoration.mark({
-                  class: 'live-link-label', attributes: { 'data-markdown-url': url },
-                }).range(start, end))
+                if (end !== undefined && end > start) {
+                  ranges.push(Decoration.mark({
+                    class: 'live-link-label', attributes: { 'data-markdown-url': url },
+                  }).range(start, end))
+                  if (!reveal && parent.name === 'Link' && parent.to <= first.to) {
+                    ranges.push(Decoration.replace({}).range(parent.from, start))
+                    ranges.push(Decoration.replace({}).range(end, parent.to))
+                  }
+                }
               }
-            }
-            if (name === 'FencedCode' && first.to >= visible.from && !active(from, to) && to - from <= 32_000) {
-              const info = node.node.getChild('CodeInfo')
-              if (info) widget(first.to, doc.sliceString(from, to))
             }
             if ((name === 'Image' || name === 'Emoji') && to <= first.to && to - from <= 4096 && !reveal) {
               ranges.push(Decoration.replace({ widget: new Preview(doc.sliceString(from, to), options, true) }).range(from, to))
               return false
             }
-            if (name === 'Table' && first.to >= visible.from && !active(from, to) && to - from <= 16_000) widget(first.to, doc.sliceString(from, to))
           },
         })
       }
 
       const scanned = new Set<number>()
-      let mathEnd = -1
       for (const visible of view.visibleRanges) {
         for (let n = doc.lineAt(visible.from).number; n <= doc.lineAt(visible.to).number; n++) {
           if (scanned.has(n) || opaqueLines.has(n)) continue
@@ -197,21 +317,14 @@ export function liveDecoration(options: EditorOptions, outline: () => OutlineEnt
             addLine(line.from, 'yaml')
             continue
           }
-          if (line.from <= mathEnd || line.length > 8192) continue
+          if (line.length > 8192) continue
           const editing = !view.state.readOnly && active(line.from, line.to)
           if (!editing && /^\s*\[toc\]\s*$/i.test(line.text)) {
             ranges.push(Decoration.replace({ widget: new Toc(outline, jump, doc) }).range(line.from, line.to))
           }
           if (/^\s*\[\^[^\]]+\]:/.test(line.text)) addLine(line.from, 'footnote')
-          if (/^\s*\$\$\s*$/.test(line.text)) {
-            // 从开头标记检查短公式，匹配后跳过同一显示公式的结束标记。
-            const tail = doc.sliceString(line.to, Math.min(line.to + 8192, doc.length))
-            const match = /^\n[\s\S]+?^\s*\$\$[ \t]*$/m.exec(tail)
-            if (match?.index === 0) {
-              mathEnd = line.to + match[0].length
-              if (!active(line.from, mathEnd)) widget(line.to, doc.sliceString(line.from, mathEnd))
-            }
-          } else if (!editing) {
+          if (!editing && !line.text.trim()) addLine(line.from, 'empty')
+          if (!editing && !/^\s*\$\$\s*$/.test(line.text)) {
             for (const match of line.text.matchAll(/(?:\$[^$\n]+\$|<u>.*?<\/u>|\\\(.+?\\\))/gi)) {
               let escapes = 0
               while (line.text[match.index - 1 - escapes] === '\\') escapes++
@@ -232,4 +345,5 @@ export function liveDecoration(options: EditorOptions, outline: () => OutlineEnt
       return Decoration.set(ranges, true)
     }
   }, { decorations: value => value.decorations })
+  return [blockPreviews, blockProjection(options), inline]
 }

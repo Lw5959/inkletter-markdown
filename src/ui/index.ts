@@ -67,9 +67,9 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   let state: ShellState = { ...INITIAL_STATE, presentation: { ...INITIAL_STATE.presentation } }
   let workspaceEntries: WorkspaceEntry[] = []
   let themes: Theme[] = []
-  let activeThemeId = ''
+  let activeThemeId = 'default'
   let imageMode: ImageMode = 'copy'
-  let leftOpen = typeof window === 'undefined' ? true : window.innerWidth >= 920
+  let leftOpen = typeof window === 'undefined' || window.innerWidth >= 900
   let rightOpen = false
   let rightTab: RightTab = 'ai'
   let aiHasPending = false
@@ -101,6 +101,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
     className: 'yy-paper document-theme',
     attrs: {
       'data-mode': state.mode,
+      'data-theme': 'default',
       'data-focus': 'false',
       'data-typewriter': 'false',
       'data-spellcheck': 'false',
@@ -215,13 +216,6 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   const topbar = el('header', { className: 'yy-topbar yy-chrome' })
 
   const topLeft = el('div', { className: 'yy-topbar-left' })
-  const brand = el('div', { className: 'yy-brand', attrs: { 'aria-label': '页屿' } })
-  brand.append(
-    el('span', { className: 'yy-brand-mark', html: icons.brand }),
-    el('span', { className: 'yy-brand-name', text: '页屿' }),
-  )
-  topLeft.append(brand, menuBar.element)
-
   const topCenter = el('div', { className: 'yy-topbar-center' })
   const titleBtn = el('button', {
     className: 'yy-doc-title-btn',
@@ -250,6 +244,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
     attrs: { 'aria-pressed': String(leftOpen), 'aria-label': '切换左侧导览栏', 'data-toggle': 'left' },
   })
   leftToggleBtn.addEventListener('click', () => toggleLeftSidebar())
+  topLeft.append(leftToggleBtn, menuBar.element)
 
   // Mode switch pill
   const modeGroup = el('div', { className: 'yy-mode-pill', attrs: { role: 'group', 'aria-label': '编辑模式' } })
@@ -294,26 +289,22 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   const renderThemePopover = () => {
     themePopover.replaceChildren()
     themePopover.append(el('div', { className: 'yy-menu-heading', text: '文档主题' }))
-    if (themes.length === 0) {
-      themePopover.append(el('div', { className: 'yy-popover-empty', text: '当前使用默认纸墨样式' }))
-    } else {
-      for (const theme of themes) {
-        const active = theme.id === activeThemeId
-        const item = el('button', {
-          className: `yy-menu-item${active ? ' is-selected' : ''}`,
-          type: 'button',
-          attrs: { role: 'menuitemradio', 'aria-checked': String(active), 'data-theme-id': theme.id },
-        })
-        item.append(
-          el('span', { className: 'yy-menu-check', html: active ? icons.check : '' }),
-          el('span', { className: 'yy-menu-label', text: theme.name }),
-        )
-        item.addEventListener('click', () => {
-          closeThemePopover()
-          dispatch({ type: 'theme', id: theme.id })
-        })
-        themePopover.append(item)
-      }
+    for (const theme of [{ id: 'default', name: '默认' }, ...themes]) {
+      const active = theme.id === activeThemeId
+      const item = el('button', {
+        className: `yy-menu-item${active ? ' is-selected' : ''}`,
+        type: 'button',
+        attrs: { role: 'menuitemradio', 'aria-checked': String(active), 'data-theme-id': theme.id },
+      })
+      item.append(
+        el('span', { className: 'yy-menu-check', html: active ? icons.check : '' }),
+        el('span', { className: 'yy-menu-label', text: theme.name }),
+      )
+      item.addEventListener('click', () => {
+        closeThemePopover()
+        dispatch({ type: 'theme', id: theme.id })
+      })
+      themePopover.append(item)
     }
     themePopover.append(el('div', { className: 'yy-menu-sep', attrs: { role: 'separator' } }))
     const importBtn = el('button', { className: 'yy-menu-item', type: 'button', attrs: { role: 'menuitem' } })
@@ -361,16 +352,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   mcpToggleBtn.append(el('span', { className: 'yy-icon', html: icons.plug }), el('span', { text: 'MCP' }), mcpCountEl)
   mcpToggleBtn.addEventListener('click', () => toggleRightPanel('mcp'))
 
-  const shortcutsBtn = el('button', {
-    className: 'yy-icon-btn',
-    type: 'button',
-    html: icons.keyboard,
-    title: '快捷键设置',
-    attrs: { 'aria-label': '快捷键设置', 'data-toggle': 'shortcuts' },
-  })
-  shortcutsBtn.addEventListener('click', openShortcuts)
-
-  topRight.append(leftToggleBtn, modeGroup, themeWrap, aiToggleBtn, mcpToggleBtn, shortcutsBtn)
+  topRight.append(modeGroup, themeWrap, aiToggleBtn, mcpToggleBtn)
   topbar.append(topLeft, topCenter, topRight)
 
   // Body 3-column layout
@@ -497,7 +479,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   const statusBar = el('footer', { className: 'yy-statusbar yy-chrome' })
   const statusDetailEl = el('div', { className: 'yy-status-detail', attrs: { 'aria-live': 'polite' } })
 
-  const statusCenter = el('div', { className: 'yy-status-toggles' })
+  const statusCenter = el('div', { className: 'yy-status-toggles', attrs: { 'aria-label': '编辑状态' } })
   const makeStatusToggle = (label: string, attrName: string, onClick: () => void) => {
     const btn = el('button', {
       className: 'yy-status-chip',
@@ -529,17 +511,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   const statusRight = el('div', { className: 'yy-status-metrics' })
   const cursorPosEl = el('span', { className: 'yy-status-metric', text: '行 1 · 列 1' })
   const countEl = el('span', { className: 'yy-status-metric', text: '0 词 · 0 字符' })
-  const activeThemeChip = el('button', {
-    className: 'yy-status-chip',
-    type: 'button',
-    text: '默认纸墨',
-    title: '点击切换主题',
-  })
-  activeThemeChip.addEventListener('click', event => {
-    event.stopPropagation()
-    themeBtn.click()
-  })
-  statusRight.append(cursorPosEl, countEl, activeThemeChip)
+  statusRight.append(cursorPosEl, countEl)
 
   statusBar.append(statusDetailEl, statusCenter, statusRight)
   shellEl.append(topbar, bodyEl, statusBar)
@@ -582,10 +554,9 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   }
 
   function renderStatusBar() {
-    const modeText = state.mode === 'source' ? '源码模式' : '实时编辑'
-    statusDetailEl.textContent = transientNotice || state.detail || modeText
-    cursorPosEl.textContent = `行 ${state.line} · 列 ${state.column}`
-    countEl.textContent = `${state.words} 词 · ${state.characters} 字符`
+    statusDetailEl.textContent = transientNotice || state.detail
+    cursorPosEl.textContent = state.mode === 'source' || state.characters ? `行 ${state.line} · 列 ${state.column}` : ''
+    countEl.textContent = state.characters ? `${state.words} 词 · ${state.characters} 字符` : ''
 
     const syncChip = (btn: HTMLButtonElement, active: boolean) => {
       btn.classList.toggle('is-active', active)
@@ -599,12 +570,18 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   }
 
   function applyState(next: ShellState) {
+    if (next.workspace !== state.workspace && next.workspace !== null && window.innerWidth >= 880) {
+      leftPanel.setTab('files')
+      leftOpen = true
+      syncLayout()
+    }
     state = { ...next, presentation: { ...next.presentation } }
     const isReadonly = Boolean(state.presentation.readonly)
 
     shellEl.dataset.mode = state.mode
     shellEl.dataset.focus = String(state.presentation.focus)
     shellEl.dataset.readonly = String(isReadonly)
+    shellEl.dataset.hasDocument = String(!!state.path || state.dirty || state.characters > 0)
 
     // Update editable document scroll container attributes
     paperEl.dataset.mode = state.mode
@@ -734,9 +711,9 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
       activeThemeId = active
       const current = themes.find(theme => theme.id === active)
       themeStyle.textContent = current ? current.styles.join('\n') : ''
-      const activeName = current?.name ?? '默认纸墨'
-      themeBtnLabel.textContent = current ? current.name : '主题'
-      activeThemeChip.textContent = activeName
+      paperEl.dataset.theme = current?.id ?? 'default'
+      themeBtnLabel.textContent = current?.name ?? '主题'
+      themeBtn.title = '当前主题：' + (current?.name ?? '默认')
       if (themePopoverOpen) renderThemePopover()
     },
 

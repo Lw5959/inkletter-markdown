@@ -15,7 +15,7 @@ export class LeftPanel {
   readonly element: HTMLElement
   private tabButtons = new Map<LeftTab, HTMLButtonElement>()
   private panes = new Map<LeftTab, HTMLElement>()
-  private activeTab: LeftTab = 'files'
+  private activeTab: LeftTab = 'outline'
 
   // Workspace state
   private workspaceRoot: string | null = null
@@ -32,6 +32,7 @@ export class LeftPanel {
   private outline: OutlineEntry[] = []
   private outlineFilter = ''
   private outlineList!: HTMLElement
+  private outlineFilterWrap!: HTMLElement
 
   // Search state
   private searchInput!: HTMLInputElement
@@ -140,7 +141,7 @@ export class LeftPanel {
 
   private buildOutlinePane(): HTMLElement {
     const pane = el('div', { className: 'yy-pane', attrs: { role: 'tabpanel', 'data-pane': 'outline' } })
-    const filterWrap = el('div', { className: 'yy-pane-search' })
+    const filterWrap = this.outlineFilterWrap = el('div', { className: 'yy-pane-search' })
     const filterInput = el('input', {
       className: 'yy-input yy-input-sm',
       type: 'text',
@@ -460,6 +461,7 @@ export class LeftPanel {
 
   private renderOutline() {
     this.outlineList.replaceChildren()
+    this.outlineFilterWrap.toggleAttribute('hidden', this.outline.length === 0)
     const visible = this.outlineFilter
       ? this.outline.filter(item => item.title.toLowerCase().includes(this.outlineFilter))
       : this.outline
@@ -467,8 +469,8 @@ export class LeftPanel {
     if (visible.length === 0) {
       this.outlineList.append(
         el('div', {
-          className: 'yy-empty-box',
-          text: this.outline.length === 0 ? '当前文档暂无标题大纲' : '没有匹配的标题',
+          className: 'yy-outline-empty',
+          text: this.outline.length === 0 ? '大纲为空' : '没有匹配的标题',
         }),
       )
       return
@@ -483,10 +485,7 @@ export class LeftPanel {
         attrs: { role: 'listitem', 'data-from': String(entry.from), 'data-level': String(entry.level) },
       })
       btn.style.paddingLeft = `${12 + Math.max(0, entry.level - minLevel) * 14}px`
-      btn.append(
-        el('span', { className: 'yy-outline-level', text: `H${entry.level}` }),
-        el('span', { className: 'yy-outline-title', text: entry.title }),
-      )
+      btn.append(el('span', { className: 'yy-outline-title', text: entry.title }))
       btn.addEventListener('click', () => {
         this.options.dispatch({ type: 'outline', from: entry.from })
         this.options.onAfterNavigate()

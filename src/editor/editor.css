@@ -1,54 +1,33 @@
-#write { width: min(100%, 840px); margin: 0 auto; padding: 48px 48px 70px; min-height: 100%; box-sizing: border-box; }
-#write .cm-editor.cm-focused { outline: none; }
-#write .cm-scroller { font-family: inherit; font-size: 17px; line-height: 1.7; }
-#write[data-mode="source"] .cm-scroller { font: 14px/1.65 ui-monospace, monospace; }
-#write .cm-content { caret-color: currentColor; }
-#write .live-h1, #write .live-h2, #write .live-h3, #write .live-h4, #write .live-h5, #write .live-h6 { font-weight: 680; }
-#write .live-h1 { font-size: 2em; }
-#write .live-h2 { font-size: 1.55em; }
-#write .live-h3 { font-size: 1.25em; }
+/* CodeMirror 的源文本和实时视图沿用文档基础排版，滚动由外层文档容器处理。 */
+:where(.document-theme #write) .cm-editor.cm-focused { outline: none; }
+:where(.document-theme #write) .cm-editor { height: auto; }
+:where(.document-theme #write) .cm-scroller { overflow: visible; font: inherit; }
+:where(.document-theme #write[data-mode="source"]) .cm-scroller { font: 13.5px/1.68 var(--doc-mono); }
+:where(.document-theme #write) .cm-content { caret-color: currentColor; min-width: 0; padding-block: 0; }
+:where(.document-theme #write) .cm-line { padding-inline: 0; }
+:where(.document-theme #write) .cm-line.live-empty { min-height: .9em; font-size: .68em; line-height: .9; }
+:where(.document-theme #write) :where(.cm-line) :where(h1, h2, h3, h4, h5, h6) { display: inline; margin: 0; }
+:where(.document-theme #write) :where(.live-bullet) { display: inline-block; color: var(--doc-muted); }
 
-/* 文档主题可沿用 Typora 的 #write。滚动容器由桌面外壳提供，CM 按其视窗虚拟化。 */
-.document-theme #write { height: auto; }
-#write .cm-editor { height: auto; }
-#write .cm-scroller { overflow: visible; }
-#write .cm-content { min-width: 0; }
-#write .live-h4 { font-size: 1.1em; }
-#write .live-h5, #write .live-h6 { font-size: 1em; }
-#write .live-strong { font-weight: 700; }
-#write .live-em { font-style: italic; }
-#write .live-del { text-decoration: line-through; }
-#write .live-link { text-decoration: underline; }
-#write .live-link-label { cursor: pointer; }
-#write .live-punctuation { opacity: .32; }
-#write .live-code, #write .live-fence, #write .live-yaml {
-  font-family: ui-monospace, monospace;
-  background-color: color-mix(in srgb, currentColor 6%, transparent);
-}
-#write .cm-line.live-quote { border-inline-start: 3px solid currentColor; padding-inline-start: .6em; }
-#write .live-cell, #write .live-footnote, #write .live-reference { color: var(--md-accent-color, #287764); }
-#write .live-rule { border-bottom: 1px solid currentColor; opacity: .4; }
-#write .live-inline-preview { display: inline-block; padding-inline: .4em; vertical-align: middle; }
-#write .live-inline-preview p { display: inline; margin: 0; }
-#write .live-inline-preview img { max-width: 100%; max-height: 20rem; }
-#write .live-block-preview { display: block; max-width: 100%; overflow-x: auto; padding: .35em 0; }
-#write .live-block-preview pre { margin: 0; white-space: pre-wrap; }
-#write .live-block-preview table { border-collapse: collapse; }
-#write .live-block-preview td, #write .live-block-preview th { border: 1px solid #8888; padding: .15em .5em; }
-#write .live-toc > a { display: block; }
-#write .live-toc > a:not(.toc-h1) { padding-inline-start: 1em; }
-#write .live-toc > a:is(.toc-h3, .toc-h4, .toc-h5, .toc-h6) { padding-inline-start: 2em; }
-#write.editor-focus .cm-line:not(.cm-activeLine) { opacity: .48; }
-#write .markdown-diagram svg { width: 100%; height: auto; }
-#write .markdown-diagram :is(rect, polygon, circle, ellipse) { fill: #eef3ef; stroke: #5a7065; }
-#write .markdown-diagram :is(path, line, polyline) { fill: none; stroke: #5a7065; }
-#write .markdown-diagram marker path { fill: #5a7065; }
-#write .hljs-keyword, #write .hljs-selector-tag { color: #8959a8; }
-#write .hljs-string, #write .hljs-title { color: #2c785b; }
-#write .hljs-number, #write .hljs-literal { color: #a8592b; }
-#write .hljs-comment { opacity: .65; font-style: italic; }
-:where(#write .cm-line :is(h1, h2, h3, h4, h5, h6)) {
-  display: inline;
-  margin: 0;
-  font: inherit;
-}
+
+:where(.document-theme #write) :where(.live-strong) { font-weight: 700; }
+:where(.document-theme #write) :where(.live-em) { font-style: italic; }
+:where(.document-theme #write) :where(.live-del) { text-decoration: line-through; }
+:where(.document-theme #write) :where(.live-link) { text-decoration: underline; text-underline-offset: .15em; }
+:where(.document-theme #write) :where(.live-link-label) { cursor: pointer; color: var(--link-color, var(--doc-accent)); }
+:where(.document-theme #write) :where(.live-punctuation) { opacity: .42; }
+:where(.document-theme #write) :where(.live-code, .live-fence, .live-yaml) { font-family: var(--doc-mono); background: var(--doc-code); }
+:where(.document-theme #write) :where(.live-yaml) { color: var(--doc-muted); font-size: .8em; }
+:where(.document-theme #write) :where(.cm-line.live-quote) { border-inline-start: 2px solid var(--doc-rule); padding-inline-start: .9em; color: var(--doc-muted); }
+:where(.document-theme #write) :where(.live-footnote, .live-reference) { color: var(--link-color, var(--doc-accent)); }
+:where(.document-theme #write) :where(.live-rule) { border-bottom: 1px solid var(--doc-rule); opacity: .65; }
+
+:where(.document-theme #write) :where(.live-inline-preview) { display: inline-block; vertical-align: middle; }
+:where(.document-theme #write) :where(.live-inline-preview p) { display: inline; margin: 0; }
+:where(.document-theme #write) :where(.live-inline-preview img) { max-width: 100%; max-height: 22rem; }
+:where(.document-theme #write) :where(.live-block-preview) { display: block; max-width: 100%; overflow-x: auto; padding: .25em 0; }
+:where(.document-theme #write) :where(.live-block-preview table, .live-block-preview pre, .live-block-preview figure) { margin-block: 0; }
+:where(.document-theme #write) :where(.live-toc) > a { display: block; font-size: .9em; }
+:where(.document-theme #write) :where(.live-toc) > :not(.toc-h1) { padding-inline-start: 1em; }
+:where(.document-theme #write) :where(.live-toc) > :is(.toc-h3, .toc-h4, .toc-h5, .toc-h6) { padding-inline-start: 2em; }
+:where(.document-theme #write.editor-focus) :where(.cm-line:not(.cm-activeLine)) { opacity: .45; }

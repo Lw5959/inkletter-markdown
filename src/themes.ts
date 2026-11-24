@@ -8,12 +8,6 @@ import { invoke } from './native'
 
 type Import = { id: string; name: string; entry: string }
 
-const compatible: Record<string, string> = {
-  h1: ':is(h1,.live-h1,.md-h1)', h2: ':is(h2,.live-h2,.md-h2)', h3: ':is(h3,.live-h3,.md-h3)',
-  h4: ':is(h4,.live-h4,.md-h4)', h5: ':is(h5,.live-h5,.md-h5)', h6: ':is(h6,.live-h6,.md-h6)',
-  blockquote: ':is(blockquote,.md-blockquote)',
-}
-
 function resourcePath(value: string, owner: string) {
   if (!value || value.startsWith('#') || /^(?:[\w+.-]+:|\/|\\)/.test(value)) return null
   const base = 'https://theme.invalid/' + owner.split('/').map(encodeURIComponent).join('/')
@@ -69,11 +63,17 @@ export function scopeTheme(css: Root) {
           selector.prepend(descendant)
           selector.prepend(selectorParser.className({ value: 'document-theme' }))
         }
-        selector.walkTags(node => {
-          const replacement = compatible[node.value.toLowerCase()]
-          if (!replacement) return
-          const alias = selectorParser().astSync(replacement).first.first.clone()
-          node.replaceWith(alias)
+        selector.walkClasses(node => {
+          const heading = /^md-h([1-6])$/i.exec(node.value)
+          if (!heading) return
+          node.replaceWith(selectorParser().astSync(':is(.' + node.value + ',h' + heading[1] + ')').first.first.clone())
+        })
+        selector.walkCombinators(node => {
+          // Typora 主题常把标题当作 #write 的直接子元素，实时编辑额外经过视窗容器。
+          const before = node.prev()
+          const after = node.next()
+          if (node.value === '>' && before?.type === 'id' && before.value === 'write' &&
+              after?.type === 'tag' && /^h[1-6]$/i.test(after.value)) node.value = ' '
         })
       })
     }).processSync(rule.selector).replace(/\.document-theme\s+(?:>\s*)?\.document-theme/g, '.document-theme')

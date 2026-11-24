@@ -1,33 +1,27 @@
-/* ==========================================================================
-   页屿 (Yeyu) Desktop Shell Styles
-   Warm paper & deep ink-pine editorial palette.
-   Chrome elements use scoped .yy-* selectors & custom properties so user
-   document themes inside .document-theme / #write never break the UI chrome.
-   ========================================================================== */
+/* 界面颜色与文档排版分离。导入主题只作用于文档区域。 */
 
 :root {
-  color-scheme: light;
-  --yy-font-sans: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Noto Sans CJK SC", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color-scheme: light dark;
+  --yy-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei UI", sans-serif;
   --yy-font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
 
-  /* Brand Palette: Warm Rice Paper & Deep Ink Pine */
-  --yy-canvas: #f3efe4;
-  --yy-chrome-bg: #f6f2e8;
-  --yy-chrome-elevated: #fcfaf4;
-  --yy-chrome-subtle: #ebe5d6;
-  --yy-paper-bg: #fcfaf4;
+  --yy-canvas: #fff;
+  --yy-chrome-bg: #fff;
+  --yy-chrome-elevated: #fff;
+  --yy-chrome-subtle: #f2f2f2;
 
-  --yy-ink: #1f2b27;
-  --yy-ink-muted: #5d6a64;
-  --yy-ink-faint: #84908a;
+  --yy-ink: #242424;
+  --yy-ink-muted: #626262;
+  --yy-ink-faint: #747474;
 
-  --yy-accent: #195345;
-  --yy-accent-hover: #134237;
-  --yy-accent-soft: #e3eee9;
-  --yy-accent-border: #adc9be;
+  --yy-accent: #303030;
+  --yy-on-accent: #fff;
+  --yy-accent-hover: #171717;
+  --yy-accent-soft: #ededed;
+  --yy-accent-border: #d7d7d7;
 
-  --yy-border: #ddd7c9;
-  --yy-border-strong: #c8c0ae;
+  --yy-border: #ededed;
+  --yy-border-strong: #d7d7d7;
 
   --yy-warn-bg: #f9eed9;
   --yy-warn-ink: #7d5315;
@@ -35,14 +29,33 @@
   --yy-danger-bg: #fae8e6;
   --yy-success: #1b6548;
   --yy-success-bg: #e2f1ea;
-  --yy-mcp-bg: #e4ebf5;
-  --yy-mcp-ink: #274c77;
+  --yy-mcp-bg: #eeeeee;
+  --yy-mcp-ink: #474747;
 
-  --yy-shadow-sm: 0 2px 8px rgba(24, 42, 36, 0.08);
-  --yy-shadow-md: 0 12px 32px rgba(20, 35, 30, 0.16);
+  --yy-shadow-sm: 0 2px 8px rgb(0 0 0 / .07);
+  --yy-shadow-md: 0 12px 32px rgb(0 0 0 / .13);
   --yy-radius-sm: 5px;
   --yy-radius-md: 8px;
   --yy-radius-lg: 12px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --yy-canvas: #232323;
+    --yy-chrome-bg: #262626;
+    --yy-chrome-elevated: #2d2d2d;
+    --yy-chrome-subtle: #373737;
+    --yy-ink: #e6e6e6;
+    --yy-ink-muted: #b0b0b0;
+    --yy-ink-faint: #9e9e9e;
+    --yy-accent: #dedede;
+    --yy-on-accent: #202020;
+    --yy-accent-hover: #f2f2f2;
+    --yy-accent-soft: #383838;
+    --yy-accent-border: #575757;
+    --yy-border: #363636;
+    --yy-border-strong: #4d4d4d;
+  }
 }
 
 html,
@@ -66,7 +79,7 @@ body {
 .yy-shell {
   height: 100%;
   display: grid;
-  grid-template-rows: 42px minmax(0, 1fr) 29px;
+  grid-template-rows: 36px minmax(0, 1fr) 23px;
   background: var(--yy-canvas);
   color: var(--yy-ink);
   font-family: var(--yy-font-sans);
@@ -117,7 +130,7 @@ body {
   align-items: center;
   gap: 12px;
   padding: 0 12px;
-  background: var(--yy-chrome-bg);
+  background: color-mix(in srgb, var(--yy-chrome-bg), var(--yy-chrome-subtle) 70%);
   border-bottom: 1px solid var(--yy-border);
   z-index: 30;
   user-select: none;
@@ -136,21 +149,18 @@ body {
   min-width: 0;
 }
 
-.yy-shell .yy-brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding-right: 6px;
-  color: var(--yy-accent);
-  font-weight: 700;
-  font-size: 14px;
-  letter-spacing: 0.08em;
+.yy-shell .yy-topbar-right .yy-tool-btn {
+  min-height: 27px;
+  padding: 4px 7px;
+  background: transparent;
+  border-color: transparent;
+  color: var(--yy-ink-muted);
 }
 
-.yy-shell .yy-brand-mark {
-  display: inline-flex;
-  align-items: center;
+.yy-shell .yy-topbar-right .yy-tool-btn:hover,
+.yy-shell .yy-topbar-right .yy-tool-btn.is-active {
   color: var(--yy-accent);
+  background: var(--yy-accent-soft);
 }
 
 .yy-shell .yy-doc-title-btn {
@@ -183,7 +193,7 @@ body {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #c77b25;
+  background: var(--yy-ink-muted);
   flex-shrink: 0;
 }
 
@@ -372,13 +382,13 @@ body {
 .yy-shell .yy-btn-primary {
   background: var(--yy-accent);
   border-color: var(--yy-accent);
-  color: #fcfaf4;
+  color: var(--yy-on-accent);
 }
 
 .yy-shell .yy-btn-primary:hover:not(:disabled) {
   background: var(--yy-accent-hover);
   border-color: var(--yy-accent-hover);
-  color: #fcfaf4;
+  color: var(--yy-on-accent);
 }
 
 .yy-shell .yy-btn-danger {
@@ -448,7 +458,7 @@ body {
   padding: 2px;
   border-radius: var(--yy-radius-sm);
   background: var(--yy-chrome-subtle);
-  border: 1px solid var(--yy-border);
+  border: 1px solid transparent;
 }
 
 .yy-shell .yy-mode-btn {
@@ -465,7 +475,7 @@ body {
   background: var(--yy-chrome-elevated);
   color: var(--yy-accent);
   font-weight: 600;
-  box-shadow: 0 1px 2px rgba(24, 42, 36, 0.08);
+  box-shadow: 0 1px 2px rgb(0 0 0 / .07);
 }
 
 .yy-shell .yy-input,
@@ -553,7 +563,7 @@ body {
   padding: 0 4px;
   border-radius: 999px;
   background: var(--yy-accent);
-  color: #fcfaf4;
+  color: #fff;
   font-size: 10.5px;
   font-weight: 600;
 }
@@ -581,7 +591,7 @@ body {
 /* Left Panel -------------------------------------------------------------- */
 
 .yy-shell .yy-left-panel {
-  width: 264px;
+  width: 220px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -593,8 +603,7 @@ body {
 .yy-shell .yy-seg-tabs {
   display: flex;
   gap: 3px;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--yy-border);
+  padding: 7px 8px 5px;
   background: var(--yy-chrome-bg);
 }
 
@@ -619,8 +628,8 @@ body {
 }
 
 .yy-shell .yy-seg-tab.is-active {
-  background: var(--yy-chrome-elevated);
-  border-color: var(--yy-border);
+  background: var(--yy-accent-soft);
+  border-color: transparent;
   color: var(--yy-accent);
   font-weight: 600;
 }
@@ -637,8 +646,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  padding: 7px 10px;
-  border-bottom: 1px solid var(--yy-border);
+  padding: 8px 10px 5px;
 }
 
 .yy-shell .yy-workspace-name {
@@ -687,7 +695,7 @@ body {
 .yy-shell .yy-toggle-chip.is-active {
   background: var(--yy-accent);
   border-color: var(--yy-accent);
-  color: #fcfaf4;
+  color: var(--yy-on-accent);
 }
 
 .yy-shell .yy-search-meta {
@@ -812,11 +820,14 @@ body {
   color: var(--yy-accent);
 }
 
-.yy-shell .yy-outline-level {
-  font-size: 10px;
-  font-family: var(--yy-font-mono);
-  color: var(--yy-ink-faint);
-  flex-shrink: 0;
+
+
+.yy-shell .yy-outline-empty {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: var(--yy-ink-muted);
+  font-size: 12px;
 }
 
 .yy-shell .yy-outline-title {
@@ -911,8 +922,6 @@ body {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  background: var(--yy-paper-bg);
-  color: var(--yy-ink);
   position: relative;
 }
 
@@ -994,8 +1003,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 7px 10px;
-  border-bottom: 1px solid var(--yy-border);
+  padding: 8px 10px 5px;
 }
 
 .yy-shell .yy-ai-model-badge {
@@ -1096,7 +1104,7 @@ body {
 .yy-shell .yy-chip.is-active {
   background: var(--yy-accent);
   border-color: var(--yy-accent);
-  color: #fcfaf4;
+  color: var(--yy-on-accent);
 }
 
 .yy-shell .yy-intent-grid {
@@ -1563,7 +1571,7 @@ body {
   background: var(--yy-chrome-bg);
   border-top: 1px solid var(--yy-border);
   font-size: 11.5px;
-  color: var(--yy-ink-muted);
+  color: var(--yy-ink-faint);
   user-select: none;
 }
 
@@ -1599,10 +1607,9 @@ body {
 }
 
 .yy-shell .yy-status-chip.is-active {
-  background: var(--yy-accent-soft);
-  border-color: var(--yy-accent-border);
-  color: var(--yy-accent);
-  font-weight: 600;
+  border-color: transparent;
+  color: var(--yy-ink);
+  font-weight: 550;
 }
 
 .yy-shell .yy-status-metric {
@@ -1615,7 +1622,7 @@ body {
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: rgba(20, 32, 28, 0.34);
+  background: rgb(0 0 0 / .25);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -1833,7 +1840,7 @@ body {
 .yy-shell .yy-kbd-btn.is-active {
   border-color: var(--yy-accent);
   background: var(--yy-accent);
-  color: #fcfaf4;
+  color: #fff;
 }
 
 .yy-shell .yy-muted-note {
@@ -1853,3 +1860,18 @@ body {
     display: none;
   }
 }
+
+@media (max-width: 760px) {
+  .yy-shell .yy-topbar {
+    grid-template-columns: auto minmax(56px, 1fr) auto;
+    gap: 7px;
+    padding-inline: 8px;
+  }
+  .yy-shell .yy-menu-trigger { padding-inline: 6px; }
+  .yy-shell .yy-topbar-left, .yy-shell .yy-topbar-right { gap: 3px; }
+  .yy-shell .yy-topbar-right .yy-tool-btn { padding-inline: 4px; }
+  .yy-shell .yy-topbar-right .yy-tool-btn .yy-icon { display: none; }
+}
+
+.yy-shell[data-has-document="false"] .yy-status-toggles { visibility: hidden; }
+.yy-shell[data-has-document="false"] .yy-statusbar { border-top-color: transparent; }

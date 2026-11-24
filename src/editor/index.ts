@@ -12,6 +12,7 @@ import { applyFormat, blockFormats, lineFormats } from './formats'
 import { liveDecoration } from './live'
 import { headingId, headingText, safeUrl } from './render'
 import { frontMatter } from './front-matter'
+import './document.css'
 import './editor.css'
 
 export { renderMarkdown } from './render'
@@ -51,14 +52,13 @@ export function createEditor(host: HTMLElement, options: EditorOptions): Editor 
       ...(display.readonly ? { tabindex: '0', 'aria-readonly': 'true' } : {}),
     }),
   ]
-  const modeExtensions = () => currentMode === 'live' ? live : []
+  const modeExtensions = () => currentMode === 'live' ? live : syntaxHighlighting(defaultHighlightStyle)
   const extensions = () => [
     rawBuffer, originalSelection, rawHistory, coalesceEndings, history(),
     invertedEffects.of(tr => tr.docChanged || tr.effects.some(effect => effect.is(restoreRaw))
       ? [selectionEffect.of(tr.startState.field(originalSelection))] : []),
     keymap.of([...defaultKeymap, ...historyKeymap]),
     markdown({ extensions: markdownSyntax, codeLanguages: languages }),
-    syntaxHighlighting(defaultHighlightStyle),
     EditorView.lineWrapping,
     mode.of(modeExtensions()),
     presentation.of(displayExtensions()),

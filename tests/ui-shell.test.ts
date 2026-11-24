@@ -63,6 +63,26 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     })()`)
   }
 
+  it('默认主题用系统外观并可从导入主题切回', async () => {
+    await mountTestHarness()
+    await page.emulateMedia({ colorScheme: 'light' })
+    await page.evaluate(() => (window as unknown as Record<string, any>).__test.shell.setThemes([
+      { id: 'dark', name: '测试深色', styles: ['.document-theme { --bg-color: #181a20; --text-color: #e4e8ee; }'] },
+    ], 'dark'))
+    const paper = page.locator('.document-theme')
+    expect(await paper.evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(24, 26, 32)')
+    await page.locator('[data-toggle="theme-popover"]').click()
+    await page.getByRole('menuitemradio', { name: '默认', exact: true }).click()
+    expect(await page.evaluate(() => (window as unknown as Record<string, any>).__test.actions.at(-1))).toEqual({ type: 'theme', id: 'default' })
+    await page.evaluate(() => (window as unknown as Record<string, any>).__test.shell.setThemes([], 'default'))
+    expect(await paper.evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(255, 255, 255)')
+    expect(await paper.evaluate(element => getComputedStyle(element).color)).toBe('rgb(34, 34, 34)')
+    expect(await page.locator('.yy-seg-tab.is-active').first().evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(237, 237, 237)')
+    await page.emulateMedia({ colorScheme: 'dark' })
+    expect(await paper.evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(32, 32, 32)')
+    await page.emulateMedia({ colorScheme: 'light' })
+  })
+
   it('挂载外壳、文档容器状态、主题作用域隔离与切换', async () => {
     await mountTestHarness()
 
@@ -476,7 +496,8 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     const modKey = platform() === 'darwin' ? 'Meta' : 'Control'
 
     // Record custom shortcut for file.save (Mod+Alt+S)
-    await page.click('[data-toggle="shortcuts"]')
+    await page.getByRole('menuitem', { name: '编辑', exact: true }).click()
+    await page.getByRole('menuitem', { name: /快捷键设置/ }).click()
     await page.click('[data-shortcut-id="file.save"]')
     await page.keyboard.press(`${modKey}+Alt+s`)
     await page.keyboard.press('Escape')

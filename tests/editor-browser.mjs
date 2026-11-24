@@ -122,6 +122,21 @@ try {
   })
   assert.deepEqual(await page.evaluate(() => window.editor.getSelection()), { anchor: 2, head: 2 })
 
+  const blocks = '# 块级编辑\n\n| 任务 | 状态 |\n| ---- | ---- |\n| 主题接口 | 就绪 |\n\n' +
+    '```js\nconst value = 42\n```\n\n末尾'
+  await page.evaluate(source => {
+    window.editor.setMode('live')
+    window.editor.setMarkdown(source)
+  }, blocks)
+  await page.locator('#write table').waitFor()
+  await page.locator('#write pre code').waitFor()
+  assert.doesNotMatch(await page.locator('#write .cm-content').innerText(), /\| 任务|[`]{3}js/)
+  await page.locator('#write table td').first().click()
+  await page.locator('#write .cm-line').filter({ hasText: '| 任务 | 状态 |' }).waitFor()
+  assert.equal(await page.evaluate(() => window.editor.getMarkdown()), blocks)
+  await page.evaluate(() => window.editor.select({ anchor: 0, head: 0 }))
+  await page.locator('#write table').waitFor()
+
   const html = await page.evaluate(() => window.renderMarkdown([
     '```mermaid\nflowchart TD\n  A --> B\n```',
     '```sequence\nAlice->Bob: 你好\n```',

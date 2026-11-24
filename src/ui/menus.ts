@@ -284,14 +284,12 @@ export class MenuBar {
     }
 
     // view menu
-    const themeItems: MenuEntry[] = themes.length > 0
-      ? themes.map(theme => ({
-          kind: 'item' as const,
-          label: theme.name,
-          checked: theme.id === active,
-          onSelect: () => this.ctx.dispatch({ type: 'theme', id: theme.id }),
-        }))
-      : [{ kind: 'item', label: '默认纸墨样式', checked: true, disabled: true, onSelect: () => {} }]
+    const themeItems: MenuEntry[] = [{ id: 'default', name: '默认' }, ...themes].map(theme => ({
+      kind: 'item',
+      label: theme.name,
+      checked: theme.id === active,
+      onSelect: () => this.ctx.dispatch({ type: 'theme', id: theme.id }),
+    }))
 
     themeItems.push(
       { kind: 'separator' },
