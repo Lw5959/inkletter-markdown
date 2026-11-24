@@ -27,7 +27,7 @@ export const icons = {
   check: `<svg ${SVG_ATTR}><path d="m3.2 8.2 3.1 3.1 6.5-6.5"/></svg>`,
   copy: `<svg ${SVG_ATTR}><rect x="5.5" y="5.5" width="8" height="8" rx="1.3"/><path d="M3.5 10.5H3a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v.5"/></svg>`,
   settings: `<svg ${SVG_ATTR}><circle cx="8" cy="8" r="2.2"/><path d="M8 2.2v1.5M8 12.3v1.5M2.2 8h1.5M12.3 8h1.5M3.9 3.9l1.1 1.1M11 11l1.1 1.1M12.1 3.9 11 5M5 11l-1.1 1.1"/></svg>`,
-  send: `<svg ${SVG_ATTR}><path d="M13.5 2.5 7 9M13.5 2.5l-4 11-2.5-4.5L2.5 6.5l11-4z"/></svg>`,
+  arrowUp: `<svg ${SVG_ATTR}><path d="M8 12.5v-9m-3.5 3.5L8 3.5l3.5 3.5"/></svg>`,
   stop: `<svg ${SVG_ATTR}><rect x="4" y="4" width="8" height="8" rx="1.2" fill="currentColor" stroke="none"/></svg>`,
   refresh: `<svg ${SVG_ATTR}><path d="M13 8a5 5 0 1 1-1.3-3.4M13 2.8v2.7h-2.7"/></svg>`,
   lock: `<svg ${SVG_ATTR}><rect x="3.5" y="7" width="9" height="6.5" rx="1.3"/><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7"/></svg>`,

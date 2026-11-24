@@ -276,7 +276,9 @@ async function verifyFull(ports: Ports, scenario: Case) {
     scope.dispatchEvent(new Event('change'))
     await until(() => ports.writing.view.context?.text === selected)
     check(panel.querySelector('.yy-context-fulltext')?.textContent === selected, '发送前可预览完整选区')
-    panel.querySelector<HTMLSelectElement>('[aria-label="写作操作"]')!.value = 'rewrite'
+    const task = panel.querySelector<HTMLSelectElement>('[aria-label="写作操作"]')!
+    task.value = 'rewrite'
+    task.dispatchEvent(new Event('change'))
     panel.querySelector<HTMLFormElement>('.yy-ai-composer')!.requestSubmit()
     await until(() => !ports.writing.view.pending, 60_000)
     const proposal = ports.writing.pending

@@ -322,6 +322,16 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     const fullContextText = '第一行上下文\n' + '超长全文预览内容不会被截断。'.repeat(12)
     await page.click('[data-toggle="ai"]')
 
+    const composer = page.getByLabel('AI 指令输入')
+    const send = page.getByRole('button', { name: '发送', exact: true })
+    const singleLine = (await composer.boundingBox())!.height
+    expect(await send.isEnabled()).toBe(false)
+    await composer.fill('第一行\n第二行\n第三行\n第四行')
+    expect((await composer.boundingBox())!.height).toBeGreaterThan(singleLine + 32)
+    expect(await send.isEnabled()).toBe(true)
+    await composer.fill('')
+    expect((await composer.boundingBox())!.height).toBe(singleLine)
+
     const modelDialog = page.getByRole('dialog', { name: '模型配置' })
     await page.getByRole('button', { name: '模型配置', exact: true }).click()
     expect(await modelDialog.getByLabel('API 协议').locator('option').count()).toBe(3)

@@ -57,10 +57,10 @@ export class AiPanel {
   })
   private promptInput = el('textarea', {
     className: 'yy-ai-input',
-    attrs: { rows: '3', placeholder: aiTasks.chat.placeholder, 'aria-label': 'AI 指令输入' },
+    attrs: { rows: '1', placeholder: aiTasks.chat.placeholder, 'aria-label': 'AI 指令输入' },
   })
-  private taskSelect = el('select', { className: 'yy-ai-select', attrs: { 'aria-label': '写作操作' } })
-  private sendButton = iconButton('发送', icons.send, 'yy-ai-send yy-btn-primary', 'submit')
+  private taskSelect = el('select', { attrs: { 'aria-label': '写作操作' } })
+  private sendButton = iconButton('发送', icons.arrowUp, 'yy-ai-send', 'submit')
   private cancelButton = iconButton('取消生成', icons.stop, 'yy-ai-send')
 
   constructor(private options: AiPanelOptions) {
@@ -109,14 +109,18 @@ export class AiPanel {
     const form = el('form', { className: 'yy-ai-composer' })
     const inputBox = el('div', { className: 'yy-ai-input-box' })
     const bar = el('div', { className: 'yy-composer-bar' })
-    const tools = el('div', { className: 'yy-ai-toolbar-group' })
+    const tools = el('div', { className: 'yy-ai-composer-tools' })
     for (const id of aiIntents) {
       this.taskSelect.append(el('option', { text: aiTasks[id].label, attrs: { value: id } }))
     }
+    const taskLabel = el('span', { text: aiTasks.chat.label })
     this.taskSelect.addEventListener('change', () => {
-      this.promptInput.placeholder = aiTasks[this.intent].placeholder
+      const task = aiTasks[this.intent]
+      taskLabel.textContent = task.label
+      this.promptInput.placeholder = task.placeholder
+      this.updateDraft()
     })
-    const scope = el('select', { className: 'yy-ai-select yy-ai-scope', attrs: { 'aria-label': '添加上下文' } })
+    const scope = el('select', { attrs: { 'aria-label': '添加上下文' } })
     scope.append(el('option', { text: '添加上下文', attrs: { value: '', disabled: '', selected: '' } }))
     for (const [value, label] of Object.entries(scopes)) {
       scope.append(el('option', { text: label, attrs: { value } }))
@@ -128,11 +132,16 @@ export class AiPanel {
       await this.request({ type: 'ai-context', scope: selected })
       scope.disabled = false
     })
-    tools.append(this.taskSelect, scope)
+    tools.append(
+      composerPicker(this.taskSelect, taskLabel, icons.chevronDown),
+      composerPicker(scope, el('span', { text: '上下文' }), icons.plus, true),
+    )
+    this.sendButton.setAttribute('aria-keyshortcuts', 'Meta+Enter Control+Enter')
     this.cancelButton.addEventListener('click', () => { void this.request({ type: 'ai-cancel' }) })
     bar.append(tools, this.sendButton, this.cancelButton)
     inputBox.append(this.promptInput, bar)
 
+    this.promptInput.addEventListener('input', () => this.updateDraft())
     this.promptInput.addEventListener('keydown', event => {
       if (event.isComposing || event.keyCode === 229) return
       if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
@@ -144,6 +153,7 @@ export class AiPanel {
       event.preventDefault()
       void this.submitPrompt()
     })
+    this.updateDraft()
     form.append(this.errorBanner, this.contextHost, inputBox)
     return form
   }
@@ -169,7 +179,16 @@ export class AiPanel {
 
   private clearDraft(draft: string) {
     if (this.promptInput.value === draft) this.promptInput.value = ''
+    this.updateDraft()
     this.contextDetails.open = false
+  }
+
+  private updateDraft() {
+    // 重算高度时先清除旧高度，删除多行文字后也能收回一行。
+    this.promptInput.style.height = 'auto'
+    const { scrollHeight, clientHeight } = this.promptInput
+    if (scrollHeight > clientHeight) this.promptInput.style.height = scrollHeight + 'px'
+    this.sendButton.disabled = this.intent === 'chat' && !this.promptInput.value.trim()
   }
 
   private async request(action: ShellAction) {
@@ -374,4 +393,12 @@ function iconButton(label: string, html: string, className = '', type = 'button'
     title: label,
     attrs: { 'aria-label': label },
   })
+}
+
+function composerPicker(select: HTMLSelectElement, label: HTMLElement, icon: string, iconFirst = false) {
+  const picker = el('div', { className: 'yy-composer-picker' })
+  const glyph = el('span', { className: 'yy-icon', html: icon, attrs: { 'aria-hidden': 'true' } })
+  label.setAttribute('aria-hidden', 'true')
+  picker.append(...(iconFirst ? [glyph, label] : [label, glyph]), select)
+  return picker
 }

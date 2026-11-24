@@ -3,7 +3,7 @@ import type { AiIntent, AiPrompts } from './contracts'
 export const aiTasks: Record<AiIntent, { label: string; placeholder: string; prompt: string; replaces?: true }> = {
   chat: {
     label: '对话',
-    placeholder: '问一个问题，或交代写作需求…',
+    placeholder: '随时提问，或写下你的想法…',
     prompt: '直接回答用户的问题。结合已提供的材料，区分可确认的信息与推断。需要展开时，用清楚的 Markdown 段落或列表组织内容。',
   },
   outline: {
