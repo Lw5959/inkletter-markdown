@@ -29,6 +29,7 @@ export interface Editor {
   redo(): void
   destroy(): void
 }
+export type Appearance = 'light' | 'dark'
 export type Theme = { id: string; name: string; styles: string[] }
 export type WorkspaceEntry = { path: string; name: string; children?: WorkspaceEntry[] }
 export type SearchResult = { path: string; name: string; line: number; preview: string }
@@ -90,7 +91,10 @@ export type ShellState = {
   workspace: string | null; autosave: boolean; presentation: Presentation
   workspaceFilter?: { hidden: boolean; all: boolean; glob: string }
 }
-export type ShellActions = { dispatch: (action: ShellAction) => void | Promise<void> }
+export type ShellActions = {
+  dispatch: (action: ShellAction) => void | Promise<void>
+  onWindowAppearance?: (appearance: Appearance | null) => void
+}
 export interface Shell {
   editorHost: HTMLElement
   setState(state: ShellState): void
@@ -98,6 +102,7 @@ export interface Shell {
   setWorkspace(entries: WorkspaceEntry[]): void
   setSearchResults(results: SearchResult[]): void
   setThemes(themes: Theme[], active: string): void
+  getAppearance(): Appearance
   setAI(view: AiView): void
   setMcp(view: McpView): void
   destroy(): void

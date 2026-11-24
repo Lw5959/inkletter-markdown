@@ -1,4 +1,4 @@
-import type { ExportFormat, RenderOptions, Theme } from './contracts'
+import type { Appearance, ExportFormat, RenderOptions, Theme } from './contracts'
 import { renderMarkdown } from './editor'
 import { invoke } from './native'
 import baseStyles from './editor/document.css?raw'
@@ -26,7 +26,7 @@ function escaped(value: string) {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
-export async function exportHtml(markdown: string, title: string, options: RenderOptions, theme: Theme | undefined, plain: boolean) {
+export async function exportHtml(markdown: string, title: string, options: RenderOptions, theme: Theme | undefined, plain: boolean, appearance: Appearance) {
   const content = await renderMarkdown(markdown, options)
   const css = plain ? '' : '<style>' + safeStyle(documentStyles + (theme?.styles ?? []).join('\n')) + '</style>'
   return `<!doctype html>
@@ -34,15 +34,15 @@ export async function exportHtml(markdown: string, title: string, options: Rende
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:">
 <title>${escaped(title)}</title>${css}</head>
-<body><main class="document-theme typora-export" data-theme="${theme ? 'imported' : 'default'}"><article id="write">${content}</article></main></body></html>`
+<body><main class="document-theme typora-export" data-appearance="${appearance}"><article id="write">${content}</article></main></body></html>`
 }
 
-export async function print(markdown: string, options: RenderOptions, theme: Theme | undefined) {
+export async function print(markdown: string, options: RenderOptions, theme: Theme | undefined, appearance: Appearance) {
   document.getElementById('page-print')?.remove()
   const stage = document.createElement('div')
   stage.id = 'page-print'
   stage.className = 'document-theme typora-export'
-  stage.dataset.theme = theme ? 'imported' : 'default'
+  stage.dataset.appearance = appearance
   const style = document.createElement('style')
   style.textContent = '@media print {\n' + documentStyles + (theme?.styles ?? []).join('\n') + '\n}'
   const body = document.createElement('article')

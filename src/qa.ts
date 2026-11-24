@@ -2,6 +2,7 @@ import type { Editor, ExportFormat, ShellAction, ShellState, WorkspaceEntry } fr
 import type { Writing } from './ai'
 import type { Protocol } from './mcp'
 import { invoke, native, reason } from './native'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { imageLinks } from './images'
 
 type Case = {
@@ -183,6 +184,9 @@ async function verifyFull(ports: Ports, scenario: Case) {
     const heading = document.querySelector<HTMLElement>('#write h1')
     themes.push({
       name: theme.name, paper: paper.backgroundColor, color: write.color, font: write.fontFamily,
+      appearance: document.documentElement.dataset.yeyuAppearance,
+      nativeTheme: await getCurrentWindow().theme().catch(() => null),
+      sidebar: getComputedStyle(document.querySelector('.yy-left-panel')!).backgroundColor,
       embeddedBackground: paper.backgroundImage.includes('data:image/png;base64,'),
       backgroundRepeat: paper.backgroundRepeat,
       heading: heading ? getComputedStyle(heading).color : null,

@@ -49,7 +49,9 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       const { createEditor } = await import('/src/editor/index.ts')
       const root = document.getElementById('app')
       const actions = []
+      const nativeThemes = []
       const shell = mountShell(root, {
+        onWindowAppearance(theme) { nativeThemes.push(theme) },
         dispatch(action) {
           actions.push(action)
         },
@@ -59,7 +61,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
         onSelectionChange() {},
       })
       editor.setMarkdown('# 页屿测试文档\\n\\n第一段正文。\\n\\n## 二级标题\\n\\n第二段正文。\\n')
-      window.__test = { shell, editor, actions }
+      window.__test = { shell, editor, actions, nativeThemes }
     })()`)
   }
 
@@ -71,10 +73,26 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     ], 'dark'))
     const paper = page.locator('.document-theme')
     expect(await paper.evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(24, 26, 32)')
+    expect(await page.locator('html').getAttribute('data-yeyu-appearance')).toBe('dark')
+    await page.locator('[data-toggle="ai"]').click()
+    const chrome = await page.locator('.yy-shell').evaluate(element => {
+      const fields = ['.yy-topbar', '.yy-left-panel', '.yy-right-panel', '.yy-statusbar']
+      return fields.map(selector => {
+        const style = getComputedStyle(element.querySelector(selector)!)
+        return [style.backgroundColor, style.colorScheme]
+      })
+    })
+    for (const [background, scheme] of chrome) {
+      expect(background).not.toContain('255, 255, 255')
+      expect(scheme).toBe('dark')
+    }
     await page.locator('[data-toggle="theme-popover"]').click()
     await page.getByRole('menuitemradio', { name: '默认', exact: true }).click()
     expect(await page.evaluate(() => (window as unknown as Record<string, any>).__test.actions.at(-1))).toEqual({ type: 'theme', id: 'default' })
     await page.evaluate(() => (window as unknown as Record<string, any>).__test.shell.setThemes([], 'default'))
+    expect(await page.evaluate(() => (window as unknown as Record<string, any>).__test.nativeThemes)).toEqual(['dark', null])
+    expect(await page.locator('html').getAttribute('data-yeyu-appearance')).toBe('light')
+    expect(await page.locator('.yy-left-panel').evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(255, 255, 255)')
     expect(await paper.evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(255, 255, 255)')
     expect(await paper.evaluate(element => getComputedStyle(element).color)).toBe('rgb(34, 34, 34)')
     const editorFont = paper.locator('.cm-scroller')
@@ -83,6 +101,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     expect(await editorFont.evaluate(element => getComputedStyle(element).fontFamily)).toContain('monospace')
     expect(await page.locator('.yy-seg-tab.is-active').first().evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(237, 237, 237)')
     await page.emulateMedia({ colorScheme: 'dark' })
+    await expect.poll(() => page.locator('html').getAttribute('data-yeyu-appearance')).toBe('dark')
     expect(await paper.evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(32, 32, 32)')
     await page.emulateMedia({ colorScheme: 'light' })
   })

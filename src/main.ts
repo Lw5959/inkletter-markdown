@@ -58,7 +58,12 @@ const state: ShellState = {
   words: 0, characters: 0, line: 1, column: 1, workspace: null, autosave: defaults.autosave,
   presentation: { focus: false, typewriter: false, spellcheck: true },
 }
-const shell = mountShell(document.querySelector<HTMLElement>('#app')!, { dispatch: act })
+const shell = mountShell(document.querySelector<HTMLElement>('#app')!, {
+  dispatch: act,
+  onWindowAppearance: appearance => {
+    void getCurrentWindow().setTheme(appearance).catch(error => console.error('窗口外观切换失败', error))
+  },
+})
 const writing = new Writing(view => shell.setAI(view))
 const protocol = new Protocol(view => shell.setMcp(view))
 const stats = new Worker(new URL('./stats.worker.ts', import.meta.url), { type: 'module' })
@@ -469,7 +474,7 @@ async function exportTo(path: string, format: ExportFormat) {
   const content = text()
   if (visual.has(format)) {
     const active = themes.find(theme => theme.id === settings.theme)
-    const html = await exportHtml(content, state.title, { resolveImage: url => resolveImage(source, url, false) }, active, format === 'plain-html')
+    const html = await exportHtml(content, state.title, { resolveImage: url => resolveImage(source, url, false) }, active, format === 'plain-html', shell.getAppearance())
     await invoke('export_document', { path, html, format })
   } else await invoke('pandoc_export', { path, text: content, format, source })
   lastExport = format
@@ -539,7 +544,7 @@ async function dispatch(action: ShellAction) {
       editor.focus()
       update('')
       break
-    case 'print': await print(text(), { resolveImage: renderedImage }, themes.find(theme => theme.id === settings.theme)); break
+    case 'print': await print(text(), { resolveImage: renderedImage }, themes.find(theme => theme.id === settings.theme), shell.getAppearance()); break
     case 'export': await performExport(action.format); break
     case 'export-again':
       if (lastExport) await performExport(lastExport)

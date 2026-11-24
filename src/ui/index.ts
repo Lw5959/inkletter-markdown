@@ -13,6 +13,7 @@ import type {
   WorkspaceEntry,
 } from '../contracts'
 import { AiPanel } from './ai-panel'
+import { createAppearance } from './appearance'
 import { ModalManager } from './dialogs'
 import { FindBar } from './find-bar'
 import { el, isEditableFormElement } from './helpers'
@@ -685,6 +686,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
 
   syncLayout()
   applyState(state)
+  const appearance = createAppearance(paperEl, actions.onWindowAppearance)
 
   return {
     editorHost,
@@ -712,10 +714,13 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
       const current = themes.find(theme => theme.id === active)
       themeStyle.textContent = current ? current.styles.join('\n') : ''
       paperEl.dataset.theme = current?.id ?? 'default'
+      appearance.select(current)
       themeBtnLabel.textContent = current?.name ?? '主题'
       themeBtn.title = '当前主题：' + (current?.name ?? '默认')
       if (themePopoverOpen) renderThemePopover()
     },
+
+    getAppearance: appearance.get,
 
     setAI(view: AiView) {
       const prevId = aiSuggestionId
@@ -741,6 +746,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
       if (noticeTimer) clearTimeout(noticeTimer)
       window.removeEventListener('keydown', onWindowKeyDown)
       document.removeEventListener('mousedown', onDocMouseDown)
+      appearance.destroy()
       menuBar.destroy()
       leftPanel.destroy()
       modals.destroy()

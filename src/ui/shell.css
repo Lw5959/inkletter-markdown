@@ -1,7 +1,7 @@
 /* 界面颜色与文档排版分离。导入主题只作用于文档区域。 */
 
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
   --yy-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei UI", sans-serif;
   --yy-font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
 
@@ -39,24 +39,32 @@
   --yy-radius-lg: 12px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --yy-canvas: #232323;
-    --yy-chrome-bg: #262626;
-    --yy-chrome-elevated: #2d2d2d;
-    --yy-chrome-subtle: #373737;
-    --yy-ink: #e6e6e6;
-    --yy-ink-muted: #b0b0b0;
-    --yy-ink-faint: #9e9e9e;
-    --yy-accent: #dedede;
-    --yy-on-accent: #202020;
-    --yy-accent-hover: #f2f2f2;
-    --yy-accent-soft: #383838;
-    --yy-accent-border: #575757;
-    --yy-border: #363636;
-    --yy-border-strong: #4d4d4d;
-  }
+:root[data-yeyu-appearance="dark"] {
+  color-scheme: dark;
+  --yy-canvas: color-mix(in srgb, var(--yy-theme-surface, #232323) 82%, #161616);
+  --yy-chrome-bg: color-mix(in srgb, var(--yy-theme-surface, #262626) 90%, #242424);
+  --yy-chrome-elevated: color-mix(in srgb, var(--yy-chrome-bg) 94%, #fff);
+  --yy-chrome-subtle: color-mix(in srgb, var(--yy-chrome-bg) 90%, #fff);
+  --yy-ink: #e6e6e6;
+  --yy-ink-muted: #bcbcbc;
+  --yy-ink-faint: #a8a8a8;
+  --yy-accent: #dedede;
+  --yy-on-accent: #202020;
+  --yy-accent-hover: #f2f2f2;
+  --yy-accent-soft: color-mix(in srgb, var(--yy-chrome-bg) 85%, #fff);
+  --yy-accent-border: color-mix(in srgb, var(--yy-chrome-bg) 77%, #fff);
+  --yy-border: color-mix(in srgb, var(--yy-chrome-bg) 89%, #fff);
+  --yy-border-strong: color-mix(in srgb, var(--yy-chrome-bg) 80%, #fff);
+  --yy-mcp-ink: #d7d7d7;
+  --yy-mcp-bg: var(--yy-chrome-subtle);
+  --yy-success: #9bd0b2;
+  --yy-success-bg: #263b2e;
+  --yy-danger: #f1a09a;
+  --yy-danger-bg: #492d2c;
+  --yy-warn-ink: #f0c992;
+  --yy-warn-bg: #433724;
 }
+
 
 html,
 body {
@@ -1329,13 +1337,13 @@ body {
 }
 
 .yy-shell .yy-diff-add {
-  background: #e2f2e9;
-  color: #144d37;
+  background: var(--yy-success-bg);
+  color: var(--yy-success);
 }
 
 .yy-shell .yy-diff-remove {
-  background: #fbe6e4;
-  color: #8f2922;
+  background: var(--yy-danger-bg);
+  color: var(--yy-danger);
 }
 
 .yy-shell .yy-diff-actions {
@@ -1522,7 +1530,7 @@ body {
 
 .yy-shell .yy-approval-card {
   border-color: #d6b472;
-  background: #fffdf7;
+  background: var(--yy-warn-bg);
 }
 
 .yy-shell .yy-approval-head {
