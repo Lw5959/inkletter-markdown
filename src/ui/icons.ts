@@ -1,0 +1,36 @@
+const SVG_ATTR = 'viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"'
+
+export const icons = {
+  brand: `<svg viewBox="0 0 20 20" width="18" height="18" fill="none" aria-hidden="true">
+    <rect x="1.5" y="1.5" width="17" height="17" rx="4.5" fill="currentColor"/>
+    <path d="M5.5 4.5h6.2l2.8 2.8v8.2h-9v-11z" fill="#f7f4ea"/>
+    <path d="M7.4 8.2h3.8M7.4 10.6h5.2M7.4 13h3.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+  </svg>`,
+  sidebar: `<svg ${SVG_ATTR}><rect x="2" y="2.5" width="12" height="11" rx="1.8"/><path d="M6 2.5v11"/></svg>`,
+  folder: `<svg ${SVG_ATTR}><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3H6l1.4 1.6h5.1A1.5 1.5 0 0 1 14 6.1v5.4a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5v-7z"/></svg>`,
+  folderOpen: `<svg ${SVG_ATTR}><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3H6l1.4 1.6h4.6a1.5 1.5 0 0 1 1.5 1.5v.9H4.1L2.4 12A1.5 1.5 0 0 1 2 11V4.5z"/><path d="M2.4 12.2 4 7h10l-1.5 5.2a1 1 0 0 1-1 .8H3.3a.9.9 0 0 1-.9-.8z"/></svg>`,
+  file: `<svg ${SVG_ATTR}><path d="M4 2.5h5.5L12.5 5.5v8a1 1 0 0 1-1 1h-7.5a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1z"/><path d="M9.5 2.5v3h3"/></svg>`,
+  filePlus: `<svg ${SVG_ATTR}><path d="M4 2.5h5l3 3v8a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1z"/><path d="M7.5 8v3.5M5.75 9.75h3.5"/></svg>`,
+  folderPlus: `<svg ${SVG_ATTR}><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3H6l1.4 1.6h5.1A1.5 1.5 0 0 1 14 6.1v5.4a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5v-7z"/><path d="M8 7.4v3.4M6.3 9.1h3.4"/></svg>`,
+  outline: `<svg ${SVG_ATTR}><path d="M3 4h10M5.5 8h7.5M5.5 12h6M3 8h.01M3 12h.01"/></svg>`,
+  search: `<svg ${SVG_ATTR}><circle cx="7" cy="7" r="4.3"/><path d="m10.4 10.4 3.1 3.1"/></svg>`,
+  sparkles: `<svg ${SVG_ATTR}><path d="M8 2.2 9.4 6l3.8 1.4-3.8 1.4L8 12.6 6.6 8.8 2.8 7.4 6.6 6 8 2.2z"/><path d="M12.6 2.5v2M11.6 3.5h2"/></svg>`,
+  plug: `<svg ${SVG_ATTR}><path d="M6 2.5v3M10 2.5v3M4.2 5.5h7.6v2.2a3.8 3.8 0 0 1-7.6 0V5.5zM8 11.5v2.5"/></svg>`,
+  palette: `<svg ${SVG_ATTR}><path d="M8 2.2a5.8 5.8 0 1 0 0 11.6c1 0 1.4-.6 1.4-1.2 0-.6-.4-1-.4-1.4 0-.6.5-1 1.1-1h1.3a2.4 2.4 0 0 0 2.4-2.4A5.7 5.7 0 0 0 8 2.2z"/><circle cx="5.4" cy="7" r=".6" fill="currentColor"/><circle cx="7.4" cy="5.2" r=".6" fill="currentColor"/><circle cx="10.2" cy="5.7" r=".6" fill="currentColor"/></svg>`,
+  keyboard: `<svg ${SVG_ATTR}><rect x="1.8" y="3.8" width="12.4" height="8.4" rx="1.6"/><path d="M4.2 6.5h1M7 6.5h1M9.8 6.5h2M4.2 9.4h7.6"/></svg>`,
+  chevronRight: `<svg ${SVG_ATTR}><path d="m6 4 4 4-4 4"/></svg>`,
+  chevronDown: `<svg ${SVG_ATTR}><path d="m4 6 4 4 4-4"/></svg>`,
+  chevronUp: `<svg ${SVG_ATTR}><path d="m4 10 4-4 4 4"/></svg>`,
+  close: `<svg ${SVG_ATTR}><path d="m4 4 8 8M12 4l-8 8"/></svg>`,
+  edit: `<svg ${SVG_ATTR}><path d="M10.8 2.8 13.2 5.2 6 12.4 3 13l.6-3 7.2-7.2z"/></svg>`,
+  trash: `<svg ${SVG_ATTR}><path d="M3 4.5h10M6 4.5V3h4v1.5M4.5 4.5l.6 8.3a1 1 0 0 0 1 .9h3.8a1 1 0 0 0 1-.9l.6-8.3"/></svg>`,
+  check: `<svg ${SVG_ATTR}><path d="m3.2 8.2 3.1 3.1 6.5-6.5"/></svg>`,
+  copy: `<svg ${SVG_ATTR}><rect x="5.5" y="5.5" width="8" height="8" rx="1.3"/><path d="M3.5 10.5H3a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v.5"/></svg>`,
+  settings: `<svg ${SVG_ATTR}><circle cx="8" cy="8" r="2.2"/><path d="M8 2.2v1.5M8 12.3v1.5M2.2 8h1.5M12.3 8h1.5M3.9 3.9l1.1 1.1M11 11l1.1 1.1M12.1 3.9 11 5M5 11l-1.1 1.1"/></svg>`,
+  send: `<svg ${SVG_ATTR}><path d="M13.5 2.5 7 9M13.5 2.5l-4 11-2.5-4.5L2.5 6.5l11-4z"/></svg>`,
+  stop: `<svg ${SVG_ATTR}><rect x="4" y="4" width="8" height="8" rx="1.2" fill="currentColor" stroke="none"/></svg>`,
+  refresh: `<svg ${SVG_ATTR}><path d="M13 8a5 5 0 1 1-1.3-3.4M13 2.8v2.7h-2.7"/></svg>`,
+  lock: `<svg ${SVG_ATTR}><rect x="3.5" y="7" width="9" height="6.5" rx="1.3"/><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7"/></svg>`,
+  plus: `<svg ${SVG_ATTR}><path d="M8 3.2v9.6M3.2 8h9.6"/></svg>`,
+  shield: `<svg ${SVG_ATTR}><path d="M8 2.2 13 4.3v3.5c0 3.1-2.1 5.2-5 6-2.9-.8-5-2.9-5-6V4.3L8 2.2z"/></svg>`,
+} as const
