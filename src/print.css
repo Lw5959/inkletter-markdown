@@ -1,0 +1,5 @@
+#page-print { display: none; }
+@media print {
+  body:has(> #page-print) #app { display: none !important; }
+  body > #page-print { display: block !important; overflow: visible; }
+}

@@ -1,0 +1,8 @@
+.app-dialog { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1f3029; background: #fffefa; border: 1px solid #cfd9d1; border-radius: 12px; width: min(480px, calc(100vw - 36px)); padding: 24px; box-shadow: 0 20px 50px #162d2328; }
+.app-dialog::backdrop { background: #152c2460; }
+.app-dialog h2 { font-size: 18px; margin: 0 0 8px; }
+.app-dialog p { margin: 0 0 16px; white-space: pre-wrap; }
+.app-dialog input { width: 100%; height: 34px; border: 1px solid #b9c9bf; border-radius: 6px; padding: 0 8px; margin-bottom: 16px; }
+.app-dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.app-dialog-actions button { border: 1px solid #cfd9d1; border-radius: 6px; background: #fffefa; padding: 6px 12px; }
+.app-dialog-actions .app-dialog-primary { background: #24634e; color: white; border-color: #24634e; }

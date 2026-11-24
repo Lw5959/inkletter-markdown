@@ -1,111 +1,95 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use serde::Serialize;
-use std::{fs, io::Write, path::{Path, PathBuf}, sync::Mutex};
+mod ai;
+mod assets;
+mod export;
+mod files;
+mod mcp;
+mod settings;
+mod store;
+mod themes;
+mod workspace;
 
-#[derive(Serialize)]
-struct FileSnapshot {
-    path: PathBuf,
-    name: String,
-    text: String,
-    bom: bool,
-    version: String,
-}
+use std::{path::PathBuf, time::Duration};
+use tauri::{Manager, WebviewWindow};
+use tauri_plugin_opener::OpenerExt;
 
-fn version(bytes: &[u8]) -> String {
-    blake3::hash(bytes).to_hex().to_string()
-}
-
-fn snapshot(path: PathBuf, bytes: Vec<u8>) -> Result<FileSnapshot, String> {
-    let bom = bytes.starts_with(&[0xef, 0xbb, 0xbf]);
-    let file_version = version(&bytes);
-    let text = String::from_utf8(bytes[if bom { 3 } else { 0 }..].to_vec())
-        .map_err(|_| "文档不是 UTF-8 编码".to_owned())?;
-    let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
-    Ok(FileSnapshot { path, name, text, bom, version: file_version })
-}
-
-fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let parent = path.parent().ok_or_else(|| std::io::Error::other("缺少父目录"))?;
-    let mut out = tempfile::NamedTempFile::new_in(parent)?;
-    out.write_all(bytes)?;
-    if let Ok(metadata) = fs::metadata(path) {
-        out.as_file().set_permissions(metadata.permissions())?;
-    }
-    out.as_file().sync_all()?;
-    out.persist(path)?;
-    #[cfg(unix)]
-    fs::File::open(parent)?.sync_all()?;
-    Ok(())
+#[tauri::command]
+fn print_document(window: WebviewWindow) -> Result<(), String> {
+    window.print().map_err(store::err)
 }
 
 #[tauri::command]
-fn open_document(path: PathBuf) -> Result<FileSnapshot, String> {
-    let resolved = path.canonicalize().map_err(|error| error.to_string())?;
-    let bytes = fs::read(&resolved).map_err(|error| error.to_string())?;
-    snapshot(resolved, bytes)
-}
-
-#[tauri::command]
-fn save_document(path: PathBuf, text: String, bom: bool, expected: Option<String>, saves: tauri::State<Mutex<()>>) -> Result<FileSnapshot, String> {
-    let _save = saves.lock().map_err(|error| error.to_string())?;
-    let path = if path.exists() {
-        path.canonicalize().map_err(|error| error.to_string())?
-    } else {
-        path
-    };
-    let current = match fs::read(&path) {
-        Ok(bytes) => Some(bytes),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-        Err(error) => return Err(error.to_string()),
-    };
-    if current.as_deref().map(version) != expected {
-        return Err("磁盘上的文档已变化，请重新打开或另存为".to_owned());
+fn visit_link(url: String, app: tauri::AppHandle) -> Result<(), String> {
+    let parsed = reqwest::Url::parse(&url).map_err(store::err)?;
+    if !matches!(parsed.scheme(), "http" | "https" | "mailto") {
+        return Err("不支持此链接协议".into());
     }
-    let mut bytes = Vec::with_capacity(text.len() + 3);
-    if bom {
-        bytes.extend_from_slice(&[0xef, 0xbb, 0xbf]);
-    }
-    bytes.extend_from_slice(text.as_bytes());
-    // 原封不动的保存不重写文件，保留文件时间戳及额外元数据。
-    if current.as_ref() != Some(&bytes) {
-        atomic_write(&path, &bytes).map_err(|error| error.to_string())?;
-    }
-    snapshot(path, bytes)
-}
-
-#[derive(Serialize)]
-struct Theme {
-    id: String,
-    name: String,
-    styles: Vec<String>,
-}
-
-#[tauri::command]
-fn import_theme(path: PathBuf) -> Result<Theme, String> {
-    let name = path.file_stem().unwrap_or_default().to_string_lossy().into_owned();
-    let parent = path.parent().ok_or_else(|| "主题缺少父目录".to_owned())?;
-    let mut styles = vec![fs::read_to_string(&path).map_err(|error| error.to_string())?];
-    for custom in [parent.join("base.user.css"), parent.join(format!("{name}.user.css"))] {
-        match fs::read_to_string(custom) {
-            Ok(css) => styles.push(css),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error.to_string()),
-        }
-    }
-    Ok(Theme { id: name.clone(), name, styles })
-}
-
-#[tauri::command]
-fn write_export(path: PathBuf, html: String) -> Result<(), String> {
-    atomic_write(&path, html.as_bytes()).map_err(|error| error.to_string())
+    app.opener().open_url(&url, None::<&str>).map_err(store::err)
 }
 
 fn main() {
-    tauri::Builder::default()
-        .manage(Mutex::new(()))
+    let mut arguments = std::env::args_os().skip(1).peekable();
+    if arguments.peek().is_some_and(|arg| arg == "--mcp") {
+        arguments.next();
+        let mut root = None;
+        let mut data = None;
+        while let Some(flag) = arguments.next() {
+            match flag.to_str() {
+                Some("--workspace") => root = arguments.next().map(PathBuf::from),
+                Some("--state-dir") => data = arguments.next().map(PathBuf::from),
+                _ => break,
+            }
+        }
+        let result = match (root, data) {
+            (Some(root), Some(data)) => tauri::async_runtime::block_on(mcp::serve(root, data)),
+            _ => Err("用法：yeyu --mcp --workspace <目录> --state-dir <应用数据目录>".into()),
+        };
+        if let Err(error) = result {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
+    let launch = settings::LaunchPaths::default();
+    if let Ok(mut pending) = launch.0.lock() {
+        pending.extend(arguments.map(PathBuf::from).filter(|path| path.is_file() && workspace::markdown(path)));
+    }
+    let app = tauri::Builder::default()
+        .manage(files::SaveLock::default())
+        .manage(themes::ThemeImports::default())
+        .manage(ai::Jobs::default())
+        .manage(mcp::Sessions::default())
+        .manage(launch)
+        .manage(reqwest::Client::builder().connect_timeout(Duration::from_secs(12))
+            .redirect(reqwest::redirect::Policy::none()).build().expect("HTTP 客户端初始化失败"))
+        .setup(|app| {
+            app.manage(store::Store(app.path().app_data_dir()?));
+            Ok(())
+        })
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![open_document, save_document, import_theme, write_export])
-        .run(tauri::generate_context!())
+        .plugin(tauri_plugin_opener::init())
+        .invoke_handler(tauri::generate_handler![
+            files::open_document, files::document_version, files::save_document, files::load_recovery, files::save_recovery,
+            settings::settings_load, settings::settings_save, settings::launch_paths,
+            workspace::workspace_tree, workspace::workspace_search, workspace::workspace_create, workspace::workspace_rename, workspace::workspace_trash,
+            themes::theme_begin, themes::theme_read, themes::theme_finish, themes::theme_abort, themes::theme_list,
+            assets::image_data, assets::image_insert, assets::image_copy, assets::image_remove, assets::image_upload,
+            export::export_document, export::pandoc_import, export::pandoc_export, print_document, visit_link,
+            ai::ai_settings, ai::ai_config, ai::ai_stream, ai::ai_cancel,
+            mcp::mcp_connect, mcp::mcp_disconnect, mcp::mcp_connected, mcp::mcp_call, mcp::mcp_local,
+            mcp::mcp_selection, mcp::mcp_proposals, mcp::mcp_resolve,
+        ])
+        .build(tauri::generate_context!())
         .expect("无法启动页屿");
+
+    app.run(|_app, _event| {
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Opened { urls } = _event {
+            if let Ok(mut pending) = _app.state::<settings::LaunchPaths>().0.lock() {
+                pending.extend(urls.into_iter().filter_map(|url| url.to_file_path().ok()).filter(|path| workspace::markdown(path)));
+            }
+        }
+    });
 }
