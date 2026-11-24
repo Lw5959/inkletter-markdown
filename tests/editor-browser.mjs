@@ -108,6 +108,7 @@ try {
   assert.equal(await page.locator('#write h1').evaluate(heading => getComputedStyle(heading).color), 'rgb(32, 82, 72)')
   await page.locator('#write input[type=checkbox]').click()
   assert.match(await page.evaluate(() => window.editor.getMarkdown()), /- \[x\] 任务/)
+  assert.equal(await page.locator('#write input[checked]').count(), 1)
   await page.locator('[data-markdown-url]').dispatchEvent('click', { ctrlKey: true })
   assert.deepEqual(await page.evaluate(() => window.links), ['https://example.org'])
   await page.locator('.live-toc a').click()

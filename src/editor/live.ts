@@ -66,6 +66,9 @@ class TaskCheckbox extends WidgetType {
   toDOM(view: EditorView) {
     const input = view.dom.ownerDocument.createElement('input')
     input.type = 'checkbox'
+    input.className = 'task-list-item-checkbox'
+    // Typora 主题会用 [checked] 选择器绘制勾号，DOM 属性和状态需要同步。
+    input.toggleAttribute('checked', this.checked)
     input.checked = this.checked
     input.disabled = this.readonly
     input.setAttribute('aria-label', '任务完成状态')
