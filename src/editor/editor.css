@@ -1,10 +1,10 @@
 /* CodeMirror 的源文本和实时视图沿用文档基础排版，滚动由外层文档容器处理。 */
-:where(.document-theme #write) .cm-editor.cm-focused { outline: none; }
-:where(.document-theme #write) .cm-editor { height: auto; }
-:where(.document-theme #write) .cm-scroller { overflow: visible; font: inherit; }
-:where(.document-theme #write[data-mode="source"]) .cm-scroller { font: 13.5px/1.68 var(--doc-mono); }
-:where(.document-theme #write) .cm-content { caret-color: currentColor; min-width: 0; padding-block: 0; }
-:where(.document-theme #write) .cm-line { padding-inline: 0; }
+.document-theme #write .cm-editor.cm-focused { outline: none; }
+.document-theme #write .cm-editor { height: auto; }
+.document-theme #write .cm-scroller { overflow: visible; font: inherit; }
+.document-theme #write[data-mode="source"] .cm-scroller { font: 13.5px/1.68 var(--doc-mono); }
+.document-theme #write .cm-content { caret-color: currentColor; min-width: 0; padding-block: 0; }
+.document-theme #write .cm-line { padding-inline: 0; }
 :where(.document-theme #write) .cm-line.live-empty { min-height: .9em; font-size: .68em; line-height: .9; }
 :where(.document-theme #write) :where(.cm-line) :where(h1, h2, h3, h4, h5, h6) { display: inline; margin: 0; }
 :where(.document-theme #write) :where(.live-bullet) { display: inline-block; color: var(--doc-muted); }
