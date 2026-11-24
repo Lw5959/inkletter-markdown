@@ -1,0 +1,10 @@
+#write { width: min(100%, 840px); margin: 0 auto; padding: 48px 48px 70px; min-height: 100%; box-sizing: border-box; }
+#write .cm-editor { height: 100%; }
+#write .cm-editor.cm-focused { outline: none; }
+#write .cm-scroller { font-family: inherit; font-size: 17px; line-height: 1.7; }
+#write[data-mode="source"] .cm-scroller { font: 14px/1.65 ui-monospace, monospace; }
+#write .cm-content { caret-color: currentColor; }
+#write .live-h1, #write .live-h2, #write .live-h3, #write .live-h4, #write .live-h5, #write .live-h6 { font-weight: 680; }
+#write .live-h1 { font-size: 2em; }
+#write .live-h2 { font-size: 1.55em; }
+#write .live-h3 { font-size: 1.25em; }
