@@ -53,7 +53,8 @@ class Bullet extends WidgetType {
   toDOM(view: EditorView) {
     const bullet = view.dom.ownerDocument.createElement('span')
     bullet.className = 'live-bullet'
-    bullet.textContent = '•'
+    bullet.setAttribute('aria-hidden', 'true')
+    bullet.innerHTML = '<svg viewBox="0 0 10 12" width=".65em" height=".8em"><circle cx="5" cy="6" r="2.3" fill="currentColor"/></svg>'
     return bullet
   }
 }

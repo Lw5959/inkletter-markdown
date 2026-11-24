@@ -1,6 +1,6 @@
 import type { PluginInfo, ShellAction, ShellActions } from '../contracts'
 import type { ModalManager } from './dialogs'
-import { el } from './helpers'
+import { el, selectWithIcon } from './helpers'
 import { icons } from './icons'
 
 export class PluginManager {
@@ -32,7 +32,7 @@ export class PluginManager {
       el('option', { text: '当前选区', attrs: { value: 'selection' } }),
       el('option', { text: '当前全文', attrs: { value: 'document' } }),
     )
-    toolbar.append(scope, install)
+    toolbar.append(selectWithIcon(scope), install)
     const error = el('p', { className: 'yy-plugin-error', attrs: { role: 'alert', hidden: '' } })
     const list = el('div', { className: 'yy-plugin-list' })
     // 只有点击命令时才传入选择的文本，插件结果沿用编辑器的差异审阅。

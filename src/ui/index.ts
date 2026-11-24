@@ -235,7 +235,9 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
     attrs: { 'aria-label': '当前文档，点击快速打开文件' },
   })
   const titleTextEl = el('span', { className: 'yy-doc-title-text', text: state.title })
-  const dirtyDotEl = el('span', { className: 'yy-dirty-dot', title: '有未保存的更改', attrs: { hidden: '' } })
+  const dirtyDotEl = el('span', {
+    className: 'yy-dirty-dot', html: icons.dot, title: '有未保存的更改', attrs: { hidden: '' },
+  })
   const readonlyBadgeEl = el('span', {
     className: 'yy-badge is-readonly',
     text: '只读',
@@ -349,7 +351,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
     title: '打开 / 关闭 AI 写作助手',
     attrs: { 'aria-pressed': 'false', 'data-toggle': 'ai' },
   })
-  const aiBadgeEl = el('span', { className: 'yy-pill-dot', attrs: { hidden: '' } })
+  const aiBadgeEl = el('span', { className: 'yy-pill-dot', html: icons.dot, attrs: { hidden: '' } })
   aiToggleBtn.append(el('span', { className: 'yy-icon', html: icons.sparkles }), el('span', { text: 'AI' }), aiBadgeEl)
   aiToggleBtn.addEventListener('click', () => toggleRightPanel('ai'))
 

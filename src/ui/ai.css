@@ -215,13 +215,33 @@
 }
 
 .yy-shell .yy-ai-context summary {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   padding-block: 5px;
   color: var(--yy-ink);
   font-size: 12px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.yy-shell .yy-ai-context summary::-webkit-details-marker {
+  display: none;
+}
+
+.yy-shell .yy-ai-context summary > span:last-child {
   text-overflow: ellipsis;
   white-space: nowrap;
   overflow: hidden;
-  cursor: pointer;
+}
+
+.yy-shell .yy-ai-context-arrow svg {
+  width: 12px;
+  height: 12px;
+}
+
+.yy-shell .yy-ai-context details[open] .yy-ai-context-arrow svg {
+  transform: rotate(90deg);
 }
 
 .yy-shell .yy-context-fulltext {

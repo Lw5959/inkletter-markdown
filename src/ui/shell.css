@@ -228,8 +228,7 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 .yy-shell .yy-dirty-dot {
   width: 7px;
   height: 7px;
-  border-radius: 50%;
-  background: var(--yy-ink-muted);
+  color: var(--yy-ink-muted);
   flex-shrink: 0;
 }
 
@@ -543,6 +542,31 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
   outline-offset: 1px;
 }
 
+.yy-shell .yy-select-field {
+  position: relative;
+  display: block;
+}
+
+.yy-shell .yy-select-field .yy-input {
+  appearance: none;
+  cursor: pointer;
+  padding-right: 27px;
+}
+
+.yy-shell .yy-select-field > .yy-icon {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--yy-ink-muted);
+}
+
+.yy-shell .yy-select-field svg {
+  width: 13px;
+  height: 13px;
+}
+
 .yy-shell .yy-badge {
   display: inline-flex;
   align-items: center;
@@ -586,8 +610,14 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 .yy-shell .yy-pill-dot {
   width: 6px;
   height: 6px;
-  border-radius: 50%;
-  background: var(--yy-accent);
+  color: var(--yy-accent);
+}
+
+.yy-shell .yy-dirty-dot svg,
+.yy-shell .yy-pill-dot svg {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .yy-shell .yy-count-badge {
@@ -717,13 +747,15 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 }
 
 .yy-shell .yy-toggle-chip {
-  padding: 3px 6px;
+  width: 25px;
+  height: 24px;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
   border: 1px solid var(--yy-border-strong);
   border-radius: 4px;
   background: var(--yy-chrome-elevated);
   color: var(--yy-ink-muted);
-  font-size: 11px;
-  font-family: var(--yy-font-mono);
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -1678,11 +1710,19 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 }
 
 .yy-shell .yy-quickopen-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 7px 12px;
   border-top: 1px solid var(--yy-border);
   background: var(--yy-chrome-bg);
   font-size: 11.5px;
   color: var(--yy-ink-muted);
+}
+
+.yy-shell .yy-quickopen-foot svg {
+  width: 12px;
+  height: 12px;
 }
 
 /* Shortcuts Dialog */

@@ -175,7 +175,7 @@ export class LeftPanel {
     this.searchRegexBtn = el('button', {
       className: 'yy-toggle-chip',
       type: 'button',
-      text: '.*',
+      html: icons.regex,
       title: '使用正则表达式',
       attrs: { 'aria-pressed': 'false', 'aria-label': '切换正则检索' },
     })

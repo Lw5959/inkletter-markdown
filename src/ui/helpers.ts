@@ -1,9 +1,16 @@
 import type { DiffPart, Suggestion, WorkspaceEntry } from '../contracts'
+import { icons } from './icons'
 
 export interface FlatFileEntry {
   path: string
   name: string
   relative: string
+}
+
+export function selectWithIcon(select: HTMLSelectElement) {
+  const field = el('span', { className: 'yy-select-field' })
+  field.append(select, el('span', { className: 'yy-icon', html: icons.chevronDown }))
+  return field
 }
 
 export function flattenWorkspaceFiles(entries: WorkspaceEntry[], workspaceRoot?: string | null): FlatFileEntry[] {

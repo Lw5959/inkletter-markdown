@@ -100,12 +100,13 @@ try {
     const theme = document.createElement('style')
     theme.textContent = '.document-theme #write h1 { color: rgb(32, 82, 72); }'
     document.head.append(theme)
-    window.editor.setMarkdown('# 标题\r\n\n- [ ] 任务\r\n\n[链接](https://example.org)\n\n[TOC]\n')
+    window.editor.setMarkdown('# 标题\r\n\n- [ ] 任务\r\n- 无序条目\r\n\n[链接](https://example.org)\n\n[TOC]\n')
     window.editor.setMode('live')
     const end = window.editor.getMarkdown().length
     window.editor.select({ anchor: end, head: end })
   })
   assert.equal(await page.locator('#write h1').evaluate(heading => getComputedStyle(heading).color), 'rgb(32, 82, 72)')
+  assert.equal(await page.locator('#write .live-bullet svg').count(), 1)
   await page.locator('#write input[type=checkbox]').click()
   assert.match(await page.evaluate(() => window.editor.getMarkdown()), /- \[x\] 任务/)
   assert.equal(await page.locator('#write input[checked]').count(), 1)

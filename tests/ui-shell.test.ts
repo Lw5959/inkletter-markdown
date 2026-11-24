@@ -258,6 +258,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     // Find & Replace via keyboard + Escape restores focus to editor
     const modKey = platform() === 'darwin' ? 'Meta' : 'Control'
     await page.keyboard.press(`${modKey}+h`)
+    expect(await page.locator('.yy-findbar .yy-toggle-chip svg').count()).toBe(3)
     await page.fill('.yy-find-input[aria-label="查找文本"]', '正文')
     await page.fill('.yy-find-input[aria-label="替换文本"]', '内容')
     await page.click('[aria-label="区分大小写"]')
@@ -334,6 +335,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
 
     const modelDialog = page.getByRole('dialog', { name: '模型配置' })
     await page.getByRole('button', { name: '模型配置', exact: true }).click()
+    expect(await modelDialog.locator('.yy-select-field svg').count()).toBe(1)
     expect(await modelDialog.getByLabel('API 协议').locator('option').count()).toBe(3)
     await modelDialog.getByLabel('API 协议').selectOption('responses')
     await modelDialog.locator('input[type="url"]').fill('https://api.example.com/v1')

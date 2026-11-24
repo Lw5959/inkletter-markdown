@@ -242,10 +242,12 @@ export class ModalManager {
       }
     })
 
-    const foot = el('div', {
-      className: 'yy-quickopen-foot',
-      text: '↑↓ 选择 · Enter 打开 · Esc 返回文档',
+    const foot = el('div', { className: 'yy-quickopen-foot' })
+    const arrows = el('span', {
+      className: 'yy-icon', html: icons.arrowUp + icons.arrowDown,
+      attrs: { role: 'img', 'aria-label': '方向键' },
     })
+    foot.append(arrows, document.createTextNode('选择 · Enter 打开 · Esc 返回文档'))
 
     dialog.append(searchWrap, list, foot)
     renderList()

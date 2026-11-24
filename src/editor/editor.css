@@ -8,6 +8,9 @@
 :where(.document-theme #write) .cm-line.live-empty { min-height: .9em; font-size: .68em; line-height: .9; }
 :where(.document-theme #write) :where(.cm-line) :where(h1, h2, h3, h4, h5, h6) { display: inline; margin: 0; }
 :where(.document-theme #write) :where(.live-bullet) { display: inline-block; color: var(--doc-muted); }
+:where(.document-theme #write) :where(.live-bullet svg) { display: block; }
+/* 为主题可能通过绝对定位绘制的勾号提供坐标系。 */
+:where(.document-theme #write) :where(.task-list-item-checkbox) { position: relative; }
 
 
 :where(.document-theme #write) :where(.live-strong) { font-weight: 700; }

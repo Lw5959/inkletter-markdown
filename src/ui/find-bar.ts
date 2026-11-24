@@ -48,15 +48,15 @@ export class FindBar {
       attrs: { placeholder: '查找内容…', 'aria-label': '查找文本' },
     })
 
-    this.caseBtn = this.makeToggle('Aa', '区分大小写', () => {
+    this.caseBtn = this.makeToggle(icons.matchCase, '区分大小写', () => {
       this.matchCase = !this.matchCase
       return this.matchCase
     })
-    this.wordBtn = this.makeToggle('W', '全词匹配', () => {
+    this.wordBtn = this.makeToggle(icons.wholeWord, '全词匹配', () => {
       this.wholeWord = !this.wholeWord
       return this.wholeWord
     })
-    this.regexBtn = this.makeToggle('.*', '正则表达式', () => {
+    this.regexBtn = this.makeToggle(icons.regex, '正则表达式', () => {
       this.regex = !this.regex
       return this.regex
     })
@@ -154,11 +154,11 @@ export class FindBar {
     this.element.append(topRow, this.replaceRow)
   }
 
-  private makeToggle(label: string, title: string, toggle: () => boolean): HTMLButtonElement {
+  private makeToggle(icon: string, title: string, toggle: () => boolean): HTMLButtonElement {
     const btn = el('button', {
       className: 'yy-toggle-chip',
       type: 'button',
-      text: label,
+      html: icon,
       title,
       attrs: { 'aria-pressed': 'false', 'aria-label': title },
     })

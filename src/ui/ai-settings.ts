@@ -1,7 +1,7 @@
 import { aiIntents, aiTasks, normalizePrompts } from '../ai-prompts'
 import type { AiIntent, AiPrompts, AiProtocol, AiSettings, ShellActions } from '../contracts'
 import type { ModalManager } from './dialogs'
-import { el } from './helpers'
+import { el, selectWithIcon } from './helpers'
 import { icons } from './icons'
 
 type Dispatch = ShellActions['dispatch']
@@ -53,7 +53,7 @@ export function openModelSettings(modals: ModalManager, settings: AiSettings, di
 
   const fields = el('div', { className: 'yy-ai-model-fields' })
   fields.append(
-    labelled('API 协议', protocol),
+    labelled('API 协议', selectWithIcon(protocol)),
     labelled('API 地址', endpoint, '远程服务使用 HTTPS。本机服务可使用 HTTP。'),
     labelled('模型名称', model),
     labelled('API 密钥（可选）', key, '密钥保存在系统凭据存储中。'),

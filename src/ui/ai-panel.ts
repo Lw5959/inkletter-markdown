@@ -52,6 +52,7 @@ export class AiPanel {
   private contextHost = el('div', { className: 'yy-ai-context', attrs: { hidden: '' } })
   private contextDetails = el('details')
   private contextSummary = el('summary')
+  private contextLabel = el('span')
   private contextPreview = el('pre', {
     className: 'yy-context-fulltext', attrs: { 'aria-label': '上下文全文预览', tabindex: '0' },
   })
@@ -93,6 +94,7 @@ export class AiPanel {
 
     const clearContext = iconButton('移除上下文', icons.close)
     clearContext.addEventListener('click', () => { void this.request({ type: 'ai-context-clear' }) })
+    this.contextSummary.append(el('span', { className: 'yy-ai-context-arrow yy-icon', html: icons.chevronRight }), this.contextLabel)
     this.contextDetails.append(this.contextSummary, this.contextPreview)
     this.contextHost.append(this.contextDetails, clearContext)
     this.element.append(header, this.conversation, this.buildComposer())
@@ -237,7 +239,7 @@ export class AiPanel {
       this.contextHost.hidden = !context
       this.contextDetails.open = !!context
       const scope = context ? scopes[context.scope] : ''
-      this.contextSummary.textContent = context && context.label !== scope ? scope + ' · ' + context.label : scope
+      this.contextLabel.textContent = context && context.label !== scope ? scope + ' · ' + context.label : scope
       this.contextPreview.textContent = context?.text ?? ''
     }
 
