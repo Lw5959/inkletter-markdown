@@ -49,8 +49,11 @@ const types = ['html', 'pdf', 'png', ...(process.env.YEYU_PANDOC ? ['docx'] : []
 const exports = Object.fromEntries(types.map(type => [type, join(folder, '实机文档.' + type)]))
 if (exports.docx) exports.imported = join(folder, '导回.md')
 const themes = process.env.YEYU_TEST_THEMES ? JSON.parse(process.env.YEYU_TEST_THEMES) : []
+const plugin = resolve('examples/plugins/trim-lines.yeyu-plugin.json')
+const updatedPlugin = join(folder, 'trim-lines-update.yeyu-plugin.json')
+writeFileSync(updatedPlugin, JSON.stringify({ ...JSON.parse(readFileSync(plugin, 'utf8')), version: '1.0.1' }))
 const setup = {
-  phase: kind, root, guide, mb1, mb10, exports,
+  phase: kind, root, guide, mb1, mb10, exports, plugin, updatedPlugin,
   themes: [...themes, { path: customTheme, name: '相对资源与级联夹具' }],
   model: process.env.YEYU_TEST_MODEL_URL ? { endpoint: process.env.YEYU_TEST_MODEL_URL, name: process.env.YEYU_TEST_MODEL ?? 'yeyu-qwen' } : undefined,
 }

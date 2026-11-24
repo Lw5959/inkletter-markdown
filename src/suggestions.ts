@@ -25,7 +25,7 @@ export function relocate(binding: Binding, doc: number, revision: number, markdo
   return { from, to: from + binding.text.length }
 }
 
-export function suggestion(source: 'ai' | 'mcp', title: string, target: Binding, response: string, mcpId?: string): PendingSuggestion {
+export function suggestion(source: Suggestion['source'], title: string, target: Binding, response: string, mcpId?: string): PendingSuggestion {
   // 用固定上限避免极端改写长文档时让差异计算阻塞界面。
   const diff = diffLines(target.text, response, { maxEditLength: 4_000, timeout: 80 })
   const changes = diff ?? [

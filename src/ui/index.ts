@@ -9,7 +9,9 @@ import type {
   ShellAction,
   ShellActions,
   ShellState,
+  Suggestion,
   Theme,
+  TitlebarView,
   WorkspaceEntry,
 } from '../contracts'
 import { AiPanel } from './ai-panel'
@@ -21,8 +23,10 @@ import { icons } from './icons'
 import { LeftPanel, type LeftTab } from './left-panel'
 import { McpPanel } from './mcp-panel'
 import { MenuBar } from './menus'
+import { PluginManager } from './plugins'
 import { ShortcutRegistry, detectMac, type ShortcutCommandId } from './shortcuts'
 import './shell.css'
+import './ai.css'
 
 type RightTab = 'ai' | 'mcp'
 
@@ -75,8 +79,9 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   let rightTab: RightTab = 'ai'
   let aiHasPending = false
   let aiSuggestionId: string | null = null
-  let aiSuggestionSource: 'ai' | 'mcp' | null = null
+  let aiSuggestionSource: Suggestion['source'] | null = null
   let aiSuggestionTitle = ''
+  let titlebar: TitlebarView | null = null
   let mcpProposals = 0
   let transientNotice = ''
   let noticeTimer: ReturnType<typeof setTimeout> | null = null
@@ -95,6 +100,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
     className: 'yy-shell',
     attrs: { 'data-mode': state.mode, 'data-focus': 'false', 'data-readonly': 'false' },
   })
+  if (actions.macTitlebar) shellEl.dataset.macTitlebar = 'true'
   root.replaceChildren(shellEl)
 
   // Document scroll container & editorHost (editor core sets editorHost.id = 'write')
@@ -138,6 +144,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   }
 
   const modals = new ModalManager(shellEl, focusEditor)
+  const plugins = new PluginManager(modals, actions.dispatch)
 
   const openQuickOpen = () => {
     modals.openQuickOpen({
@@ -206,6 +213,8 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
       leftPanel.focusSearch()
     },
     onOpenShortcuts: openShortcuts,
+    onOpenPlugins: () => plugins.open(),
+    getTitlebar: () => titlebar,
     onToggleLeftSidebar: toggleLeftSidebar,
     onToggleRightPanel: toggleRightPanel,
     isLeftOpen: () => leftOpen,
@@ -215,6 +224,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
 
   // Topbar
   const topbar = el('header', { className: 'yy-topbar yy-chrome' })
+  if (actions.macTitlebar) topbar.setAttribute('data-tauri-drag-region', 'deep')
 
   const topLeft = el('div', { className: 'yy-topbar-left' })
   const topCenter = el('div', { className: 'yy-topbar-center' })
@@ -463,7 +473,8 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   rightHead.append(rightTabs, closeRightBtn)
 
   const aiPanel = new AiPanel({
-    dispatch,
+    dispatch: actions.dispatch,
+    modals,
     onSuggestionFocus: () => {
       syncSuggestionBanner()
     },
@@ -521,7 +532,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
     const showBanner = Boolean(aiSuggestionSource) && (!rightOpen || rightTab !== 'ai')
     suggestionBanner.toggleAttribute('hidden', !showBanner)
     if (showBanner) {
-      const prefix = aiSuggestionSource === 'mcp' ? '收到 MCP 差异建议' : 'AI 已生成差异建议'
+      const prefix = { ai: 'AI 已生成差异建议', mcp: '收到 MCP 差异建议', plugin: '插件已生成差异建议' }[aiSuggestionSource!]
       suggestionBannerText.textContent = aiSuggestionTitle ? `${prefix}：${aiSuggestionTitle}` : prefix
     }
   }
@@ -722,6 +733,11 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
 
     getAppearance: appearance.get,
 
+    setTitlebar(view) {
+      titlebar = view
+      document.documentElement.dataset.yeyuTitlebar = view.material
+    },
+
     setAI(view: AiView) {
       const prevId = aiSuggestionId
       aiHasPending = view.pending
@@ -729,12 +745,14 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
       aiSuggestionSource = view.suggestion?.source ?? null
       aiSuggestionTitle = view.suggestion?.title ?? ''
       aiPanel.setView(view)
-      if (view.suggestion && view.suggestion.id !== prevId && view.suggestion.source === 'mcp') {
+      if (view.suggestion && view.suggestion.id !== prevId && view.suggestion.source !== 'ai') {
         rightOpen = true
         rightTab = 'ai'
       }
       syncLayout()
     },
+
+    setPlugins: entries => plugins.setPlugins(entries),
 
     setMcp(view: McpView) {
       mcpProposals = view.proposals
@@ -750,6 +768,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
       menuBar.destroy()
       leftPanel.destroy()
       modals.destroy()
+      if (actions.macTitlebar) delete document.documentElement.dataset.yeyuTitlebar
       themeStyle.remove()
       root.replaceChildren()
     },

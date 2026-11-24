@@ -5,6 +5,7 @@ import type {
   ShellAction,
   ShellState,
   Theme,
+  TitlebarView,
 } from '../contracts'
 import { el } from './helpers'
 import { icons } from './icons'
@@ -62,6 +63,8 @@ export interface MenuBarContext {
   onOpenFind: (replace: boolean) => void
   onOpenWorkspaceSearch: () => void
   onOpenShortcuts: () => void
+  onOpenPlugins: () => void
+  getTitlebar: () => TitlebarView | null
   onToggleLeftSidebar: (tab?: 'files' | 'outline' | 'search') => void
   onToggleRightPanel: (tab?: 'ai' | 'mcp') => void
   isLeftOpen: () => boolean
@@ -232,6 +235,7 @@ export class MenuBar {
         { kind: 'item', label: '跨文件检索…', shortcutId: 'nav.searchWorkspace', onSelect: () => this.ctx.onOpenWorkspaceSearch() },
         { kind: 'separator' },
         { kind: 'item', label: '快捷键设置…', shortcutId: 'settings.shortcuts', onSelect: () => this.ctx.onOpenShortcuts() },
+        { kind: 'item', label: '插件管理…', onSelect: () => this.ctx.onOpenPlugins() },
       ]
     }
 
@@ -284,6 +288,7 @@ export class MenuBar {
     }
 
     // view menu
+    const titlebar = this.ctx.getTitlebar()
     const themeItems: MenuEntry[] = [{ id: 'default', name: '默认' }, ...themes].map(theme => ({
       kind: 'item',
       label: theme.name,
@@ -381,6 +386,13 @@ export class MenuBar {
         ],
       },
       { kind: 'item', label: '切换全屏', onSelect: () => this.ctx.dispatch({ type: 'window-view', operation: 'fullscreen' }) },
+      ...(titlebar ? [{
+        kind: 'submenu' as const, label: '标题栏材质',
+        items: [
+          { kind: 'item' as const, label: '毛玻璃', checked: titlebar.material === 'frosted', onSelect: () => this.ctx.dispatch({ type: 'titlebar-material', material: 'frosted' }) },
+          { kind: 'item' as const, label: '液态玻璃', checked: titlebar.material === 'liquid', disabled: !titlebar.liquidAvailable, onSelect: () => this.ctx.dispatch({ type: 'titlebar-material', material: 'liquid' }) },
+        ],
+      }] : []),
       { kind: 'submenu', label: '文档主题', items: themeItems },
       { kind: 'item', label: '导入主题 CSS…', onSelect: () => this.ctx.dispatch({ type: 'theme-import' }) },
     ]

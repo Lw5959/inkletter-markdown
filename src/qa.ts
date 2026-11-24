@@ -1,9 +1,10 @@
-import type { Editor, ExportFormat, ShellAction, ShellState, WorkspaceEntry } from './contracts'
+import type { AiProtocol, Editor, ExportFormat, PluginInfo, ShellAction, ShellState, WorkspaceEntry } from './contracts'
 import type { Writing } from './ai'
 import type { Protocol } from './mcp'
 import { invoke, native, reason } from './native'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { imageLinks } from './images'
+import { aiTasks } from './ai-prompts'
 
 type Case = {
   phase: 'full' | 'recover' | 'measure'
@@ -17,12 +18,15 @@ type Case = {
   recoveryText?: string
   model?: { endpoint: string; name: string }
   mcp: string
+  plugin: string
+  updatedPlugin: string
 }
 type Ports = {
   editor: Editor; state: ShellState; writing: Writing; protocol: Protocol;
   action: (action: ShellAction) => Promise<void>;
   openPath: (path: string, line?: number, checkUnsaved?: boolean) => Promise<boolean>;
   setWorkspace: (path: string | null) => Promise<void>; addTheme: (path: string) => Promise<void>;
+  installPlugin: (path: string) => Promise<PluginInfo[]>;
   exportTo: (path: string, format: ExportFormat) => Promise<void>;
   saveFile: () => Promise<boolean>; checkpoint: () => Promise<unknown>; text: () => string;
   monitor: () => Promise<void>; shareSelection: () => Promise<void>; setDocument: (value: null) => void;
@@ -32,6 +36,8 @@ const wait = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms
 const frame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
 const mark = (name: string, data: unknown) => invoke('qa_report', { name, data })
 const config = () => invoke<Case>('qa_config')
+const button = (scope: ParentNode, text: string) =>
+  [...scope.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent === text)!
 function check(value: unknown, name: string): asserts value {
   if (!value) throw new Error('验收失败：' + name)
 }
@@ -144,6 +150,30 @@ async function measure(ports: Ports, scenario: Case) {
 
 async function verifyFull(ports: Ports, scenario: Case) {
   const result: Record<string, unknown> = {}
+  if (document.querySelector('[data-mac-titlebar="true"]')) {
+    type NativeTitlebar = {
+      effects: string[]; overlay: boolean; hiddenTitle: boolean; transparent: boolean;
+      buttonCenters: number[]; targetCenter: number;
+    }
+    const titlebar = () => invoke<NativeTitlebar>('qa_titlebar')
+    const initial = await titlebar()
+    check(initial.overlay && initial.hiddenTitle && initial.transparent, 'macOS 使用透明的系统按钮叠加标题栏')
+    await ports.action({ type: 'titlebar-material', material: 'frosted' })
+    const frosted = await titlebar()
+    check(frosted.effects.length === 1 && frosted.effects[0] === 'NSVisualEffectView', 'AppKit 毛玻璃')
+    await ports.action({ type: 'titlebar-material', material: 'liquid' })
+    const liquid = await titlebar()
+    const hasLiquid = (view: NativeTitlebar) => view.effects.some(name => name.endsWith('NSGlassEffectView'))
+    const available = hasLiquid(initial)
+    check(hasLiquid(liquid) === available, 'AppKit 液态玻璃或旧系统回退')
+    for (const view of [frosted, liquid]) {
+      check(view.buttonCenters.length === 3 &&
+        view.buttonCenters.every(center => Math.abs(center - view.targetCenter) <= 1),
+      '红黄绿按钮垂直居中 ' + JSON.stringify(view.buttonCenters))
+    }
+    check(document.querySelector('.yy-topbar')?.getAttribute('data-tauri-drag-region') === 'deep', '标题栏支持拖动窗口')
+    result.titlebar = { frosted, liquid, available }
+  }
   await ports.action({ type: 'autosave', enabled: false })
   await ports.setWorkspace(scenario.root)
   await ports.openPath(scenario.guide, 1, false)
@@ -210,20 +240,114 @@ async function verifyFull(ports: Ports, scenario: Case) {
     check(body >= 0, 'AI 选区样本')
     const selected = 'The draft is wordy.'
     ports.editor.select({ anchor: body, head: body + selected.length })
-    await ports.action({ type: 'ai-config', endpoint: scenario.model.endpoint, model: scenario.model.name })
-    await ports.action({ type: 'ai-context', scope: 'selection' })
-    check(ports.writing.view.context?.text === selected, '发送前预览选区')
-    await ports.action({ type: 'ai-send', intent: 'rewrite', prompt: 'Rewrite the selected sentence in clear, concise English. Keep the meaning and output only the revised sentence.' })
+    document.querySelector<HTMLButtonElement>('[data-toggle="ai"]')!.click()
+    const panel = document.querySelector('.yy-ai-pane')!
+    button(panel, '模型配置').click()
+    const modelPage = document.querySelector<HTMLFormElement>('form[aria-label="模型配置"]')!
+    const endpoint = modelPage.querySelector<HTMLInputElement>('input[type="url"]')!
+    const model = modelPage.querySelector<HTMLInputElement>('input[type="text"]')!
+    model.value = scenario.model.name
+    endpoint.value = 'http://model.example.invalid/v1'
+    modelPage.requestSubmit()
+    await until(() => !modelPage.querySelector<HTMLElement>('[role="alert"]')!.hidden)
+    check(modelPage.isConnected && model.value === scenario.model.name, '模型配置失败后保留字段')
+    endpoint.value = scenario.model.endpoint
+    modelPage.requestSubmit()
+    await until(() => !modelPage.isConnected)
+    check(ports.writing.view.settings.model === scenario.model.name, '从页面保存真实模型配置')
+
+    const rewritePrompt = 'Replace the word "wordy" with "verbose" in the supplied sentence. Keep the rest and output only the changed sentence.'
+    const openPrompts = () => {
+      button(panel, '默认提示词').click()
+      const page = document.querySelector<HTMLFormElement>('form[aria-label="默认提示词"]')!
+      button(page, '改写').click()
+      return { page, input: page.querySelector('textarea')! }
+    }
+    const prompts = openPrompts()
+    check(prompts.input.value === aiTasks.rewrite.prompt, '显示内置改写提示词')
+    prompts.input.value = rewritePrompt
+    prompts.input.dispatchEvent(new Event('input'))
+    prompts.page.requestSubmit()
+    await until(() => !prompts.page.isConnected)
+    check((await native.preferences())?.aiPrompts?.rewrite === rewritePrompt, '提示词已写入本地设置')
+
+    const scope = panel.querySelector<HTMLSelectElement>('[aria-label="添加上下文"]')!
+    scope.value = 'selection'
+    scope.dispatchEvent(new Event('change'))
+    await until(() => ports.writing.view.context?.text === selected)
+    check(panel.querySelector('.yy-context-fulltext')?.textContent === selected, '发送前可预览完整选区')
+    panel.querySelector<HTMLSelectElement>('[aria-label="写作操作"]')!.value = 'rewrite'
+    panel.querySelector<HTMLFormElement>('.yy-ai-composer')!.requestSubmit()
+    await until(() => !ports.writing.view.pending, 60_000)
     const proposal = ports.writing.pending
     check(proposal && !ports.writing.view.error, '真实模型返回差异：' + ports.writing.view.error)
     check(ports.text() === original.text, '预览差异期间编辑缓冲区保持不变')
     await ports.action({ type: 'suggestion-apply', id: proposal.view.id, hunks: proposal.view.parts.flatMap(part => part.hunk === undefined ? [] : [part.hunk]) })
     check(ports.text() !== original.text, 'AI 建议已应用')
     const answer = ports.writing.view.messages.at(-1)?.text
+    check(answer?.toLowerCase().includes('verbose'), '生成使用已保存的改写提示词')
     await ports.action({ type: 'undo' })
     check(ports.text() === original.text, 'AI 应用可撤销')
-    result.ai = { answer, hunks: proposal.view.hunks, undo: true }
+    const saved = openPrompts()
+    check(saved.input.value === rewritePrompt, '重新打开提示词页面保留已保存内容')
+    button(saved.page, '恢复默认').click()
+    check(saved.input.value === aiTasks.rewrite.prompt, '恢复内置提示词')
+    saved.page.requestSubmit()
+    await until(() => !saved.page.isConnected)
+    check(!(await native.preferences())?.aiPrompts?.rewrite, '恢复默认后清除本地覆盖')
+    const protocols: AiProtocol[] = ['chat']
+    for (const protocol of ['anthropic', 'responses'] as const) {
+      await ports.action({ type: 'ai-clear' })
+      await ports.action({ type: 'ai-context-clear' })
+      button(panel, '模型配置').click()
+      const settingsPage = document.querySelector<HTMLFormElement>('form[aria-label="模型配置"]')!
+      const picker = settingsPage.querySelector('select')!
+      picker.value = protocol
+      picker.dispatchEvent(new Event('change'))
+      settingsPage.requestSubmit()
+      await until(() => !settingsPage.isConnected)
+      check(ports.writing.view.settings.protocol === protocol, '保存协议 ' + protocol)
+      await ports.action({ type: 'ai-send', intent: 'chat', prompt: 'Answer in just one short sentence. What is Markdown?' })
+      check(!ports.writing.view.error && ports.writing.view.messages.at(-1)?.role === 'assistant',
+        '协议流式输出 ' + protocol + ' ' + ports.writing.view.error)
+      protocols.push(protocol)
+    }
+    result.ai = { answer, hunks: proposal.view.hunks, undo: true, modelPage: true, promptSettings: true, protocols }
   }
+
+  const pluginText = '\n\n插件首行  \r\n下一行\t\r末尾  '
+  const documentEnd = ports.text().length
+  ports.editor.replace(documentEnd, documentEnd, pluginText)
+  ports.editor.select({ anchor: documentEnd, head: documentEnd + pluginText.length })
+  const [installed] = await ports.installPlugin(scenario.plugin)
+  check(installed && !installed.enabled, '新安装的插件等待启用')
+  const openPlugins = () => {
+    document.querySelector<HTMLButtonElement>('[data-menu="edit"]')!.click()
+    button(document.querySelector('.yy-menu-popover')!, '插件管理…').click()
+    return document.querySelector<HTMLElement>('[aria-label="插件管理"]')!
+  }
+  let pluginPage = openPlugins()
+  button(pluginPage, '启用').click()
+  await until(() => !!button(pluginPage, '清理行尾空白'))
+  const [updated] = await ports.installPlugin(scenario.updatedPlugin)
+  check(updated.enabled && updated.version === '1.0.1', '运行时替换插件，保留启用状态')
+  button(pluginPage, '清理行尾空白').click()
+  await until(() => ports.writing.pending?.view.source === 'plugin')
+  check(ports.text().endsWith(pluginText), '插件建议等待审阅')
+  document.querySelector<HTMLButtonElement>('[data-suggestion-action="apply-all"]')!.click()
+  await until(() => ports.text().endsWith('插件首行\r\n下一行\r末尾'))
+  ports.editor.undo()
+  check(ports.text().endsWith(pluginText), '插件修改可以撤销')
+  ports.editor.undo()
+  check(ports.text() === original.text, '撤销后回到插件验收前')
+  pluginPage = openPlugins()
+  button(pluginPage, '停用').click()
+  await until(() => !button(pluginPage, '清理行尾空白'))
+  button(pluginPage, '卸载').click()
+  await until(() => pluginPage.textContent?.includes('暂无已安装插件') === true)
+  check((await invoke<PluginInfo[]>('plugin_list')).length === 0, '卸载后清除插件登记')
+  pluginPage.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click()
+  result.plugins = { install: true, hotUpdate: true, reviewAndUndo: true, disableAndRemove: true }
 
   await ports.action({ type: 'mcp-authorize', allow: true })
   ports.editor.select({ anchor: offset, head: offset + 4 })

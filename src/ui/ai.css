@@ -1,0 +1,335 @@
+/* 写作栏和设置页沿用窗口外观，以同一套黑、白、灰层次区分控件。 */
+.yy-shell .yy-ai-toolbar,
+.yy-shell .yy-composer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.yy-shell .yy-ai-toolbar {
+  min-height: 42px;
+  padding: 6px 12px;
+}
+
+.yy-shell .yy-ai-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.yy-shell .yy-ai-toolbar .yy-btn {
+  min-height: 27px;
+  color: var(--yy-ink-muted);
+}
+
+.yy-shell .yy-ai-conversation {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 16px 12px;
+  overflow-wrap: anywhere;
+}
+
+.yy-shell .yy-ai-empty {
+  margin: auto;
+  padding: 16px 0 42px;
+  max-width: 100%;
+  text-align: center;
+}
+
+.yy-shell .yy-ai-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 13px;
+  background: var(--yy-chrome-subtle);
+  color: var(--yy-ink);
+}
+
+.yy-shell .yy-ai-mark svg {
+  width: 21px;
+  height: 21px;
+}
+
+.yy-shell .yy-ai-empty h2 {
+  margin: 12px 0 5px;
+  color: var(--yy-ink);
+  font-size: 17px;
+  font-weight: 630;
+}
+
+.yy-shell .yy-ai-empty p {
+  margin: 0;
+  color: var(--yy-ink-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.yy-shell .yy-ai-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.yy-shell .yy-msg-user {
+  align-self: flex-end;
+  max-width: 90%;
+  padding: 9px 12px;
+  border-radius: 12px 12px 4px 12px;
+  background: var(--yy-chrome-subtle);
+}
+
+.yy-shell .yy-ai-conversation > .yy-msg-assistant {
+  margin-top: 18px;
+}
+
+.yy-shell .yy-msg-role {
+  margin-bottom: 3px;
+  font-size: 11.5px;
+  font-weight: 580;
+  color: var(--yy-ink-muted);
+}
+
+.yy-shell .yy-msg-body {
+  color: var(--yy-ink);
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.yy-shell .yy-ai-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 12px 12px;
+}
+
+.yy-shell .yy-ai-input-box {
+  padding: 7px;
+  border: 1px solid var(--yy-border-strong);
+  border-radius: 12px;
+  background: var(--yy-chrome-elevated);
+}
+
+.yy-shell .yy-ai-input-box:focus-within {
+  border-color: var(--yy-ink-faint);
+}
+
+.yy-shell .yy-ai-input {
+  display: block;
+  width: 100%;
+  padding: 4px 5px 6px;
+  border: 0;
+  background: transparent;
+  color: var(--yy-ink);
+  font-size: 13px;
+  line-height: 1.5;
+  resize: none;
+  outline: none;
+}
+
+.yy-shell .yy-ai-input::placeholder {
+  color: var(--yy-ink-faint);
+}
+
+.yy-shell .yy-ai-select {
+  max-width: 100%;
+  min-height: 28px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--yy-chrome-elevated);
+  color: var(--yy-ink);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.yy-shell .yy-ai-scope {
+  color: var(--yy-ink-muted);
+}
+
+.yy-shell .yy-ai-send {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--yy-accent);
+  color: var(--yy-on-accent);
+}
+
+.yy-shell .yy-ai-send:hover:not(:disabled) {
+  background: var(--yy-accent-hover);
+  color: var(--yy-on-accent);
+}
+
+.yy-shell .yy-ai-context {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 4px;
+  padding: 3px 5px 3px 9px;
+  border: 1px solid var(--yy-border);
+  border-radius: 8px;
+  background: var(--yy-chrome-subtle);
+}
+
+.yy-shell .yy-ai-context summary {
+  padding-block: 5px;
+  color: var(--yy-ink);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.yy-shell .yy-context-fulltext {
+  max-height: min(130px, 22vh);
+  margin: 0 0 3px;
+  padding: 4px 0;
+  overflow: auto;
+  color: var(--yy-ink);
+  font-size: 11.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.yy-shell .yy-ai-error,
+.yy-shell .yy-ai-setting-error {
+  margin: 0;
+  padding: 7px 9px;
+  border-radius: 5px;
+  background: var(--yy-danger-bg);
+  color: var(--yy-danger);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.yy-shell .yy-ai-settings {
+  width: min(510px, 100%);
+}
+
+.yy-shell .yy-ai-settings:has(.yy-ai-prompt-settings) {
+  width: min(660px, 100%);
+}
+
+.yy-shell .yy-ai-settings-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 20px 24px 15px;
+}
+
+.yy-shell .yy-ai-settings-head h2 {
+  margin: 0 0 5px;
+  color: var(--yy-ink);
+  font-size: 19px;
+  font-weight: 640;
+}
+
+.yy-shell .yy-ai-settings-head p {
+  margin: 0;
+  color: var(--yy-ink-muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.yy-shell .yy-ai-settings-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 3px 24px 14px;
+  border: 0;
+  overflow: auto;
+}
+
+.yy-shell .yy-ai-model-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+
+.yy-shell .yy-ai-settings .yy-field-label {
+  color: var(--yy-ink);
+  font-size: 13px;
+  font-weight: 570;
+}
+
+.yy-shell .yy-ai-settings .yy-input,
+.yy-shell .yy-ai-settings .yy-textarea {
+  padding: 8px 9px;
+  background: var(--yy-chrome-bg);
+  font-size: 13px;
+}
+
+.yy-shell .yy-ai-setting-help,
+.yy-shell .yy-ai-delete-key {
+  color: var(--yy-ink-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.yy-shell .yy-ai-delete-key {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.yy-shell .yy-ai-prompt-settings {
+  display: grid;
+  grid-template-columns: minmax(86px, 122px) minmax(0, 1fr);
+  gap: 18px;
+}
+
+.yy-shell .yy-ai-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.yy-shell .yy-ai-task-choice {
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--yy-ink-muted);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.yy-shell .yy-ai-task-choice:hover,
+.yy-shell .yy-ai-task-choice[aria-pressed="true"] {
+  background: var(--yy-chrome-subtle);
+  color: var(--yy-ink);
+}
+
+.yy-shell .yy-ai-task-choice[aria-pressed="true"] {
+  font-weight: 620;
+}
+
+.yy-shell .yy-ai-template-editor > .yy-btn {
+  margin-top: 7px;
+}
+
+.yy-shell .yy-ai-settings .yy-ai-template {
+  min-height: 175px;
+  line-height: 1.7;
+}
+
+.yy-shell .yy-ai-setting-error {
+  margin: 0 24px 12px;
+}
+
+.yy-shell .yy-ai-settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 12px 24px;
+  border-top: 1px solid var(--yy-border);
+}

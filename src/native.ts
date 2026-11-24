@@ -1,12 +1,14 @@
 import { invoke, Channel } from '@tauri-apps/api/core'
 import { open, save, ask, message } from '@tauri-apps/plugin-dialog'
-import type { EditorMode, McpServer, Selection } from './contracts'
+import type { AiPrompts, EditorMode, McpServer, Selection, TitlebarMaterial } from './contracts'
 
 export type FileSnapshot = { path: string; text: string; bom: boolean; version: string; name: string }
 export type Recovery = Selection & { path: string | null; text: string; bom: boolean; title: string; baseVersion: string | null; mode: EditorMode }
 export type Preferences = {
   autosave: boolean; theme: string; workspace: string | null; mcp: McpServer[];
   hidden: boolean; allFiles: boolean; fileGlob: string; zoom: number; remoteImages: boolean; uploadEndpoint: string; recent: string[];
+  aiPrompts: AiPrompts;
+  titlebarMaterial: TitlebarMaterial;
 }
 export type McpProposal = { id: string; workspace: string; path: string; version: string; from: number; to: number; replacement: string; summary: string; created: number }
 export type LocalMcp = { allowed: boolean; command: string }

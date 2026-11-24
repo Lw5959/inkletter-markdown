@@ -1,9 +1,10 @@
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { dirname, join } from '@tauri-apps/api/path'
-import type { Editor, ExportFormat, ImageMode, OutlineEntry, ShellAction, ShellState, Theme, WorkspaceEntry } from './contracts'
+import type { Editor, ExportFormat, ImageMode, OutlineEntry, PluginInfo, ShellAction, ShellState, Theme, TitlebarMaterial, TitlebarView, WorkspaceEntry } from './contracts'
 import { createEditor, renderMarkdown } from './editor'
 import { mountShell } from './ui'
+import { detectMac } from './ui/shortcuts'
 import { ask, invoke, native, open, reason, save } from './native'
 import type { FileSnapshot, Preferences, Recovery } from './native'
 import { choose, readSetting } from './dialogs'
@@ -13,6 +14,7 @@ import { assetPath, imageLinks, insertImages, localImage, resolveImage } from '.
 import type { Relocated } from './images'
 import { importTheme } from './themes'
 import { Writing } from './ai'
+import { normalizePrompts } from './ai-prompts'
 import { Protocol } from './mcp'
 import { bind, chooseHunks, relocate, suggestion } from './suggestions'
 
@@ -21,6 +23,8 @@ const imageFilter = { name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 
 const defaults: Preferences = {
   autosave: true, theme: 'default', workspace: null, mcp: [],
   hidden: false, allFiles: false, fileGlob: '', zoom: 1, remoteImages: false, uploadEndpoint: '', recent: [],
+  aiPrompts: {},
+  titlebarMaterial: 'liquid',
 }
 
 let settings: Preferences = { ...defaults }
@@ -48,6 +52,7 @@ let checking = false
 let exits = false
 let outlineKey = ''
 let outline: OutlineEntry[] = []
+let plugins: PluginInfo[] = []
 let statsDoc = -1
 let statsBusy = false
 let statsPending = false
@@ -58,8 +63,10 @@ const state: ShellState = {
   words: 0, characters: 0, line: 1, column: 1, workspace: null, autosave: defaults.autosave,
   presentation: { focus: false, typewriter: false, spellcheck: true },
 }
+const macTitlebar = detectMac()
 const shell = mountShell(document.querySelector<HTMLElement>('#app')!, {
   dispatch: act,
+  macTitlebar,
   onWindowAppearance: appearance => {
     void getCurrentWindow().setTheme(appearance).catch(error => console.error('窗口外观切换失败', error))
   },
@@ -72,7 +79,7 @@ const editor: Editor = createEditor(shell.editorHost, {
   onSelectionChange: () => {
     if (!statsTimer && !switching) statsTimer = window.setTimeout(updateCounters, 280)
   },
-  onAssetPaste: file => act({ type: 'image-import', files: [file] }),
+  onAssetPaste: async file => { await act({ type: 'image-import', files: [file] }) },
   resolveImage: renderedImage,
   onOpenLink: url => { void visit(url).catch(error => update(reason(error))) },
 })
@@ -503,12 +510,30 @@ async function reviewMcp() {
 }
 
 async function act(action: ShellAction) {
-  if (!loaded) return
+  if (!loaded) return '正在载入应用，请稍后重试'
   try {
     await dispatch(action)
   } catch (error) {
-    update(reason(error))
+    const detail = reason(error)
+    update(detail)
+    return detail
   }
+}
+
+function setPlugins(entries: PluginInfo[]) {
+  plugins = entries
+  shell.setPlugins(entries)
+}
+
+async function installPlugin(path: string) {
+  const entries = await invoke<PluginInfo[]>('plugin_install', { path })
+  setPlugins(entries)
+  return entries
+}
+
+async function applyTitlebar(material: TitlebarMaterial) {
+  const view = await invoke<TitlebarView>('titlebar_apply', { material })
+  shell.setTitlebar(view)
 }
 
 async function dispatch(action: ShellAction) {
@@ -641,12 +666,20 @@ async function dispatch(action: ShellAction) {
         const delta = action.operation === 'zoom-in' ? 0.1 : -0.1
         const zoom = action.operation === 'zoom-default' ? 1 : Math.round(Math.max(0.6, Math.min(2.4, settings.zoom + delta)) * 10) / 10
         await getCurrentWebview().setZoom(zoom)
+        if (macTitlebar) document.documentElement.style.setProperty('--yy-titlebar-zoom', String(zoom))
         settings.zoom = zoom
         await persist()
         update('缩放 ' + Math.round(zoom * 100) + '%')
       }
       break
     }
+    case 'titlebar-material':
+      if (macTitlebar) {
+        await applyTitlebar(action.material)
+        settings.titlebarMaterial = action.material
+        await persist()
+      }
+      break
     case 'workspace-create': {
       const root = state.workspace
       if (!root) break
@@ -684,7 +717,20 @@ async function dispatch(action: ShellAction) {
     }
     case 'image-import': await addImages(action.files); break
     case 'images': await manageImages(action.mode); break
-    case 'ai-config': await writing.configure(action.endpoint, action.model, action.key); break
+    case 'ai-config': await writing.configure(action.endpoint, action.model, action.protocol, action.key); break
+    case 'ai-prompts': {
+      const previous = settings.aiPrompts
+      const next = normalizePrompts(action.prompts)
+      settings.aiPrompts = next
+      try {
+        await persist()
+      } catch (error) {
+        if (settings.aiPrompts === next) settings.aiPrompts = previous
+        throw error
+      }
+      writing.setPrompts(next)
+      break
+    }
     case 'ai-context': {
       if (action.scope !== 'files') {
         writing.preview(action.scope, editor, documentId, revision, state.title)
@@ -701,6 +747,33 @@ async function dispatch(action: ShellAction) {
     case 'ai-cancel': await writing.cancel(); break
     case 'ai-retry': await writing.retry(); break
     case 'ai-clear': writing.clear(); break
+    case 'plugin-install': {
+      const path = await open({ filters: [{ name: '页屿插件', extensions: ['json'] }] })
+      if (path) await installPlugin(path)
+      break
+    }
+    case 'plugin-enabled':
+      setPlugins(await invoke<PluginInfo[]>('plugin_set_enabled', { id: action.id, enabled: action.enabled }))
+      break
+    case 'plugin-remove':
+      setPlugins(await invoke<PluginInfo[]>('plugin_remove', { id: action.id }))
+      break
+    case 'plugin-run': {
+      if (state.presentation.readonly) throw new Error('请先关闭只读模式')
+      if (writing.pending || writing.view.pending) throw new Error('请先处理当前修改建议或等待生成结束')
+      const source = text()
+      const range = action.scope === 'selection' ? interval(editor.getSelection()) : { from: 0, to: source.length }
+      if (range.from === range.to) throw new Error('请先选中文字，或把处理范围切换为当前全文')
+      const title = plugins.find(item => item.id === action.id)?.commands.find(item => item.id === action.command)?.label
+      const target = bind(documentId, revision, source, range)
+      const replacement = await invoke<string>('plugin_run', { id: action.id, command: action.command, text: target.text })
+      if (writing.pending || writing.view.pending) throw new Error('请先处理当前修改建议，再运行插件')
+      if (!relocate(target, documentId, revision, text())) throw new Error('原文位置已变化，请重新运行插件')
+      const item = suggestion('plugin', title ?? '插件修改', target, replacement)
+      if (item.view.hunks) writing.review(item)
+      else update('插件处理结果与原文一致')
+      break
+    }
     case 'suggestion-apply': {
       if (state.presentation.readonly) throw new Error('请先关闭只读模式')
       const item = writing.pending
@@ -803,13 +876,19 @@ async function startup() {
       native.preferences(), invoke<Theme[]>('theme_list'), native.recover(),
     ])
     settings = { ...defaults, ...preferences }
+    settings.aiPrompts = normalizePrompts(settings.aiPrompts)
+    writing.setPrompts(settings.aiPrompts)
     themes = imported
     state.autosave = settings.autosave
     state.workspaceFilter = { hidden: settings.hidden, all: settings.allFiles, glob: settings.fileGlob }
-    if (settings.zoom !== 1) await getCurrentWebview().setZoom(settings.zoom)
+    if (settings.zoom !== 1) {
+      await getCurrentWebview().setZoom(settings.zoom)
+      if (macTitlebar) document.documentElement.style.setProperty('--yy-titlebar-zoom', String(settings.zoom))
+    }
     shell.setThemes(themes, settings.theme)
     protocol.configure(settings.mcp)
-    const startupTasks = [writing.load()]
+    const startupTasks = [writing.load(), invoke<PluginInfo[]>('plugin_list').then(setPlugins)]
+    if (macTitlebar) startupTasks.push(applyTitlebar(settings.titlebarMaterial === 'frosted' ? 'frosted' : 'liquid'))
     if (settings.workspace) {
       state.workspace = settings.workspace
       startupTasks.push(refreshTree(), protocol.workspace(state.workspace))
@@ -839,7 +918,7 @@ async function startup() {
   }
   if (__YEYU_QA__) {
     void import('./qa').then(({ runNativeQa }) => runNativeQa({
-      editor, state, action: dispatch, openPath, setWorkspace, addTheme, exportTo,
+      editor, state, action: dispatch, openPath, setWorkspace, addTheme, installPlugin, exportTo,
       saveFile, checkpoint, text, writing, protocol, monitor, shareSelection, setDocument,
     }))
   }

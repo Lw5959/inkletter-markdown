@@ -1,0 +1,17 @@
+{
+  "app": {
+    "windows": [{
+      "label": "main",
+      "title": "页屿",
+      "width": 1200,
+      "height": 800,
+      "minWidth": 640,
+      "minHeight": 480,
+      "dragDropEnabled": true,
+      "titleBarStyle": "Overlay",
+      "hiddenTitle": true,
+      "transparent": true,
+      "trafficLightPosition": { "x": 16, "y": 24 }
+    }]
+  }
+}

@@ -30,19 +30,23 @@ export interface Editor {
   destroy(): void
 }
 export type Appearance = 'light' | 'dark'
+export type TitlebarMaterial = 'frosted' | 'liquid'
+export type TitlebarView = { material: TitlebarMaterial; liquidAvailable: boolean }
 export type Theme = { id: string; name: string; styles: string[] }
 export type WorkspaceEntry = { path: string; name: string; children?: WorkspaceEntry[] }
 export type SearchResult = { path: string; name: string; line: number; preview: string }
 export type FindQuery = { text: string; replacement: string; regex: boolean; matchCase: boolean; wholeWord: boolean }
 export type AiIntent = 'chat' | 'outline' | 'draft' | 'continue' | 'rewrite' | 'polish' | 'summary' | 'translate' | 'proofread'
+export type AiPrompts = Partial<Record<AiIntent, string>>
 export type AiScope = 'selection' | 'paragraph' | 'document' | 'files'
-export type AiSettings = { endpoint: string; model: string; hasKey: boolean }
+export type AiProtocol = 'chat' | 'anthropic' | 'responses'
+export type AiSettings = { endpoint: string; model: string; protocol: AiProtocol; hasKey: boolean }
 export type AiContext = { scope: AiScope; label: string; text: string }
 export type AiMessage = { role: 'user' | 'assistant'; text: string }
 export type DiffPart = { kind: 'keep' | 'add' | 'remove'; text: string; hunk?: number }
-export type Suggestion = { id: string; title: string; parts: DiffPart[]; hunks: number; source: 'ai' | 'mcp' }
+export type Suggestion = { id: string; title: string; parts: DiffPart[]; hunks: number; source: 'ai' | 'mcp' | 'plugin' }
 export type AiView = {
-  settings: AiSettings; context: AiContext | null; messages: AiMessage[]; stream: string;
+  settings: AiSettings; prompts: AiPrompts; context: AiContext | null; messages: AiMessage[]; stream: string;
   pending: boolean; error: string; suggestion: Suggestion | null; canRetry: boolean
 }
 export type McpServer = { id: string; name: string; transport: 'stdio' | 'http'; command?: string; args?: string[]; url?: string }
@@ -54,6 +58,9 @@ export type McpView = {
 export type ExportFormat = 'html' | 'plain-html' | 'pdf' | 'png' | 'docx' | 'epub' | 'odt' | 'latex'
   | 'rtf' | 'rst' | 'textile' | 'opml' | 'revealjs' | 'json' | 'commonmark'
 export type ImageMode = 'copy' | 'move' | 'upload'
+export type PluginInfo = {
+  id: string; name: string; version: string; enabled: boolean; commands: { id: string; label: string }[]
+}
 export type ShellAction =
   | { type: 'new' | 'open' | 'open-folder' | 'save' | 'save-as' | 'reload' | 'print' | 'import' | 'theme-import' | 'undo' | 'redo' | 'export-again' | 'copy-markdown' | 'copy-html' | 'paste-plain' | 'reopen' }
   | { type: 'open-path'; path: string; line?: number }
@@ -67,18 +74,24 @@ export type ShellAction =
   | { type: 'find'; query: FindQuery; operation: 'next' | 'previous' | 'replace' | 'replace-all' }
   | { type: 'workspace-filter'; option: 'hidden' | 'all' | 'glob' }
   | { type: 'window-view'; operation: 'fullscreen' | 'zoom-in' | 'zoom-out' | 'zoom-default' }
+  | { type: 'titlebar-material'; material: TitlebarMaterial }
   | { type: 'workspace-create'; parent: string; name: string; folder: boolean }
   | { type: 'workspace-rename'; path: string; name: string }
   | { type: 'workspace-trash'; path: string }
   | { type: 'image-import'; files?: File[] }
   | { type: 'images'; mode: ImageMode }
-  | { type: 'ai-config'; endpoint: string; model: string; key?: string }
+  | { type: 'ai-config'; endpoint: string; model: string; protocol: AiProtocol; key?: string }
+  | { type: 'ai-prompts'; prompts: AiPrompts }
   | { type: 'ai-context'; scope: AiScope }
   | { type: 'ai-context-clear' }
   | { type: 'ai-send'; intent: AiIntent; prompt: string }
   | { type: 'ai-cancel' | 'ai-retry' | 'ai-clear' }
   | { type: 'suggestion-apply'; id: string; hunks: number[] }
   | { type: 'suggestion-dismiss'; id: string }
+  | { type: 'plugin-install' }
+  | { type: 'plugin-enabled'; id: string; enabled: boolean }
+  | { type: 'plugin-remove'; id: string }
+  | { type: 'plugin-run'; id: string; command: string; scope: 'selection' | 'document' }
   | { type: 'mcp-config'; server: McpServer }
   | { type: 'mcp-remove' | 'mcp-connect' | 'mcp-disconnect'; id: string }
   | { type: 'mcp-call'; id: string; item: McpItem; args: Record<string, unknown> }
@@ -92,8 +105,9 @@ export type ShellState = {
   workspaceFilter?: { hidden: boolean; all: boolean; glob: string }
 }
 export type ShellActions = {
-  dispatch: (action: ShellAction) => void | Promise<void>
+  dispatch: (action: ShellAction) => void | Promise<string | void>
   onWindowAppearance?: (appearance: Appearance | null) => void
+  macTitlebar?: boolean
 }
 export interface Shell {
   editorHost: HTMLElement
@@ -103,7 +117,9 @@ export interface Shell {
   setSearchResults(results: SearchResult[]): void
   setThemes(themes: Theme[], active: string): void
   getAppearance(): Appearance
+  setTitlebar(view: TitlebarView): void
   setAI(view: AiView): void
+  setPlugins(plugins: PluginInfo[]): void
   setMcp(view: McpView): void
   destroy(): void
 }

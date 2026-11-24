@@ -13,9 +13,17 @@ PDF 与 PNG 导出可用 `YEYU_CHROME` 指定浏览器可执行文件。如果�
 
 ## AI 写作
 
-在 AI 侧栏填写 OpenAI 兼容的地址和模型。地址可填 `https://服务地址/v1` 或本机回环 HTTP 地址，例如 `http://127.0.0.1:8080/v1`。API 密钥保存到系统的 Keychain、Credential Manager 或 Secret Service。
+在 AI 侧栏打开「模型配置」，选择 Chat Completions、Anthropic Messages 或 Responses，填写 API 地址和模型。支持远程 HTTPS 和本机回环 HTTP，例如 `http://127.0.0.1:8080/v1`。可以填 API 前缀或完整接口地址。API 密钥保存到系统的 Keychain、Credential Manager 或 Secret Service。
 
-改写前选择上下文并核对预览。结果生成后可选择应用整份建议或指定差异块，应用操作可以撤销。
+在「默认提示词」中可编辑九种操作的提示词，或恢复内置内容。改稿前从输入框旁添加上下文并核对全文预览。结果生成后可选择应用整份建议或指定差异块，应用操作可以撤销。
+
+## 插件
+
+在「编辑 → 插件管理」安装 `.yeyu-plugin.json` 包，启用后选择处理范围并运行命令。重装相同 ID 可更新插件，启用、停用、更新和卸载立即生效。示例插件可清理行尾空白，处理结果通过差异审阅应用。[插件包格式与示例](docs/plugins.md)
+
+## macOS 标题栏
+
+原生窗口按钮与页屿工具共用一行。在「视图 → 标题栏材质」切换毛玻璃和液态玻璃。液态玻璃需要 macOS 26 或更新，旧系统使用毛玻璃。Universal 安装包包含 Apple Silicon 和 Intel。Windows 和 Linux 使用平台原生标题栏。
 
 ## 双向 MCP
 
@@ -29,7 +37,7 @@ PDF 与 PNG 导出可用 `YEYU_CHROME` 指定浏览器可执行文件。如果�
 
 | 平台 | 开发依赖 | 打包 |
 |---|---|---|
-| macOS | Xcode Command Line Tools | `pnpm tauri build --bundles dmg` |
+| macOS | Xcode Command Line Tools，Rust 的 `aarch64-apple-darwin` 和 `x86_64-apple-darwin` 目标 | `pnpm tauri build --target universal-apple-darwin --bundles dmg` |
 | Windows | MSVC C++ 构建工具、WebView2 Runtime | `pnpm tauri build --bundles nsis` |
 | Linux | GTK 3、WebKitGTK 4.1 开发包、CMake、pkg-config | `pnpm tauri build --bundles deb,appimage` |
 

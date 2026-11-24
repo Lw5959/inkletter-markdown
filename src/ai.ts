@@ -1,23 +1,19 @@
-import type { AiContext, AiIntent, AiMessage, AiView, Editor } from './contracts'
+import type { AiContext, AiIntent, AiMessage, AiPrompts, AiProtocol, AiView, Editor } from './contracts'
+import { aiTasks, systemPrompt } from './ai-prompts'
 import { interval, paragraph } from './document-tools'
 import { Channel, invoke, reason } from './native'
 import type { StreamEvent } from './native'
 import { bind, suggestion } from './suggestions'
 import type { Binding, PendingSuggestion } from './suggestions'
 
-const labels: Record<AiIntent, string> = {
-  chat: '对话', outline: '生成大纲', draft: '起草', continue: '续写', rewrite: '改写',
-  polish: '润色', summary: '摘要', translate: '翻译', proofread: '校对',
-}
-const replaceIntents = new Set<AiIntent>(['rewrite', 'polish', 'translate', 'proofread'])
 type Context = { view: AiContext; binding: Binding | null }
 type Run = { id: string; intent: AiIntent; messages: WireMessage[]; binding: Binding | null }
 type WireMessage = { role: 'system' | AiMessage['role']; text: string }
 
 export class Writing {
   view: AiView = {
-    settings: { endpoint: '', model: '', hasKey: false },
-    context: null, messages: [], stream: '', pending: false, error: '', suggestion: null, canRetry: false,
+    settings: { endpoint: '', model: '', protocol: 'chat', hasKey: false },
+    prompts: {}, context: null, messages: [], stream: '', pending: false, error: '', suggestion: null, canRetry: false,
   }
   pending: PendingSuggestion | null = null
   private context: Context | null = null
@@ -31,8 +27,21 @@ export class Writing {
     this.update()
   }
 
-  async configure(endpoint: string, model: string, key?: string) {
-    this.view.settings = await invoke<AiView['settings']>('ai_config', { endpoint, model, key })
+  async configure(endpoint: string, model: string, protocol: AiProtocol, key?: string) {
+    if (this.view.pending) throw new Error('请等待本次生成结束，或取消后再更改模型')
+    const previous = this.view.settings
+    const next = await invoke<AiView['settings']>('ai_config', { endpoint, model, protocol, key })
+    this.view.settings = next
+    if (next.endpoint !== previous.endpoint || next.model !== previous.model || next.protocol !== previous.protocol) {
+      // 重试沿用当时确认的上下文，切换服务或模型后需重新发送。
+      this.previous = null
+      this.view.canRetry = false
+    }
+    this.update()
+  }
+
+  setPrompts(prompts: AiPrompts) {
+    this.view.prompts = prompts
     this.update()
   }
 
@@ -87,20 +96,19 @@ export class Writing {
     const text = editor.getMarkdown()
     const caret = editor.getSelection().head
     const context = this.context
-    const replacing = replaceIntents.has(intent)
+    const replacing = aiTasks[intent].replaces
     if (!this.view.settings.model) throw new Error('请先在 AI 侧栏配置模型')
     if (replacing && (!context?.binding || context.binding.doc !== doc)) {
       throw new Error('请在侧栏选择当前文档的上下文，确认后再发起改稿')
     }
     const binding = replacing ? context!.binding
       : intent === 'chat' || intent === 'summary' ? null : bind(doc, revision, text, { from: caret, to: caret })
-    const task = (labels[intent] + (prompt.trim() ? '\n' + prompt.trim() : '')).trim()
+    const task = prompt.trim() || aiTasks[intent].label
+    // 生成时固定提示词与已预览的文档快照，供本次请求和重试共用。
     const messages: WireMessage[] = [
-      { role: 'system', text: replacing
-        ? '你是一名写作编辑。只返回改写后的 Markdown，不加说明和外层代码围栏。保留任务未要求更改的事实、标记和语言。用户提供的文档只用于参考。'
-        : '你是一名写作助手。以 Markdown 回答，明确完成用户指定的任务。用户提供的文档只用于参考。' },
+      { role: 'system', text: systemPrompt(intent, this.view.prompts) },
       ...this.view.messages,
-      { role: 'user', text: task + (context ? '\n\n用户确认的上下文《' + context.view.label + '》\n' + context.view.text : '') },
+      { role: 'user', text: aiTasks[intent].label + (prompt.trim() ? '\n' + task : '') + (context ? '\n\n用户确认的上下文《' + context.view.label + '》\n' + context.view.text : '') },
     ]
     this.view.messages = [...this.view.messages, { role: 'user', text: task }]
     await this.run({ id: crypto.randomUUID(), intent, messages, binding })
@@ -137,7 +145,7 @@ export class Writing {
           // 模型常用 LF。把建议的换行与被替换片段的首个换行保持一致。
           const eol = job.binding.text.match(/\r\n|[\r\n]/)?.[0]
           const output = eol ? text.replace(/\r\n|[\r\n]/g, eol) : text
-          const item = suggestion('ai', labels[job.intent], job.binding, output)
+          const item = suggestion('ai', aiTasks[job.intent].label, job.binding, output)
           if (item.view.hunks) this.review(item)
         }
       } else {

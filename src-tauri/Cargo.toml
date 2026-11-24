@@ -31,10 +31,12 @@ keyring = "4.2"
 rmcp = { version = "3.11", features = ["client", "transport-io", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest"] }
 tungstenite = "0.29"
 url = "2"
+wasmi = { version = "2.0.2", default-features = false, features = ["std", "validate"] }
 
 [features]
-qa = ["dep:objc2", "dep:objc2-foundation"]
+qa = []
 
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2 = { version = "0.6", optional = true }
-objc2-foundation = { version = "0.3", features = ["NSRange", "NSString"], optional = true }
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSGraphics", "NSUserInterfaceItemIdentification", "NSView", "NSVisualEffectView", "NSWindow"] }
+objc2-foundation = { version = "0.3", features = ["NSGeometry", "NSRange", "NSString"] }

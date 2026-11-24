@@ -5,11 +5,14 @@ mod assets;
 mod export;
 mod files;
 mod mcp;
+mod plugins;
 #[cfg(feature = "qa")]
 mod qa;
 mod settings;
 mod store;
 mod themes;
+#[cfg(target_os = "macos")]
+mod titlebar;
 mod workspace;
 
 use std::{path::PathBuf, time::Duration};
@@ -69,6 +72,7 @@ fn main() {
         .manage(themes::ThemeImports::default())
         .manage(ai::Jobs::default())
         .manage(mcp::Sessions::default())
+        .manage(plugins::Plugins::default())
         .manage(launch)
         .manage(
             reqwest::Client::builder()
@@ -95,6 +99,8 @@ fn main() {
             qa::qa_report,
             #[cfg(feature = "qa")]
             qa::qa_input,
+            #[cfg(all(feature = "qa", target_os = "macos"))]
+            titlebar::qa_titlebar,
             files::open_document,
             files::document_version,
             files::save_document,
@@ -103,6 +109,8 @@ fn main() {
             settings::settings_load,
             settings::settings_save,
             settings::launch_paths,
+            #[cfg(target_os = "macos")]
+            titlebar::titlebar_apply,
             workspace::workspace_root,
             workspace::workspace_tree,
             workspace::workspace_search,
@@ -128,6 +136,11 @@ fn main() {
             ai::ai_config,
             ai::ai_stream,
             ai::ai_cancel,
+            plugins::plugin_list,
+            plugins::plugin_install,
+            plugins::plugin_set_enabled,
+            plugins::plugin_remove,
+            plugins::plugin_run,
             mcp::mcp_connect,
             mcp::mcp_disconnect,
             mcp::mcp_connected,

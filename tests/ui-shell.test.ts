@@ -316,25 +316,43 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     })
   })
 
-  it('AI 侧栏配置、上下文全文预览、九类操作、取消重试与差异全部/逐段应用', async () => {
+  it('AI 模型配置与提示词页面、上下文全文预览、流式会话和差异逐段应用', async () => {
     await mountTestHarness()
 
     const fullContextText = '第一行上下文\n' + '超长全文预览内容不会被截断。'.repeat(12)
     await page.click('[data-toggle="ai"]')
 
-    // Configure endpoint, model, optional key
-    await page.click('.yy-ai-pane button:has-text("接口配置")')
-    await page.fill('.yy-config-card input[type="url"]', 'https://api.example.com/v1')
-    await page.fill('.yy-config-card input[type="text"]', 'qwen-plus')
-    await page.fill('.yy-config-card input[type="password"]', 'sk-test-123')
-    await page.click('.yy-config-card button[type="submit"]')
+    const modelDialog = page.getByRole('dialog', { name: '模型配置' })
+    await page.getByRole('button', { name: '模型配置', exact: true }).click()
+    expect(await modelDialog.getByLabel('API 协议').locator('option').count()).toBe(3)
+    await modelDialog.getByLabel('API 协议').selectOption('responses')
+    await modelDialog.locator('input[type="url"]').fill('https://api.example.com/v1')
+    await modelDialog.locator('input[type="text"]').fill('qwen-plus')
+    await modelDialog.locator('input[type="password"]').fill('sk-test-123')
+    await modelDialog.getByRole('button', { name: '保存配置' }).click()
+    expect(await modelDialog.count()).toBe(0)
+
+    await page.getByRole('button', { name: '默认提示词', exact: true }).click()
+    const promptsDialog = page.getByRole('dialog', { name: '默认提示词' })
+    const template = promptsDialog.getByLabel('提示词内容')
+    expect(await promptsDialog.locator('.yy-ai-task-choice').count()).toBe(9)
+    await promptsDialog.getByRole('button', { name: '改写', exact: true }).click()
+    const defaultRewrite = await template.inputValue()
+    expect(defaultRewrite).toContain('保留原有事实')
+    await template.fill('保留专名，将段落缩为两句。')
+    await promptsDialog.getByRole('button', { name: '摘要', exact: true }).click()
+    await promptsDialog.getByRole('button', { name: '改写', exact: true }).click()
+    expect(await template.inputValue()).toBe('保留专名，将段落缩为两句。')
+    await promptsDialog.getByRole('button', { name: '保存提示词' }).click()
+    expect(await promptsDialog.count()).toBe(0)
 
     // Pick context scope & push full context + diff suggestion
-    await page.click('[data-ai-scope="document"]')
+    await page.getByLabel('添加上下文').selectOption('document')
     await page.evaluate(text => {
       const { shell } = (window as unknown as Record<string, any>).__test
       shell.setAI({
-        settings: { endpoint: 'https://api.example.com/v1', model: 'qwen-plus', hasKey: true },
+        settings: { endpoint: 'https://api.example.com/v1', model: 'qwen-plus', protocol: 'responses', hasKey: true },
+        prompts: { rewrite: '保留专名，将段落缩为两句。' },
         context: { scope: 'document', label: '设计稿.md', text },
         messages: [{ role: 'user', text: '请润色两处表述' }],
         stream: '正在输出建议…',
@@ -360,20 +378,21 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
 
     // Verify all 9 intents exist and context full text is rendered completely
     const aiCheck = await page.evaluate(() => ({
-      intentCount: document.querySelectorAll('[data-ai-intent]').length,
+      intentCount: document.querySelectorAll('select[aria-label="写作操作"] option').length,
       previewText: document.querySelector('.yy-context-fulltext')?.textContent,
     }))
     expect(aiCheck.intentCount).toBe(9)
     expect(aiCheck.previewText).toBe(fullContextText)
 
     // Cancel while pending
-    await page.click('.yy-ai-composer button:has-text("取消")')
+    await page.getByRole('button', { name: '取消生成' }).click()
 
     // Switch to retryable non-pending state, send a polish intent, and test per-hunk & all diff apply
     await page.evaluate(() => {
       const { shell } = (window as unknown as Record<string, any>).__test
       shell.setAI({
-        settings: { endpoint: 'https://api.example.com/v1', model: 'qwen-plus', hasKey: true },
+        settings: { endpoint: 'https://api.example.com/v1', model: 'qwen-plus', protocol: 'responses', hasKey: true },
+        prompts: { rewrite: '保留专名，将段落缩为两句。' },
         context: null,
         messages: [{ role: 'user', text: '润色' }],
         stream: '',
@@ -395,8 +414,16 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       })
     })
 
-    await page.click('.yy-ai-composer button:has-text("重试")')
-    await page.click('[data-ai-intent="translate"]')
+    await page.getByRole('button', { name: '默认提示词', exact: true }).click()
+    await promptsDialog.getByRole('button', { name: '改写', exact: true }).click()
+    expect(await template.inputValue()).toBe('保留专名，将段落缩为两句。')
+    await promptsDialog.getByRole('button', { name: '恢复默认' }).click()
+    expect(await template.inputValue()).toBe(defaultRewrite)
+    await promptsDialog.getByRole('button', { name: '保存提示词' }).click()
+    expect(await promptsDialog.count()).toBe(0)
+
+    await page.getByRole('button', { name: '重试上次请求' }).click()
+    await page.getByLabel('写作操作').selectOption('translate')
     await page.fill('.yy-ai-composer textarea', '翻译为英文')
     await page.click('.yy-ai-composer button[type="submit"]')
 
@@ -410,8 +437,11 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       type: 'ai-config',
       endpoint: 'https://api.example.com/v1',
       model: 'qwen-plus',
+      protocol: 'responses',
       key: 'sk-test-123',
     })
+    expect(actions).toContainEqual({ type: 'ai-prompts', prompts: { rewrite: '保留专名，将段落缩为两句。' } })
+    expect(actions).toContainEqual({ type: 'ai-prompts', prompts: {} })
     expect(actions).toContainEqual({ type: 'ai-context', scope: 'document' })
     expect(actions).toContainEqual({ type: 'ai-cancel' })
     expect(actions).toContainEqual({ type: 'ai-retry' })
