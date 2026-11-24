@@ -73,6 +73,7 @@ const editor: Editor = createEditor(shell.editorHost, {
 })
 editor.setPresentation(state.presentation)
 shell.setState(state)
+editor.focus()
 
 stats.onmessage = ({ data }: MessageEvent<{ task: number; doc: number; words: number; characters: number; line: number; column: number; outline?: OutlineEntry[] }>) => {
   if (data.outline) {
@@ -808,6 +809,7 @@ async function startup() {
       state.workspace = settings.workspace
       startupTasks.push(refreshTree(), protocol.workspace(state.workspace))
     }
+    update()
     const result = await Promise.allSettled(startupTasks)
     const rejected = result.find(item => item.status === 'rejected')
     if (rejected) update(reason(rejected.reason))

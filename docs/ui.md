@@ -12,7 +12,7 @@
 | 文件 | 职责 |
 |---|---|
 | `src/ui/index.ts` | 公开入口 `mountShell(root, actions)`，协调状态推送、主题样式注入、拖放图片、全局快捷键分发与 `destroy()` 清理 |
-| `src/ui/menus.ts` | 文件 / 编辑 / 格式 / 视图四套菜单（覆盖全部 15 种导出格式、22 种编辑格式与 3 种图片策略）及方向键/Esc 菜单导航 |
+| `src/ui/menus.ts` | 文件 / 编辑 / 格式 / 视图四套菜单，涵盖导出、编辑格式和图片策略及方向键/Esc 菜单导航 |
 | `src/ui/left-panel.ts` | 工作区文件树（展开折叠、创建文件/文件夹、重命名、废纸篓确认）、大纲筛选跳转、跨文件检索（含正则切换） |
 | `src/ui/find-bar.ts` | 浮动文内查找替换条（大小写、全词、正则、上一个/下一个、替换/全部替换，Esc 返回编辑器焦点） |
 | `src/ui/ai-panel.ts` | AI 接口地址/模型/可选密钥配置、四类上下文切换与**全文无截断预览**、九类写作操作、流式会话、取消/重试、差异的全部与逐段审阅应用 |
@@ -21,12 +21,12 @@
 | `src/ui/shortcuts.ts` | 跨平台（macOS `⌘` / 其余 `Ctrl`）快捷键注册表、冲突检测与 `localStorage`（`yeyu.shortcuts.v1`）持久化 |
 | `src/ui/helpers.ts` | 文件树扁平化与模糊匹配、差异 hunk 分组、CLI 参数引号解析、JSON Schema 初始参数生成与剪贴板工具 |
 | `src/ui/icons.ts` | 零外链纯本地内联 SVG 图标集 |
-| `src/ui/shell.css` | 暖纸灰黑主题与跨 WebView 样式隔离层 |
+| `src/ui/shell.css` | 中性色界面与跨 WebView 样式隔离 |
 
 ## 3. 主题隔离与滚动容器行为
 
 - 界面在 `document.head` 尾部维护独立的 `<style data-yeyu-theme="true">`，在 `setThemes(themes, active)` 时写入当前激活主题的 `styles.join('\n')`。
-- 文档滚动容器 `.yy-paper.document-theme` 的默认底色和文字色使用零优先级 `:where(.yy-paper.document-theme)`，保证原生层推送的 `.document-theme` 与 `#write` 主题规则及级联顺序完整生效。
+- 文档滚动容器从共享的 `src/editor/document.css` 读取默认底色与文字色。样式采用零优先级，导入主题可覆盖这些值。
 - 所有界面外壳均使用 `.yy-shell .yy-chrome` 命名空间与 `--yy-*` 自定义属性，即使导入主题意外包含 `button`、`body` 等宽泛选择器也不会覆盖外壳样式。
 - `setState` 会同步更新 `.yy-paper.document-theme` 的 `data-mode`、`data-focus`、`data-typewriter`、`data-spellcheck`、`data-readonly`、`data-editable` 和 `aria-readonly`，配合打字机模式底部留白及只读状态提示。
 
