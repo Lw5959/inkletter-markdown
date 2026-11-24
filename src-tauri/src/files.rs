@@ -1,6 +1,10 @@
 use crate::store::{Store, atomic_write, canonical, err, file_name};
 use serde::{Deserialize, Serialize};
-use std::{fs, io, path::{Path, PathBuf}, sync::Mutex};
+use std::{
+    fs, io,
+    path::{Path, PathBuf},
+    sync::Mutex,
+};
 use tauri::State;
 
 pub type SaveLock = Mutex<()>;
@@ -22,11 +26,17 @@ pub struct SaveError {
 
 impl SaveError {
     fn io(error: impl std::fmt::Display) -> Self {
-        Self { kind: "io", message: err(error) }
+        Self {
+            kind: "io",
+            message: err(error),
+        }
     }
 
     fn conflict() -> Self {
-        Self { kind: "conflict", message: "磁盘上的文件已变化".into() }
+        Self {
+            kind: "conflict",
+            message: "磁盘上的文件已变化".into(),
+        }
     }
 }
 
@@ -55,7 +65,13 @@ fn snapshot(path: PathBuf, mut bytes: Vec<u8>) -> Result<FileSnapshot, String> {
     }
     let text = String::from_utf8(bytes).map_err(|_| "文档需要使用 UTF-8 编码".to_owned())?;
     let name = file_name(&path);
-    Ok(FileSnapshot { path, name, text, bom, version })
+    Ok(FileSnapshot {
+        path,
+        name,
+        text,
+        bom,
+        version,
+    })
 }
 
 pub fn read(path: &Path) -> Result<FileSnapshot, String> {
@@ -72,12 +88,19 @@ pub fn current_version(path: &Path) -> Result<Option<String>, String> {
     }
 }
 
-fn write(path: &Path, text: &str, bom: bool, expected: Option<&str>) -> Result<FileSnapshot, SaveError> {
+fn write(
+    path: &Path,
+    text: &str,
+    bom: bool,
+    expected: Option<&str>,
+) -> Result<FileSnapshot, SaveError> {
     let path = match canonical(path) {
         Ok(path) => path,
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             let parent = path.parent().ok_or_else(|| SaveError::io("缺少父目录"))?;
-            let name = path.file_name().ok_or_else(|| SaveError::io("缺少文件名"))?;
+            let name = path
+                .file_name()
+                .ok_or_else(|| SaveError::io("缺少文件名"))?;
             canonical(parent).map_err(SaveError::io)?.join(name)
         }
         Err(error) => return Err(SaveError::io(error)),
@@ -99,7 +122,8 @@ fn write(path: &Path, text: &str, bom: bool, expected: Option<&str>) -> Result<F
     if current.as_ref() != Some(&bytes) {
         if current.is_none() {
             use std::io::Write;
-            let mut out = tempfile::NamedTempFile::new_in(path.parent().unwrap()).map_err(SaveError::io)?;
+            let mut out =
+                tempfile::NamedTempFile::new_in(path.parent().unwrap()).map_err(SaveError::io)?;
             out.write_all(&bytes).map_err(SaveError::io)?;
             out.as_file().sync_all().map_err(SaveError::io)?;
             out.persist_noclobber(&path).map_err(|error| {
@@ -110,7 +134,9 @@ fn write(path: &Path, text: &str, bom: bool, expected: Option<&str>) -> Result<F
                 }
             })?;
             #[cfg(unix)]
-            fs::File::open(path.parent().unwrap()).and_then(|dir| dir.sync_all()).map_err(SaveError::io)?;
+            fs::File::open(path.parent().unwrap())
+                .and_then(|dir| dir.sync_all())
+                .map_err(SaveError::io)?;
         } else {
             atomic_write(&path, &bytes).map_err(SaveError::io)?;
         }
@@ -129,7 +155,13 @@ pub async fn document_version(path: PathBuf) -> Result<Option<String>, String> {
 }
 
 #[tauri::command]
-pub async fn save_document(path: PathBuf, text: String, bom: bool, expected: Option<String>, saves: State<'_, SaveLock>) -> Result<FileSnapshot, SaveError> {
+pub async fn save_document(
+    path: PathBuf,
+    text: String,
+    bom: bool,
+    expected: Option<String>,
+    saves: State<'_, SaveLock>,
+) -> Result<FileSnapshot, SaveError> {
     let _save = saves.lock().map_err(SaveError::io)?;
     write(&path, &text, bom, expected.as_deref())
 }
@@ -140,7 +172,10 @@ pub async fn load_recovery(store: State<'_, Store>) -> Result<Option<Recovery>, 
 }
 
 #[tauri::command]
-pub async fn save_recovery(store: State<'_, Store>, recovery: Option<Recovery>) -> Result<(), String> {
+pub async fn save_recovery(
+    store: State<'_, Store>,
+    recovery: Option<Recovery>,
+) -> Result<(), String> {
     match recovery {
         Some(recovery) => store.write("recovery.json", &recovery),
         None => store.remove("recovery.json"),
@@ -175,12 +210,30 @@ mod tests {
         assert_eq!(current_version(&path).unwrap(), Some(checksum));
         let store = Store(dir.path().join("data"));
         let recovery = Recovery {
-            path: Some(path), title: "新笔记.md".into(), text: "未完成".into(),
-            bom: false, base_version: None, anchor: 2, head: 3, mode: "source".into(),
+            path: Some(path),
+            title: "新笔记.md".into(),
+            text: "未完成".into(),
+            bom: false,
+            base_version: None,
+            anchor: 2,
+            head: 3,
+            mode: "source".into(),
         };
         store.write("recovery.json", &recovery).unwrap();
-        assert_eq!(store.read::<Option<Recovery>>("recovery.json").unwrap().unwrap().text, "未完成");
+        assert_eq!(
+            store
+                .read::<Option<Recovery>>("recovery.json")
+                .unwrap()
+                .unwrap()
+                .text,
+            "未完成"
+        );
         store.remove("recovery.json").unwrap();
-        assert!(store.read::<Option<Recovery>>("recovery.json").unwrap().is_none());
+        assert!(
+            store
+                .read::<Option<Recovery>>("recovery.json")
+                .unwrap()
+                .is_none()
+        );
     }
 }

@@ -5,6 +5,8 @@ mod assets;
 mod export;
 mod files;
 mod mcp;
+#[cfg(feature = "qa")]
+mod qa;
 mod settings;
 mod store;
 mod themes;
@@ -25,7 +27,9 @@ fn visit_link(url: String, app: tauri::AppHandle) -> Result<(), String> {
     if !matches!(parsed.scheme(), "http" | "https" | "mailto") {
         return Err("不支持此链接协议".into());
     }
-    app.opener().open_url(&url, None::<&str>).map_err(store::err)
+    app.opener()
+        .open_url(&url, None::<&str>)
+        .map_err(store::err)
 }
 
 fn main() {
@@ -54,7 +58,11 @@ fn main() {
 
     let launch = settings::LaunchPaths::default();
     if let Ok(mut pending) = launch.0.lock() {
-        pending.extend(arguments.map(PathBuf::from).filter(|path| path.is_file() && workspace::markdown(path)));
+        pending.extend(
+            arguments
+                .map(PathBuf::from)
+                .filter(|path| path.is_file() && workspace::markdown(path)),
+        );
     }
     let app = tauri::Builder::default()
         .manage(files::SaveLock::default())
@@ -62,24 +70,72 @@ fn main() {
         .manage(ai::Jobs::default())
         .manage(mcp::Sessions::default())
         .manage(launch)
-        .manage(reqwest::Client::builder().connect_timeout(Duration::from_secs(12))
-            .redirect(reqwest::redirect::Policy::none()).build().expect("HTTP 客户端初始化失败"))
+        .manage(
+            reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(12))
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .expect("HTTP 客户端初始化失败"),
+        )
         .setup(|app| {
-            app.manage(store::Store(app.path().app_data_dir()?));
+            let data = app.path().app_data_dir()?;
+            #[cfg(feature = "qa")]
+            let data = qa::directory()
+                .map(|folder| folder.join("app-data"))
+                .unwrap_or(data);
+            app.manage(store::Store(data));
             Ok(())
         })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
-            files::open_document, files::document_version, files::save_document, files::load_recovery, files::save_recovery,
-            settings::settings_load, settings::settings_save, settings::launch_paths,
-            workspace::workspace_tree, workspace::workspace_search, workspace::workspace_create, workspace::workspace_rename, workspace::workspace_trash,
-            themes::theme_begin, themes::theme_read, themes::theme_finish, themes::theme_abort, themes::theme_list,
-            assets::image_data, assets::image_insert, assets::image_copy, assets::image_remove, assets::image_upload,
-            export::export_document, export::pandoc_import, export::pandoc_export, print_document, visit_link,
-            ai::ai_settings, ai::ai_config, ai::ai_stream, ai::ai_cancel,
-            mcp::mcp_connect, mcp::mcp_disconnect, mcp::mcp_connected, mcp::mcp_call, mcp::mcp_local,
-            mcp::mcp_selection, mcp::mcp_proposals, mcp::mcp_resolve,
+            #[cfg(feature = "qa")]
+            qa::qa_config,
+            #[cfg(feature = "qa")]
+            qa::qa_report,
+            #[cfg(feature = "qa")]
+            qa::qa_input,
+            files::open_document,
+            files::document_version,
+            files::save_document,
+            files::load_recovery,
+            files::save_recovery,
+            settings::settings_load,
+            settings::settings_save,
+            settings::launch_paths,
+            workspace::workspace_root,
+            workspace::workspace_tree,
+            workspace::workspace_search,
+            workspace::workspace_create,
+            workspace::workspace_rename,
+            workspace::workspace_trash,
+            themes::theme_begin,
+            themes::theme_read,
+            themes::theme_finish,
+            themes::theme_abort,
+            themes::theme_list,
+            assets::image_data,
+            assets::image_insert,
+            assets::image_copy,
+            assets::image_remove,
+            assets::image_upload,
+            export::export_document,
+            export::pandoc_import,
+            export::pandoc_export,
+            print_document,
+            visit_link,
+            ai::ai_settings,
+            ai::ai_config,
+            ai::ai_stream,
+            ai::ai_cancel,
+            mcp::mcp_connect,
+            mcp::mcp_disconnect,
+            mcp::mcp_connected,
+            mcp::mcp_call,
+            mcp::mcp_local,
+            mcp::mcp_selection,
+            mcp::mcp_proposals,
+            mcp::mcp_resolve,
         ])
         .build(tauri::generate_context!())
         .expect("无法启动页屿");
@@ -88,7 +144,11 @@ fn main() {
         #[cfg(target_os = "macos")]
         if let tauri::RunEvent::Opened { urls } = _event {
             if let Ok(mut pending) = _app.state::<settings::LaunchPaths>().0.lock() {
-                pending.extend(urls.into_iter().filter_map(|url| url.to_file_path().ok()).filter(|path| workspace::markdown(path)));
+                pending.extend(
+                    urls.into_iter()
+                        .filter_map(|url| url.to_file_path().ok())
+                        .filter(|path| workspace::markdown(path)),
+                );
             }
         }
     });

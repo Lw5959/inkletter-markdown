@@ -2,12 +2,12 @@ use crate::store::{Store, err};
 use eventsource_stream::Eventsource;
 use futures_util::StreamExt;
 use reqwest::{Client, Url};
-use url::Host;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{collections::HashMap, sync::Mutex, time::Duration};
 use tauri::{State, ipc::Channel};
 use tokio::sync::oneshot;
+use url::Host;
 
 const SETTINGS_FILE: &str = "ai.json";
 
@@ -51,7 +51,11 @@ pub fn safe_endpoint(value: &str) -> Result<Url, String> {
         None => false,
     };
     if !(url.scheme() == "https" || (url.scheme() == "http" && loopback))
-        || !url.username().is_empty() || url.password().is_some() || url.fragment().is_some() || url.host().is_none() {
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
+        || url.host().is_none()
+    {
         return Err("地址须使用 HTTPS 或本机回环 HTTP，且不能包含用户名、密码或片段".into());
     }
     Ok(url)
@@ -61,8 +65,11 @@ fn completions(endpoint: &str) -> Result<Url, String> {
     let mut url = safe_endpoint(endpoint)?;
     let path = url.path().trim_end_matches('/');
     if !path.ends_with("/chat/completions") {
-        let path = if path.is_empty() { "/v1/chat/completions".to_owned() }
-            else { format!("{path}/chat/completions") };
+        let path = if path.is_empty() {
+            "/v1/chat/completions".to_owned()
+        } else {
+            format!("{path}/chat/completions")
+        };
         url.set_path(&path);
     }
     Ok(url)
@@ -71,7 +78,8 @@ fn completions(endpoint: &str) -> Result<Url, String> {
 fn credential(endpoint: &str) -> Result<keyring::Entry, String> {
     let key = blake3::hash(endpoint.as_bytes()).to_hex().to_string();
     // 调用方通过 get/set 显示系统凭据存储失败，绝不把凭据写到应用设置。
-    keyring::Entry::new("io.yeyu.markdown.ai", &key).map_err(|error| format!("系统凭据存储不可用：{error}"))
+    keyring::Entry::new("io.yeyu.markdown.ai", &key)
+        .map_err(|error| format!("系统凭据存储不可用：{error}"))
 }
 
 fn password(endpoint: &str) -> Result<Option<String>, String> {
@@ -83,8 +91,13 @@ fn password(endpoint: &str) -> Result<Option<String>, String> {
 }
 
 fn view(settings: Settings) -> View {
-    let has_key = !settings.endpoint.is_empty() && password(&settings.endpoint).is_ok_and(|secret| secret.is_some());
-    View { endpoint: settings.endpoint, model: settings.model, has_key }
+    let has_key = !settings.endpoint.is_empty()
+        && password(&settings.endpoint).is_ok_and(|secret| secret.is_some());
+    View {
+        endpoint: settings.endpoint,
+        model: settings.model,
+        has_key,
+    }
 }
 
 #[tauri::command]
@@ -93,7 +106,12 @@ pub async fn ai_settings(store: State<'_, Store>) -> Result<View, String> {
 }
 
 #[tauri::command]
-pub async fn ai_config(endpoint: String, model: String, key: Option<String>, store: State<'_, Store>) -> Result<View, String> {
+pub async fn ai_config(
+    endpoint: String,
+    model: String,
+    key: Option<String>,
+    store: State<'_, Store>,
+) -> Result<View, String> {
     let endpoint = completions(&endpoint)?.to_string();
     let model = model.trim().to_owned();
     if model.is_empty() {
@@ -107,7 +125,9 @@ pub async fn ai_config(endpoint: String, model: String, key: Option<String>, sto
                 Err(error) => return Err(format!("删除系统凭据失败：{error}")),
             }
         } else {
-            entry.set_password(secret.trim()).map_err(|error| format!("写入系统凭据失败：{error}"))?;
+            entry
+                .set_password(secret.trim())
+                .map_err(|error| format!("写入系统凭据失败：{error}"))?;
         }
     }
     let settings = Settings { endpoint, model };
@@ -115,14 +135,24 @@ pub async fn ai_config(endpoint: String, model: String, key: Option<String>, sto
     Ok(view(settings))
 }
 
-async fn stream(http: &Client, settings: Settings, messages: Vec<Message>, event: &Channel<Event>) -> Result<(), String> {
+async fn stream(
+    http: &Client,
+    settings: Settings,
+    messages: Vec<Message>,
+    event: &Channel<Event>,
+) -> Result<(), String> {
     if settings.endpoint.is_empty() || settings.model.is_empty() {
         return Err("请先配置 AI 地址和模型".into());
     }
     let endpoint = completions(&settings.endpoint)?;
     let is_local_http = endpoint.scheme() == "http";
-    let body: Vec<Value> = messages.into_iter().map(|message| json!({ "role": message.role, "content": message.text })).collect();
-    let mut request = http.post(endpoint).timeout(Duration::from_secs(300))
+    let body: Vec<Value> = messages
+        .into_iter()
+        .map(|message| json!({ "role": message.role, "content": message.text }))
+        .collect();
+    let mut request = http
+        .post(endpoint)
+        .timeout(Duration::from_secs(300))
         .header("Accept", "text/event-stream")
         .json(&json!({"model": settings.model, "messages": body, "stream": true}));
     match password(&settings.endpoint) {
@@ -131,12 +161,18 @@ async fn stream(http: &Client, settings: Settings, messages: Vec<Message>, event
         Err(_) if is_local_http => {}
         Err(error) => return Err(error),
     }
-    let response = request.send().await.map_err(|error| format!("无法连接模型服务：{}", error.without_url()))?;
+    let response = request
+        .send()
+        .await
+        .map_err(|error| format!("无法连接模型服务：{}", error.without_url()))?;
     let status = response.status();
     if !status.is_success() {
         let mut chunks = response.bytes_stream();
         let message = chunks.next().await.and_then(Result::ok).unwrap_or_default();
-        let detail: String = String::from_utf8_lossy(&message).chars().take(500).collect();
+        let detail: String = String::from_utf8_lossy(&message)
+            .chars()
+            .take(500)
+            .collect();
         return Err(format!("模型服务返回 {status} {detail}"));
     }
     let mut events = response.bytes_stream().eventsource();
@@ -152,8 +188,15 @@ async fn stream(http: &Client, settings: Settings, messages: Vec<Message>, event
         if let Some(error) = data["error"]["message"].as_str() {
             return Err(error.chars().take(500).collect());
         }
-        if let Some(text) = data["choices"][0]["delta"]["content"].as_str().filter(|text| !text.is_empty()) {
-            event.send(Event::Delta { text: text.to_owned() }).map_err(err)?;
+        if let Some(text) = data["choices"][0]["delta"]["content"]
+            .as_str()
+            .filter(|text| !text.is_empty())
+        {
+            event
+                .send(Event::Delta {
+                    text: text.to_owned(),
+                })
+                .map_err(err)?;
             saw_delta = true;
         }
         if data["choices"][0]["finish_reason"].is_string() {
@@ -170,7 +213,14 @@ async fn stream(http: &Client, settings: Settings, messages: Vec<Message>, event
 }
 
 #[tauri::command]
-pub async fn ai_stream(id: String, messages: Vec<Message>, event: Channel<Event>, store: State<'_, Store>, jobs: State<'_, Jobs>, http: State<'_, Client>) -> Result<(), String> {
+pub async fn ai_stream(
+    id: String,
+    messages: Vec<Message>,
+    event: Channel<Event>,
+    store: State<'_, Store>,
+    jobs: State<'_, Jobs>,
+    http: State<'_, Client>,
+) -> Result<(), String> {
     let settings: Settings = store.read(SETTINGS_FILE)?;
     let (cancel, stop) = oneshot::channel();
     {
@@ -202,8 +252,16 @@ mod tests {
 
     #[test]
     fn chat_endpoint_accepts_local_and_protects_credentials() {
-        assert_eq!(completions("http://127.0.0.1:8081/").unwrap().as_str(), "http://127.0.0.1:8081/v1/chat/completions");
-        assert_eq!(completions("https://example.org/v1/chat/completions").unwrap().as_str(), "https://example.org/v1/chat/completions");
+        assert_eq!(
+            completions("http://127.0.0.1:8081/").unwrap().as_str(),
+            "http://127.0.0.1:8081/v1/chat/completions"
+        );
+        assert_eq!(
+            completions("https://example.org/v1/chat/completions")
+                .unwrap()
+                .as_str(),
+            "https://example.org/v1/chat/completions"
+        );
         assert!(completions("http://example.org").is_err());
         assert!(completions("https://user@example.org").is_err());
     }

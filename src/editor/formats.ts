@@ -2,7 +2,7 @@ import type { EditorFormat } from '../contracts'
 
 const inline = {
   bold: ['**', '**'], italic: ['*', '*'], strike: ['~~', '~~'],
-  underline: ['<u>', '</u>'], 'inline-code': ['`', '`'],
+  underline: ['<u>', '</u>'], highlight: ['==', '=='], subscript: ['~', '~'], superscript: ['^', '^'], 'inline-code': ['`', '`'],
   link: ['[', '](https://)'], image: ['![', '](图片路径)'],
 } as const
 

@@ -1,5 +1,9 @@
 use serde::{Serialize, de::DeserializeOwned};
-use std::{fs, io::{self, Write}, path::{Path, PathBuf}};
+use std::{
+    fs,
+    io::{self, Write},
+    path::{Path, PathBuf},
+};
 
 #[derive(Clone)]
 pub struct Store(pub PathBuf);
@@ -38,7 +42,9 @@ pub fn canonical(path: &Path) -> io::Result<PathBuf> {
 }
 
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let parent = path.parent().ok_or_else(|| io::Error::other("缺少父目录"))?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| io::Error::other("缺少父目录"))?;
     let mut out = tempfile::NamedTempFile::new_in(parent)?;
     out.write_all(bytes)?;
     if let Ok(metadata) = fs::metadata(path) {
@@ -52,5 +58,8 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
 }
 
 pub fn file_name(path: &Path) -> String {
-    path.file_name().unwrap_or_default().to_string_lossy().into_owned()
+    path.file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned()
 }

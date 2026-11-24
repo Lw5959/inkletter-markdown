@@ -42,12 +42,12 @@ export function choose(title: string, detail: string, choices: Choice[]) {
   return present(element)
 }
 
-export async function readSetting(title: string, detail: string, current: string) {
+export async function readSetting(title: string, detail: string, current: string, type: 'url' | 'text' = 'url') {
   const { element, form, controls } = dialog(title, detail)
   const input = document.createElement('input')
-  input.type = 'url'
+  input.type = type
   input.value = current
-  input.required = true
+  input.required = type === 'url'
   input.setAttribute('aria-label', title)
   input.autofocus = true
   addButton(controls, '取消', 'cancel')

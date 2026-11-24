@@ -4,17 +4,19 @@ import { defaultKeymap, history, historyKeymap, invertedEffects, isolateHistory,
 import { markdown } from '@codemirror/lang-markdown'
 import { defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language'
 import { languages } from '@codemirror/language-data'
-import { GFM, parser } from '@lezer/markdown'
+import { parser } from '@lezer/markdown'
+import { markdownSyntax } from './syntax'
 import type { Editor, EditorMode, EditorOptions, OutlineEntry, Presentation, Selection } from '../contracts'
 import { coalesceEndings, encode, encodedOffset, locate, originalOffset, originalSlice, rawBuffer, rawHistory, restoreRaw } from './buffer'
 import { applyFormat, blockFormats, lineFormats } from './formats'
 import { liveDecoration } from './live'
 import { headingId, headingText, safeUrl } from './render'
+import { frontMatter } from './front-matter'
 import './editor.css'
 
 export { renderMarkdown } from './render'
 
-const outlineParser = parser.configure(GFM)
+const outlineParser = parser.configure(markdownSyntax)
 const presentationDefaults = { focus: false, typewriter: false, spellcheck: false }
 const selectionEffect = StateEffect.define<Selection | null>()
 const originalSelection = StateField.define<Selection | null>({
@@ -55,7 +57,7 @@ export function createEditor(host: HTMLElement, options: EditorOptions): Editor 
     invertedEffects.of(tr => tr.docChanged || tr.effects.some(effect => effect.is(restoreRaw))
       ? [selectionEffect.of(tr.startState.field(originalSelection))] : []),
     keymap.of([...defaultKeymap, ...historyKeymap]),
-    markdown({ extensions: GFM, codeLanguages: languages }),
+    markdown({ extensions: markdownSyntax, codeLanguages: languages }),
     syntaxHighlighting(defaultHighlightStyle),
     EditorView.lineWrapping,
     mode.of(modeExtensions()),
@@ -200,7 +202,7 @@ export function createEditor(host: HTMLElement, options: EditorOptions): Editor 
     const raw = view.state.field(rawBuffer)
     if (outlineCache?.doc === doc && outlineCache.raw === raw) return outlineCache.entries
     const normalized = doc.toString()
-    const yaml = /^---[ \t]*\n[\s\S]*?\n(?:---|\.\.\.)[ \t]*(?:\n|$)/.exec(normalized)
+    const yaml = frontMatter(normalized)
     const entries: OutlineEntry[] = []
     const used = new Set<string>()
     outlineParser.parse(normalized).iterate({

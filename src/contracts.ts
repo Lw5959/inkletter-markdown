@@ -3,7 +3,7 @@ export type EditorMode = 'live' | 'source'
 export type Selection = { anchor: number; head: number }
 export type OutlineEntry = { level: number; title: string; from: number; id?: string }
 export type Presentation = { focus: boolean; typewriter: boolean; spellcheck: boolean; readonly?: boolean }
-export type EditorFormat = 'bold' | 'italic' | 'strike' | 'underline' | 'inline-code' | 'link' | 'image'
+export type EditorFormat = 'bold' | 'italic' | 'strike' | 'underline' | 'highlight' | 'subscript' | 'superscript' | 'inline-code' | 'link' | 'image'
   | 'heading-1' | 'heading-2' | 'heading-3' | 'quote' | 'bullet-list' | 'ordered-list'
   | 'task' | 'table' | 'code-block' | 'math' | 'mermaid' | 'rule' | 'toc' | 'footnote' | 'clear'
 export type RenderOptions = { resolveImage?: (url: string) => string | Promise<string> }
@@ -64,6 +64,8 @@ export type ShellAction =
   | { type: 'format'; format: EditorFormat }
   | { type: 'presentation'; value: Presentation }
   | { type: 'find'; query: FindQuery; operation: 'next' | 'previous' | 'replace' | 'replace-all' }
+  | { type: 'workspace-filter'; option: 'hidden' | 'all' | 'glob' }
+  | { type: 'window-view'; operation: 'fullscreen' | 'zoom-in' | 'zoom-out' | 'zoom-default' }
   | { type: 'workspace-create'; parent: string; name: string; folder: boolean }
   | { type: 'workspace-rename'; path: string; name: string }
   | { type: 'workspace-trash'; path: string }
@@ -86,6 +88,7 @@ export type ShellState = {
   title: string; path: string | null; dirty: boolean; mode: EditorMode;
   detail: string; words: number; characters: number; line: number; column: number;
   workspace: string | null; autosave: boolean; presentation: Presentation
+  workspaceFilter?: { hidden: boolean; all: boolean; glob: string }
 }
 export type ShellActions = { dispatch: (action: ShellAction) => void | Promise<void> }
 export interface Shell {

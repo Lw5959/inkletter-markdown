@@ -9,7 +9,7 @@ export function count(text: string) {
   let wordCount = 0
   for (const _ of text.matchAll(han)) cjk++
   for (const _ of text.replace(han, ' ').matchAll(words)) wordCount++
-  return { words: wordCount + cjk, characters: Array.from(text).length }
+  return { words: wordCount + cjk, characters: text.length - (text.match(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g)?.length ?? 0) }
 }
 
 export function cursor(text: string, offset: number) {

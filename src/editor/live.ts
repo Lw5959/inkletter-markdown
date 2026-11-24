@@ -4,12 +4,14 @@ import { syntaxTree } from '@codemirror/language'
 import type { Range } from '@codemirror/state'
 import type { EditorOptions, OutlineEntry } from '../contracts'
 import { renderMarkdown, safeUrl } from './render'
+import { frontMatter } from './front-matter'
 
 const marks: Record<string, string> = {
   StrongEmphasis: 'strong', Emphasis: 'em', Strikethrough: 'del', InlineCode: 'code',
   Link: 'link', Autolink: 'link', LinkReference: 'reference', TableCell: 'cell',
 }
-const markers = new Set(['EmphasisMark', 'StrikethroughMark', 'CodeMark', 'HeaderMark', 'LinkMark'])
+const inlineTags: Record<string, string> = { Highlight: 'mark', Subscript: 'sub', Superscript: 'sup' }
+const markers = new Set(['EmphasisMark', 'StrikethroughMark', 'CodeMark', 'HeaderMark', 'LinkMark', 'HighlightMark', 'SubscriptMark', 'SuperscriptMark'])
 const blocks: Record<string, string> = {
   Blockquote: 'quote', Table: 'table', FencedCode: 'fence', CodeBlock: 'fence', HorizontalRule: 'rule',
 }
@@ -113,6 +115,9 @@ export function liveDecoration(options: EditorOptions, outline: () => OutlineEnt
       const widget = (pos: number, source: string, inline = false) => {
         ranges.push(Decoration.widget({ widget: new Preview(source, options, inline), side: 1 }).range(pos))
       }
+      // YAML 中的横线可能被增量语法树识别为标题标记。在装饰阶段先划定它的范围。
+      const yamlEnd = doc.line(1).text.trimEnd() === '---' && view.viewport.from < 65_536
+        ? frontMatter(doc.sliceString(0, Math.min(doc.length, 65_536)))?.[0].length ?? 0 : 0
       const tree = syntaxTree(view.state)
       const seen = new Set<string>()
       for (const visible of view.visibleRanges) {
@@ -120,6 +125,7 @@ export function liveDecoration(options: EditorOptions, outline: () => OutlineEnt
           from: visible.from, to: visible.to,
           enter: node => {
             const { from, to, name } = node
+            if (name !== "Document" && to <= yamlEnd) return false
             const key = name + ':' + from + ':' + to
             if (seen.has(key)) return
             seen.add(key)
@@ -134,6 +140,9 @@ export function liveDecoration(options: EditorOptions, outline: () => OutlineEnt
                 addLine(doc.line(n).from, blocks[name])
                 if (name === 'FencedCode' || name === 'CodeBlock') opaqueLines.add(n)
               }
+            }
+            if (inlineTags[name] && from < to) {
+              ranges.push(Decoration.mark({ tagName: inlineTags[name], class: 'live-' + name.toLowerCase() }).range(from, to))
             }
             if (marks[name]) mark(Math.max(from, visible.from), Math.min(to, visible.to), marks[name])
             if (name === 'Link' && doc.sliceString(from, from + 2) === '[^') mark(from, to, 'footnote')
@@ -168,21 +177,13 @@ export function liveDecoration(options: EditorOptions, outline: () => OutlineEnt
               const info = node.node.getChild('CodeInfo')
               if (info) widget(first.to, doc.sliceString(from, to))
             }
-            if (name === 'Image' && to <= first.to && to - from <= 4096 && !reveal) {
+            if ((name === 'Image' || name === 'Emoji') && to <= first.to && to - from <= 4096 && !reveal) {
               ranges.push(Decoration.replace({ widget: new Preview(doc.sliceString(from, to), options, true) }).range(from, to))
               return false
             }
             if (name === 'Table' && first.to >= visible.from && !active(from, to) && to - from <= 16_000) widget(first.to, doc.sliceString(from, to))
           },
         })
-      }
-
-      const opening = doc.line(1).text === '---'
-      let yamlEnd = 0
-      if (opening && view.viewport.from < 65_536) {
-        // YAML 首部限定扫描范围，避免未闭合分隔符拖慢长文档输入。
-        const match = /^---\n[\s\S]*?^(?:---|\.\.\.)[ \t]*$/m.exec(doc.sliceString(0, Math.min(doc.length, 65_536)))
-        if (match?.index === 0) yamlEnd = match[0].length
       }
 
       const scanned = new Set<number>()
@@ -192,14 +193,14 @@ export function liveDecoration(options: EditorOptions, outline: () => OutlineEnt
           if (scanned.has(n) || opaqueLines.has(n)) continue
           scanned.add(n)
           const line = doc.line(n)
-          if (yamlEnd && line.from <= yamlEnd) {
+          if (line.from < yamlEnd) {
             addLine(line.from, 'yaml')
             continue
           }
           if (line.from <= mathEnd || line.length > 8192) continue
           const editing = !view.state.readOnly && active(line.from, line.to)
           if (!editing && /^\s*\[toc\]\s*$/i.test(line.text)) {
-            ranges.push(Decoration.widget({ widget: new Toc(outline, jump, doc), side: 1 }).range(line.to))
+            ranges.push(Decoration.replace({ widget: new Toc(outline, jump, doc) }).range(line.from, line.to))
           }
           if (/^\s*\[\^[^\]]+\]:/.test(line.text)) addLine(line.from, 'footnote')
           if (/^\s*\$\$\s*$/.test(line.text)) {

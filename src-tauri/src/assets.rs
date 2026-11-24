@@ -1,15 +1,29 @@
-use crate::{store::{canonical, err, file_name}, themes::data_uri};
+use crate::{
+    store::{canonical, err, file_name},
+    themes::data_uri,
+};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::Serialize;
-use std::{fs, io::Write, path::{Path, PathBuf}};
+use std::{
+    fs,
+    io::Write,
+    path::{Path, PathBuf},
+};
 
 fn resolved(document: &Path, image: &Path) -> Result<PathBuf, String> {
     let folder = document.parent().ok_or("文档缺少所在目录")?;
-    canonical(&if image.is_absolute() { image.to_owned() } else { folder.join(image) }).map_err(err)
+    canonical(&if image.is_absolute() {
+        image.to_owned()
+    } else {
+        folder.join(image)
+    })
+    .map_err(err)
 }
 
 fn image_mime(path: &Path) -> Option<&'static str> {
-    mime_guess::from_path(path).first_raw().filter(|mime| mime.starts_with("image/"))
+    mime_guess::from_path(path)
+        .first_raw()
+        .filter(|mime| mime.starts_with("image/"))
 }
 
 #[tauri::command]
@@ -18,12 +32,18 @@ pub async fn image_data(document: PathBuf, image: PathBuf) -> Result<String, Str
 }
 
 fn media_copy(document: &Path, name: &str, bytes: &[u8]) -> Result<String, String> {
-    let label = document.file_stem().ok_or("请先保存文档")?.to_string_lossy();
+    let label = document
+        .file_stem()
+        .ok_or("请先保存文档")?
+        .to_string_lossy();
     let folder = document.parent().ok_or("文档缺少所在目录")?;
     let subdir = format!("{label}.assets");
     let assets = folder.join(&subdir);
     fs::create_dir_all(&assets).map_err(err)?;
-    if !canonical(&assets).map_err(err)?.starts_with(canonical(folder).map_err(err)?) {
+    if !canonical(&assets)
+        .map_err(err)?
+        .starts_with(canonical(folder).map_err(err)?)
+    {
         return Err("图片目录指向文档目录之外".into());
     }
     let file = Path::new(name);
@@ -40,7 +60,9 @@ fn media_copy(document: &Path, name: &str, bytes: &[u8]) -> Result<String, Strin
     }
     let name = if dest.symlink_metadata().is_ok() {
         format!("{}-{name}", uuid::Uuid::new_v4().simple())
-    } else { name };
+    } else {
+        name
+    };
     tmp.persist_noclobber(assets.join(&name)).map_err(err)?;
     Ok(format!("{subdir}/{name}"))
 }
@@ -68,23 +90,50 @@ pub async fn image_copy(document: PathBuf, image: PathBuf) -> Result<Relocated, 
 }
 
 #[tauri::command]
-pub async fn image_remove(paths: Vec<PathBuf>) -> Result<(), String> {
+pub async fn image_remove(
+    document: PathBuf,
+    paths: Vec<PathBuf>,
+    references: Vec<PathBuf>,
+) -> Result<(), String> {
     if paths.iter().any(|path| image_mime(path).is_none()) {
         return Err("只能移动图片资源".into());
     }
-    trash::delete_all(paths).map_err(err)
+    let used: std::collections::HashSet<_> = references
+        .iter()
+        .filter_map(|reference| resolved(&document, reference).ok())
+        .collect();
+    trash::delete_all(paths.into_iter().filter(|path| !used.contains(path))).map_err(err)
 }
 
 #[tauri::command]
-pub async fn image_upload(document: PathBuf, image: PathBuf, endpoint: String, http: tauri::State<'_, reqwest::Client>) -> Result<String, String> {
+pub async fn image_upload(
+    document: PathBuf,
+    image: PathBuf,
+    endpoint: String,
+    http: tauri::State<'_, reqwest::Client>,
+) -> Result<String, String> {
     let url = crate::ai::safe_endpoint(&endpoint)?;
     let source = resolved(&document, &image)?;
     let mime = image_mime(&source).ok_or("不支持上传该文件类型")?;
     let bytes = tokio::fs::read(&source).await.map_err(err)?;
-    let part = reqwest::multipart::Part::bytes(bytes).file_name(file_name(&source)).mime_str(mime).map_err(err)?;
-    let data: serde_json::Value = http.post(url).multipart(reqwest::multipart::Form::new().part("file", part))
-        .send().await.map_err(err)?.error_for_status().map_err(err)?.json().await.map_err(err)?;
-    let link = data["url"].as_str().ok_or("接口应返回包含 url 字段的 JSON")?;
+    let part = reqwest::multipart::Part::bytes(bytes)
+        .file_name(file_name(&source))
+        .mime_str(mime)
+        .map_err(err)?;
+    let data: serde_json::Value = http
+        .post(url)
+        .multipart(reqwest::multipart::Form::new().part("file", part))
+        .send()
+        .await
+        .map_err(err)?
+        .error_for_status()
+        .map_err(err)?
+        .json()
+        .await
+        .map_err(err)?;
+    let link = data["url"]
+        .as_str()
+        .ok_or("接口应返回包含 url 字段的 JSON")?;
     let parsed = reqwest::Url::parse(link).map_err(err)?;
     if !matches!(parsed.scheme(), "http" | "https") {
         return Err("上传接口返回了不受支持的图片地址".into());

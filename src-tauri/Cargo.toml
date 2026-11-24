@@ -16,6 +16,7 @@ tempfile = "3"
 blake3 = "1"
 dunce = "1"
 walkdir = "2"
+glob = "0.3"
 trash = "5"
 regex = "1"
 base64 = "0.22"
@@ -30,3 +31,10 @@ keyring = "4.2"
 rmcp = { version = "3.11", features = ["client", "transport-io", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest"] }
 tungstenite = "0.29"
 url = "2"
+
+[features]
+qa = ["dep:objc2", "dep:objc2-foundation"]
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { version = "0.6", optional = true }
+objc2-foundation = { version = "0.3", features = ["NSRange", "NSString"], optional = true }

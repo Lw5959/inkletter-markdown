@@ -18,5 +18,10 @@ pub async fn settings_save(settings: Value, store: State<'_, Store>) -> Result<(
 
 #[tauri::command]
 pub async fn launch_paths(paths: State<'_, LaunchPaths>) -> Result<Vec<PathBuf>, String> {
-    Ok(paths.0.lock().map_err(crate::store::err)?.drain(..).collect())
+    Ok(paths
+        .0
+        .lock()
+        .map_err(crate::store::err)?
+        .drain(..)
+        .collect())
 }

@@ -46,7 +46,7 @@ export async function print(markdown: string, options: RenderOptions, theme: The
   stage.id = 'page-print'
   stage.className = 'document-theme typora-export'
   const style = document.createElement('style')
-  style.textContent = documentStyles + (theme?.styles ?? []).join('\n')
+  style.textContent = '@media print {\n' + documentStyles + (theme?.styles ?? []).join('\n') + '\n}'
   const body = document.createElement('article')
   body.id = 'write'
   body.innerHTML = await renderMarkdown(markdown, options)

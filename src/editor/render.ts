@@ -2,10 +2,14 @@ import MarkdownIt from 'markdown-it'
 import type { Token } from 'markdown-it'
 import footnote from 'markdown-it-footnote'
 import tasks from 'markdown-it-task-lists'
+import mark from 'markdown-it-mark'
+import subscript from 'markdown-it-sub'
+import superscript from 'markdown-it-sup'
+import { light as emoji } from 'markdown-it-emoji'
 import type { RenderOptions } from '../contracts'
-
-const yaml = /^---[ \t]*\n([\s\S]*?)^(?:---|\.\.\.)[ \t]*(?:\n|$)/m
-const parser = () => new MarkdownIt({ html: true, linkify: false }).use(footnote).use(tasks)
+import { frontMatter } from './front-matter'
+const parser = () => new MarkdownIt({ html: true, linkify: true })
+  .use(footnote).use(tasks).use(mark).use(subscript).use(superscript).use(emoji)
 
 const inlineParser = new MarkdownIt()
 const textFromTokens = (tokens: readonly Token[]): string => tokens.map(token =>
@@ -27,6 +31,7 @@ export function safeUrl(url: string, image = false) {
   // 与 HTML 清理共享白名单。Tauri 解析出的本机图片可以使用 asset 协议。
   const normalized = url.replace(/[\u0000-\u0020\u007f]/g, '')
   const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(normalized)?.[1].toLowerCase()
+  if (image && scheme === 'data') return /^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+$/i.test(normalized)
   return !scheme || (image ? ['http', 'https', 'asset', 'blob'] : ['http', 'https', 'mailto']).includes(scheme)
 }
 
@@ -35,13 +40,16 @@ export async function renderMarkdown(markdown: string, options: RenderOptions = 
   const md = parser()
   const escape = md.utils.escapeHtml
   md.renderer.rules.html_block = (tokens, index) => '<pre>' + escape(tokens[index].content) + '</pre>'
-  md.renderer.rules.html_inline = (tokens, index) => /^<\/?u>$/i.test(tokens[index].content)
-    ? tokens[index].content.toLowerCase() : escape(tokens[index].content)
+  md.renderer.rules.html_inline = (tokens, index) => {
+    const html = tokens[index].content
+    if (/^<input class="task-list-item-checkbox" (?:checked="" )?disabled="" type="checkbox">$/.test(html)) return html
+    return /^<\/?u>$/i.test(html) ? html.toLowerCase() : escape(html)
+  }
   let source = markdown.replace(/\r\n?/g, '\n')
-  const front = yaml.exec(source)
+  const front = frontMatter(source)
   let metadata = ''
   if (front?.index === 0) {
-    metadata = '<pre class="yaml-frontmatter"><code>' + escape(front[1]) + '</code></pre>\n'
+    metadata = '<pre class="yaml-frontmatter"><code>' + escape(front[1] ?? '') + '</code></pre>\n'
     source = source.slice(front[0].length)
   }
   if (source.includes('$') || source.includes('\\') || /\x60{3,}math/.test(source)) {
@@ -99,7 +107,8 @@ export async function renderMarkdown(markdown: string, options: RenderOptions = 
   const paragraph = md.renderer.rules.paragraph_open
   md.renderer.rules.paragraph_open = (items, index, opts, env, self) => {
     if (items[index + 1]?.content.trim().toUpperCase() === '[TOC]') {
-      items[index + 1].hidden = items[index + 2].hidden = true
+      items[index + 1].children = []
+      items[index + 2].hidden = true
       return '<nav class="markdown-toc"><ul>' + headings.map(({ id, title, tag }) =>
         '<li class="toc-' + tag + '"><a href="#' + id + '">' + escape(title) + '</a></li>').join('') + '</ul></nav>'
     }
@@ -108,7 +117,7 @@ export async function renderMarkdown(markdown: string, options: RenderOptions = 
   await Promise.all(jobs)
   // SVG 白名单排除链接、外部资源和脚本。MathML 独立保留 KaTeX 的语义结构。
   return clean(metadata + md.renderer.render(tokens, md.options, env), {
-    allowedTags: [...clean.defaults.allowedTags, 'img', 'input', 'eq', 'eqn', 'math', 'semantics', 'annotation', 'mrow', 'mi', 'mn', 'mo', 'mtext', 'ms', 'mspace',
+    allowedTags: [...clean.defaults.allowedTags, 'img', 'input', 'mark', 'sup', 'sub', 'eq', 'eqn', 'math', 'semantics', 'annotation', 'mrow', 'mi', 'mn', 'mo', 'mtext', 'ms', 'mspace',
       'msup', 'msub', 'msubsup', 'mfrac', 'msqrt', 'mroot', 'mstyle', 'mover', 'munder', 'munderover', 'mtable', 'mtr', 'mtd', 'mpadded', 'mphantom', 'menclose',
       'svg', 'g', 'defs', 'marker', 'path', 'line', 'polyline', 'polygon', 'rect', 'circle', 'ellipse', 'text', 'tspan', 'title', 'desc'],
     allowedAttributes: {
@@ -124,8 +133,12 @@ export async function renderMarkdown(markdown: string, options: RenderOptions = 
     },
     parser: { lowerCaseTags: false, lowerCaseAttributeNames: false },
     allowedSchemes: ['http', 'https', 'mailto'],
-    allowedSchemesByTag: { img: ['http', 'https', 'asset', 'blob'] },
+    allowedSchemesByTag: { img: ['http', 'https', 'asset', 'blob', 'data'] },
     transformTags: {
+      img: (tagName, attrs) => {
+        const { src, ...rest } = attrs
+        return { tagName, attribs: src && safeUrl(src, true) ? attrs : rest }
+      },
       input: (_tag, attrs) => ({ tagName: 'input', attribs: { type: 'checkbox', disabled: '', ...('checked' in attrs ? { checked: '' } : {}) } }),
       path: (name, attrs) => diagramShape(name, attrs, attrs.d ? 'none' : '#eef3ef'),
       line: (name, attrs) => diagramShape(name, attrs, 'none'),

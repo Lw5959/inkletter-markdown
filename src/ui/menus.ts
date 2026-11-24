@@ -241,6 +241,9 @@ export class MenuBar {
         { kind: 'item', label: '加粗', shortcutId: 'format.bold', onSelect: () => dispatchFormat('bold') },
         { kind: 'item', label: '斜体', shortcutId: 'format.italic', onSelect: () => dispatchFormat('italic') },
         { kind: 'item', label: '下划线', shortcutId: 'format.underline', onSelect: () => dispatchFormat('underline') },
+        { kind: 'item', label: '高亮', onSelect: () => dispatchFormat('highlight') },
+        { kind: 'item', label: '上标', onSelect: () => dispatchFormat('superscript') },
+        { kind: 'item', label: '下标', onSelect: () => dispatchFormat('subscript') },
         { kind: 'item', label: '删除线', shortcutId: 'format.strike', onSelect: () => dispatchFormat('strike') },
         { kind: 'item', label: '行内代码', shortcutId: 'format.inlineCode', onSelect: () => dispatchFormat('inline-code') },
         { kind: 'item', label: '插入链接', shortcutId: 'format.link', onSelect: () => dispatchFormat('link') },
@@ -365,6 +368,21 @@ export class MenuBar {
         onSelect: () => togglePres('readonly'),
       },
       { kind: 'separator' },
+      {
+        kind: 'submenu', label: '文件树筛选', items: [
+          { kind: 'item', label: '显示隐藏项', checked: state.workspaceFilter?.hidden ?? false, onSelect: () => this.ctx.dispatch({ type: 'workspace-filter', option: 'hidden' }) },
+          { kind: 'item', label: '显示非 Markdown 项', checked: state.workspaceFilter?.all ?? false, onSelect: () => this.ctx.dispatch({ type: 'workspace-filter', option: 'all' }) },
+          { kind: 'item', label: '设置路径规则…', checked: !!state.workspaceFilter?.glob, onSelect: () => this.ctx.dispatch({ type: 'workspace-filter', option: 'glob' }) },
+        ],
+      },
+      {
+        kind: 'submenu', label: '缩放', items: [
+          { kind: 'item', label: '放大', onSelect: () => this.ctx.dispatch({ type: 'window-view', operation: 'zoom-in' }) },
+          { kind: 'item', label: '缩小', onSelect: () => this.ctx.dispatch({ type: 'window-view', operation: 'zoom-out' }) },
+          { kind: 'item', label: '实际大小', onSelect: () => this.ctx.dispatch({ type: 'window-view', operation: 'zoom-default' }) },
+        ],
+      },
+      { kind: 'item', label: '切换全屏', onSelect: () => this.ctx.dispatch({ type: 'window-view', operation: 'fullscreen' }) },
       { kind: 'submenu', label: '文档主题', items: themeItems },
       { kind: 'item', label: '导入主题 CSS…', onSelect: () => this.ctx.dispatch({ type: 'theme-import' }) },
     ]

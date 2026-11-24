@@ -6,7 +6,7 @@ export type FileSnapshot = { path: string; text: string; bom: boolean; version: 
 export type Recovery = Selection & { path: string | null; text: string; bom: boolean; title: string; baseVersion: string | null; mode: EditorMode }
 export type Preferences = {
   autosave: boolean; theme: string; workspace: string | null; mcp: McpServer[];
-  hidden: boolean; allFiles: boolean; remoteImages: boolean; uploadEndpoint: string; recent: string[];
+  hidden: boolean; allFiles: boolean; fileGlob: string; zoom: number; remoteImages: boolean; uploadEndpoint: string; recent: string[];
 }
 export type McpProposal = { id: string; workspace: string; path: string; version: string; from: number; to: number; replacement: string; summary: string; created: number }
 export type LocalMcp = { allowed: boolean; command: string }

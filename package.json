@@ -26,7 +26,11 @@
     "highlight.js": "^11.12.0",
     "katex": "^0.19.1",
     "markdown-it": "^15.0.3",
+    "markdown-it-emoji": "^3.1.0",
     "markdown-it-footnote": "^4.0.0",
+    "markdown-it-mark": "^4.0.0",
+    "markdown-it-sub": "^2.0.0",
+    "markdown-it-sup": "^2.0.0",
     "markdown-it-task-lists": "^2.1.1",
     "markdown-it-texmath": "^1.0.0",
     "mermaid": "^12.3.0",
@@ -36,6 +40,7 @@
     "sanitize-html": "^2.18.2"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@tauri-apps/cli": "^2",
     "@types/node": "^24",
     "@types/sanitize-html": "^2.16.2",
