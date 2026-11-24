@@ -74,6 +74,14 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     const paper = page.locator('.document-theme')
     expect(await paper.evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(24, 26, 32)')
     expect(await page.locator('html').getAttribute('data-yeyu-appearance')).toBe('dark')
+    const scrollbar = () => paper.evaluate(element => ({
+      width: getComputedStyle(element, '::-webkit-scrollbar').width,
+      track: getComputedStyle(element, '::-webkit-scrollbar-track').backgroundColor,
+      thumb: getComputedStyle(element, '::-webkit-scrollbar-thumb').backgroundColor,
+    }))
+    const darkBar = await scrollbar()
+    expect(darkBar.width).toBe('8px')
+    expect(darkBar.track).toBe('rgba(0, 0, 0, 0)')
     await page.locator('[data-toggle="ai"]').click()
     const chrome = await page.locator('.yy-shell').evaluate(element => {
       const fields = ['.yy-topbar', '.yy-left-panel', '.yy-right-panel', '.yy-statusbar']
@@ -90,6 +98,9 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     await page.getByRole('menuitemradio', { name: '默认', exact: true }).click()
     expect(await page.evaluate(() => (window as unknown as Record<string, any>).__test.actions.at(-1))).toEqual({ type: 'theme', id: 'default' })
     await page.evaluate(() => (window as unknown as Record<string, any>).__test.shell.setThemes([], 'default'))
+    const lightBar = await scrollbar()
+    expect(lightBar.thumb).not.toBe(darkBar.thumb)
+    expect(lightBar.track).toBe(darkBar.track)
     expect(await page.evaluate(() => (window as unknown as Record<string, any>).__test.nativeThemes)).toEqual(['dark', null])
     expect(await page.locator('html').getAttribute('data-yeyu-appearance')).toBe('light')
     expect(await page.locator('.yy-left-panel').evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(255, 255, 255)')
