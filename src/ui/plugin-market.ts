@@ -2,6 +2,8 @@ import type { MarketPlugin, PluginCatalog, PluginMarketPort } from '../contracts
 import { el } from './helpers'
 import { icons } from './icons'
 
+type MarketChannel = 'online' | 'bundled'
+
 export function createPluginMarket(port: PluginMarketPort, manage: () => void) {
   const panel = el('div', { className: 'yy-modal-body yy-plugin-body yy-plugin-market', attrs: { hidden: '' } })
   const search = el('input', {
@@ -21,35 +23,48 @@ export function createPluginMarket(port: PluginMarketPort, manage: () => void) {
     className: 'yy-input', type: 'url',
     attrs: { 'aria-label': '市场目录地址', placeholder: 'https://…/index.json', required: '' },
   })
-  const useBuiltin = el('button', { className: 'yy-btn', type: 'button', text: '使用内置市场' })
+  const useOfficial = el('button', { className: 'yy-btn', type: 'button', text: '恢复官方市场' })
   const saveSource = el('button', { className: 'yy-btn yy-btn-primary', type: 'submit', text: '连接' })
   const sourceButtons = el('div', { className: 'yy-plugin-controls' })
-  sourceButtons.append(useBuiltin, saveSource)
+  sourceButtons.append(useOfficial, saveSource)
   sourceForm.append(address, sourceButtons)
 
   const sourceName = el('p', { className: 'yy-plugin-note yy-market-source-name', attrs: { hidden: '' } })
+  const onlineTab = el('button', { className: 'yy-mode-btn', type: 'button', text: '在线市场' })
+  const bundledTab = el('button', { className: 'yy-mode-btn', type: 'button', text: '内置插件' })
+  const channels = el('div', { className: 'yy-mode-pill', attrs: { role: 'group', 'aria-label': '插件来源' } })
+  channels.append(onlineTab, bundledTab)
+  const channelBar = el('div', { className: 'yy-market-channels' })
+  channelBar.append(channels, sourceName)
   const status = el('p', { className: 'yy-plugin-note', attrs: { role: 'status', hidden: '' } })
   const error = el('p', { className: 'yy-plugin-error', attrs: { role: 'alert', hidden: '' } })
   const list = el('div', { className: 'yy-plugin-list' })
-  panel.append(toolbar, sourceForm, sourceName, status, error, list)
+  panel.append(channelBar, toolbar, sourceForm, status, error, list)
 
   let catalog: PluginCatalog | undefined
+  let channel: MarketChannel = 'online'
+  let loading = false
+  let loadSequence = 0
   let busy = false
 
   function render() {
-    for (const control of [refresh, settings, address, useBuiltin, saveSource]) control.disabled = busy
+    for (const control of [refresh, settings, address, useOfficial, saveSource]) control.disabled = busy || loading
+    for (const [tab, selected] of [[onlineTab, channel === 'online'], [bundledTab, channel === 'bundled']] as const) {
+      tab.disabled = busy
+      tab.classList.toggle('is-active', selected)
+      tab.setAttribute('aria-pressed', String(selected))
+    }
+    sourceName.hidden = !catalog?.source
+    if (catalog?.source) sourceName.textContent = catalog.name + ' · ' + new URL(catalog.source).host
     list.replaceChildren()
     if (!catalog) return
-    const name = catalog.source ? catalog.name + ' · ' + new URL(catalog.source).host : catalog.name
-    sourceName.textContent = name
-    sourceName.hidden = false
     const words = search.value.trim().toLowerCase().split(/\s+/)
     const matches = catalog.plugins.filter(plugin => {
       const details = [plugin.name, plugin.description, plugin.author, plugin.id].join(' ').toLowerCase()
       return words.every(word => details.includes(word))
     })
     for (const plugin of matches) {
-      list.append(pluginCard(plugin, busy, async () => {
+      list.append(pluginCard(plugin, busy || loading, async () => {
         if (plugin.availability === 'installed') {
           manage()
           return
@@ -74,11 +89,49 @@ export function createPluginMarket(port: PluginMarketPort, manage: () => void) {
     }
   }
 
+  async function browse(next: MarketChannel, refresh = false, offlineReason = ''): Promise<void> {
+    if (busy || (loading && next === channel)) return
+    const request = ++loadSequence
+    if (next !== channel) catalog = undefined
+    channel = next
+    loading = true
+    error.hidden = true
+    status.title = ''
+    status.textContent = next === 'online' ? '正在连接在线市场…' : '正在载入内置插件…'
+    status.hidden = false
+    render()
+    try {
+      const result = await (next === 'online' ? port.load(undefined, refresh) : port.bundled())
+      // 用户切到内置插件后，迟到的在线响应不得替换当前目录。
+      if (request !== loadSequence) return
+      catalog = result
+      status.textContent = offlineReason ? '暂时无法连接在线市场，已显示内置插件。' : ''
+      status.title = offlineReason
+      status.hidden = !offlineReason
+    } catch (failure) {
+      if (request !== loadSequence) return
+      const message = failure instanceof Error ? failure.message : String(failure)
+      if (next === 'online') {
+        await browse('bundled', false, message)
+        return
+      }
+      error.textContent = message
+      error.hidden = false
+      status.hidden = true
+    } finally {
+      if (request === loadSequence) {
+        loading = false
+        render()
+      }
+    }
+  }
+
   async function run(message: string, task: () => Promise<PluginCatalog>, success = '') {
-    if (busy) return false
+    if (busy || loading) return false
     busy = true
     error.hidden = true
     status.textContent = message
+    status.title = ''
     status.hidden = false
     render()
     try {
@@ -109,18 +162,25 @@ export function createPluginMarket(port: PluginMarketPort, manage: () => void) {
   }
 
   async function connect(value: string) {
-    if (await run('正在载入市场…', () => port.load(value, true)) && panel.isConnected && !panel.hidden) showSource(false)
+    const connected = await run('正在连接在线市场…', async () => {
+      const result = await port.load(value, true)
+      channel = 'online'
+      return result
+    })
+    if (connected && panel.isConnected && !panel.hidden) showSource(false)
   }
 
   search.addEventListener('input', render)
-  refresh.addEventListener('click', () => { void run('正在刷新市场…', () => port.load(undefined, true)) })
+  onlineTab.addEventListener('click', () => { void browse('online') })
+  bundledTab.addEventListener('click', () => { void browse('bundled') })
+  refresh.addEventListener('click', () => { void browse(channel, true) })
   settings.addEventListener('click', () => showSource(sourceForm.hasAttribute('hidden')))
-  useBuiltin.addEventListener('click', () => { void connect('') })
+  useOfficial.addEventListener('click', () => { void connect(port.official) })
   sourceForm.addEventListener('submit', event => {
     event.preventDefault()
     void connect(address.value.trim())
   })
-  return { panel, search, show: () => { void run('正在载入市场…', () => port.load()) } }
+  return { panel, search, show: () => { void browse(channel) } }
 }
 
 function iconButton(label: string, svg: string) {

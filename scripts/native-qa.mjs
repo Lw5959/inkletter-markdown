@@ -57,6 +57,7 @@ const setup = {
   themes: [...themes, { path: customTheme, name: '相对资源与级联夹具' }],
   typora: process.env.YEYU_TEST_TYPORA ? JSON.parse(process.env.YEYU_TEST_TYPORA) : undefined,
   typoraConfig: process.env.YEYU_TEST_TYPORA_CONFIG === '1',
+  publicMarket: process.env.YEYU_TEST_PUBLIC_MARKET,
   model: process.env.YEYU_TEST_MODEL_URL ? { endpoint: process.env.YEYU_TEST_MODEL_URL, name: process.env.YEYU_TEST_MODEL ?? 'yeyu-qwen' } : undefined,
 }
 const logfile = (phase) => join(folder, phase + '.log')
@@ -105,8 +106,11 @@ async function serveMcp() {
   const packagePath = JSON.parse(marketIndex).plugins[0].download
   const marketPackage = readFileSync(join(marketRoot, packagePath))
   let damageOnce = true
+  let marketReads = 0
   const http = createServer(async (request, response) => {
     if (request.method === 'GET' && request.url === '/market/index.json') {
+      // 第二次请求挂起，让桌面验收覆盖在线目录未返回时的内置安装。
+      if (++marketReads === 2) await delay(8_000)
       response.writeHead(200, { 'Content-Type': 'application/json' }).end(marketIndex)
       return
     }

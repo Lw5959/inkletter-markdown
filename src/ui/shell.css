@@ -1824,6 +1824,14 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
   padding: 10px 16px 0;
 }
 
+.yy-shell .yy-market-channels {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .yy-shell .yy-market-tools {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;

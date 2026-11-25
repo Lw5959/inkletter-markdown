@@ -23,6 +23,7 @@ type Case = {
   mcp: string
   picgo?: string
   market?: string
+  publicMarket?: string
   plugin: string
   updatedPlugin: string
 }
@@ -474,7 +475,7 @@ async function verifyFull(ports: Ports, scenario: Case) {
   check((await invoke<PluginInfo[]>('plugin_list')).length === 0, '卸载后清除插件登记')
   pluginPage.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click()
   result.plugins = { install: true, hotUpdate: true, reviewAndUndo: true, disableAndRemove: true }
-  if (scenario.market) result.pluginMarket = await verifyPluginMarket(ports, scenario.market)
+  if (scenario.market) result.pluginMarket = await verifyPluginMarket(ports, scenario.market, scenario.publicMarket)
 
   await ports.action({ type: 'mcp-authorize', allow: true })
   ports.editor.select({ anchor: offset, head: offset + 4 })
@@ -532,13 +533,28 @@ async function verifyFull(ports: Ports, scenario: Case) {
   await mark('crash-ready', { ...result, recoveryText: ports.text() })
 }
 
-async function verifyPluginMarket(ports: Ports, source: string) {
+async function verifyPluginMarket(ports: Ports, source: string, publicMarket?: string) {
   document.querySelector<HTMLButtonElement>('[data-menu="edit"]')!.click()
   button(document.querySelector('.yy-menu-popover')!, '插件市场…').click()
   const dialog = document.querySelector<HTMLElement>('.yy-plugin-manager')!
   const panel = dialog.querySelector<HTMLElement>('.yy-plugin-market')!
   const query = panel.querySelector<HTMLInputElement>('[aria-label="搜索插件"]')!
   const find = (id: string) => panel.querySelector<HTMLButtonElement>(`[data-market-plugin="${id}"]`)
+  if (publicMarket) {
+    const expectedHost = new URL(publicMarket).host
+    const online = () => panel.querySelector('.yy-market-source-name')?.textContent?.includes(expectedHost) === true
+    const marketStatus = panel.querySelector<HTMLElement>('[role="status"]')!
+    await until(() => online() || !!marketStatus.title, 22_000)
+    check(online(), '首次打开连接公网目录 ' + marketStatus.title)
+    const settings = panel.querySelector<HTMLButtonElement>('[aria-label="市场源"]')!
+    settings.click()
+    check(panel.querySelector<HTMLInputElement>('input[type="url"]')?.value === publicMarket, '首次打开自动连接公网目录')
+    settings.click()
+    find('yeyu.heading-levels')!.click()
+    await until(() => find('yeyu.heading-levels')?.textContent === '已安装')
+    await ports.action({ type: 'plugin-remove', id: 'yeyu.heading-levels' })
+  }
+  button(panel, '内置插件').click()
   await until(() => !!find('yeyu.heading-levels'))
   check(panel.querySelectorAll('.yy-market-card').length === 3, '内置市场提供三款插件')
   query.value = '任务'
@@ -590,12 +606,26 @@ async function verifyPluginMarket(ports: Ports, source: string) {
   await until(() => !!button(market, '已安装'))
   const updated = await installedTrim()
   check(updated?.version === '1.0.1' && updated.enabled, '市场热更新保留启用状态')
-  sourceToggle.click()
-  button(form, '使用内置市场').click()
-  await until(() => !!market.querySelector('[data-market-plugin="yeyu.heading-levels"]'))
-  check((await native.preferences())?.pluginMarketSource === '', '可切回内置市场')
+  await ports.action({ type: 'plugin-remove', id: 'yeyu.heading-levels' })
+  market.querySelector<HTMLButtonElement>('[aria-label="刷新市场"]')!.click()
+  check(market.querySelector('[role="status"]')?.textContent?.includes('正在连接在线市场'), '正在刷新已经配置的在线市场')
+  button(market, '内置插件').click()
+  const bundled = () => market.querySelector<HTMLButtonElement>('[data-market-plugin="yeyu.heading-levels"]')
+  await until(() => bundled()?.textContent === '安装' && !bundled()?.disabled, 3_000)
+  bundled()!.click()
+  await until(() => bundled()?.textContent === '已安装', 3_000)
+  check((await native.preferences())?.pluginMarketSource === source, '内置插件独立于加载中的在线目录，保留自定义源')
+  if (publicMarket) {
+    sourceToggle.click()
+    button(form, '恢复官方市场').click()
+    await until(() => market.querySelector('.yy-market-source-name')?.textContent?.includes(new URL(publicMarket).host) === true, 22_000)
+    check((await native.preferences())?.pluginMarketSource === '', '恢复官方市场清除自定义源')
+  }
   management.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click()
-  return { bundled: 3, search: true, installed: true, reviewAndUndo: true, checksum: true, hotUpdate: true }
+  return {
+    bundled: 3, search: true, installed: true, reviewAndUndo: true, checksum: true,
+    hotUpdate: true, bundledDuringOnlineLoad: true, publicMarket: publicMarket ?? null,
+  }
 }
 
 export async function runNativeQa(ports: Ports) {

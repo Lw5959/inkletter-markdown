@@ -69,7 +69,9 @@ export type MarketPlugin = {
 }
 export type PluginCatalog = { name: string; source: string | null; plugins: MarketPlugin[] }
 export type PluginMarketPort = {
+  official: string
   source(): string
+  bundled(): Promise<PluginCatalog>
   load(source?: string, refresh?: boolean): Promise<PluginCatalog>
   install(source: string | null, plugin: MarketPlugin): Promise<PluginCatalog>
 }

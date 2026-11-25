@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeSet, HashMap},
+    sync::Arc,
     time::Duration,
 };
 use tauri::State;
@@ -22,8 +23,17 @@ const BUNDLED: &[&[u8]] = &[
     include_bytes!("../../../examples/plugins/heading-levels.yeyu-plugin.json"),
 ];
 
+type CatalogCache = Arc<Mutex<Option<Catalog>>>;
+
 #[derive(Default)]
-pub struct Market(Mutex<Option<Catalog>>);
+pub struct Market(Mutex<HashMap<Url, CatalogCache>>);
+
+impl Market {
+    async fn cache(&self, url: &Url) -> CatalogCache {
+        // 同一个源共享目录，不同源的网络请求可以独立完成。
+        self.0.lock().await.entry(url.clone()).or_default().clone()
+    }
+}
 
 #[derive(Clone, Deserialize, Serialize)]
 struct Details {
@@ -287,21 +297,16 @@ pub async fn plugin_market_list(
     plugins: State<'_, Plugins>,
     http: State<'_, Client>,
 ) -> Result<CatalogView, String> {
-    let source = source.as_deref().map(safe_endpoint).transpose()?;
-    let mut catalog = market.0.lock().await;
-    if refresh
-        || catalog
-            .as_ref()
-            .is_none_or(|loaded| loaded.source != source)
-    {
-        let next = match source {
-            None => Catalog::bundled()?,
-            Some(url) => {
-                let bytes = download(&http, url.clone(), MAX_INDEX, "市场目录").await?;
-                Catalog::remote(url, &bytes)?
-            }
-        };
-        *catalog = Some(next);
+    // 隔离内置目录与远程下载，在线市场超时时也能立即浏览和安装内置插件。
+    let Some(source) = source else {
+        return Ok(Catalog::bundled()?.view(&list(&store, &plugins)?));
+    };
+    let source = safe_endpoint(&source)?;
+    let cache = market.cache(&source).await;
+    let mut catalog = cache.lock().await;
+    if refresh || catalog.is_none() {
+        let bytes = download(&http, source.clone(), MAX_INDEX, "市场目录").await?;
+        *catalog = Some(Catalog::remote(source, &bytes)?);
     }
     let installed = list(&store, &plugins)?;
     Ok(catalog.as_ref().expect("已加载市场目录").view(&installed))
@@ -317,12 +322,21 @@ pub async fn plugin_market_install(
     plugins: State<'_, Plugins>,
     http: State<'_, Client>,
 ) -> Result<InstallResult, String> {
-    let source = source.as_deref().map(safe_endpoint).transpose()?;
-    let snapshot = market.0.lock().await;
-    let catalog = snapshot
-        .as_ref()
-        .filter(|catalog| catalog.source == source)
-        .ok_or("市场目录已变动，请刷新后重试")?;
+    let bundled;
+    let cache;
+    let snapshot;
+    let catalog = match source {
+        None => {
+            bundled = Catalog::bundled()?;
+            &bundled
+        }
+        Some(source) => {
+            let source = safe_endpoint(&source)?;
+            cache = market.cache(&source).await;
+            snapshot = cache.lock().await;
+            snapshot.as_ref().ok_or("市场目录已变动，请刷新后重试")?
+        }
+    };
     // 使用用户看到的那一版目录项，避免刷新后按同一个 ID 装入其他包。
     let offer = catalog
         .offers

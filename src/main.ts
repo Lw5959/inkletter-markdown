@@ -22,6 +22,7 @@ import { bind, chooseHunks, relocate, suggestion } from './suggestions'
 
 const markdownFilter = { name: 'Markdown', extensions: ['md', 'markdown', 'mdown', 'mkd', 'mkdn', 'mdwn', 'mdtxt', 'mdtext', 'text', 'txt', 'rmd', 'qmd', 'mdx'] }
 const imageFilter = { name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif', 'tiff', 'heic', 'ico'] }
+const officialPluginMarket = 'https://lw5959.github.io/yeyu-plugin-market/index.json'
 const defaults: Preferences = {
   autosave: true, theme: 'default', typoraThemes: {}, workspace: null, mcp: [],
   hidden: false, allFiles: false, fileGlob: '', zoom: 1, remoteImages: false, uploadEndpoint: '', recent: [],
@@ -75,7 +76,9 @@ const macTitlebar = detectMac()
 const shell = mountShell(document.querySelector<HTMLElement>('#app')!, {
   dispatch: act,
   pluginMarket: {
-    source: () => settings.pluginMarketSource,
+    official: officialPluginMarket,
+    source: pluginMarketSource,
+    bundled: () => invoke<PluginCatalog>('plugin_market_list', { source: null, refresh: false }),
     load: loadPluginMarket,
     install: installMarketPlugin,
   },
@@ -551,14 +554,19 @@ async function installPlugin(path: string) {
   return entries
 }
 
+function pluginMarketSource() {
+  return settings.pluginMarketSource.trim() || officialPluginMarket
+}
+
 async function loadPluginMarket(source?: string, refresh = false) {
   if (!loaded) throw new Error('正在载入应用，请稍后重试')
+  const url = source?.trim() || pluginMarketSource()
   const catalog = await invoke<PluginCatalog>('plugin_market_list', {
-    source: (source ?? settings.pluginMarketSource).trim() || null, refresh,
+    source: url, refresh,
   })
   if (source !== undefined) {
     const previous = settings.pluginMarketSource
-    settings.pluginMarketSource = catalog.source ?? ''
+    settings.pluginMarketSource = catalog.source === officialPluginMarket ? '' : catalog.source ?? ''
     try {
       await persist()
     } catch (error) {

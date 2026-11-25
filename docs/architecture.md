@@ -5,4 +5,4 @@
 - `src/ui/index.ts` 导出 `mountShell(root, actions)`。界面通过 `shell.editorHost` 暴露可编辑的挂载点，保留 `#write` 和 `.document-theme` 文档样式作用域。主题、AI 差异和 MCP 由协调层推送结构化状态。窗口级快捷键由界面层统一管理。
 - `src/main.ts` 协调文件、编辑状态和视图。它在防抖后读取原文和选区，并将统计任务发送给 Worker。原生命令位于 `src-tauri/src/`。
 - Tauri 注册文件、导出、主题、AI 和 MCP 命令。导出与编辑区共享文档基础样式。主题资源经原生层读取，CSS 在协调层解析相对路径和作用域。
-- `src/ui/plugin-market.ts` 展示目录和安装状态，`src-tauri/src/plugins/market.rs` 读取内置及远程目录，核对下载包后复用插件安装记录和 Wasm 宿主。`examples/plugins/` 提供可离线安装的示例包与源码。
+- `src/ui/plugin-market.ts` 展示在线市场、内置插件和安装状态。`src-tauri/src/plugins/market.rs` 核对下载包后复用插件安装记录和 Wasm 宿主。线上目录默认来自 GitHub Pages，内置安装直接读取安装包中的资源，因此在线请求挂起时仍可使用。`examples/plugins/` 提供示例包和源码。
