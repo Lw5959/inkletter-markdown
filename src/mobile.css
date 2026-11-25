@@ -9,6 +9,8 @@
 
 .yy-shell.yy-mobile {
   display: grid;
+  /* 文件名、代码和表格的固有宽度不能撑开页面列。 */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto;
   color: var(--yy-ink);
   background: var(--yy-chrome-bg);
@@ -16,9 +18,10 @@
 
 .yy-mobile-header, .yy-mobile-footer {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
-  gap: 8px;
+  gap: 4px 8px;
   padding: 6px clamp(10px, 3vw, 26px);
   padding-left: calc(var(--yy-safe-left) + clamp(10px, 3vw, 26px));
   padding-right: calc(var(--yy-safe-right) + clamp(10px, 3vw, 26px));
@@ -27,7 +30,7 @@
 
 .yy-mobile-header { border-bottom: 1px solid var(--yy-border); padding-top: calc(6px + var(--yy-safe-top)); }
 .yy-mobile-footer { border-top: 1px solid var(--yy-border); padding-bottom: calc(6px + var(--yy-safe-bottom)); }
-.yy-mobile-heading { min-width: 0; }
+.yy-mobile-heading { flex: 1 1 3rem; min-width: 0; }
 .yy-mobile-title, .yy-mobile-detail {
   margin: 0;
   overflow: hidden;
@@ -36,7 +39,15 @@
 }
 .yy-mobile-title { font-size: 16px; font-weight: 620; line-height: 1.35; }
 .yy-mobile-detail { color: var(--yy-ink-muted); font-size: 12px; line-height: 1.4; }
-.yy-mobile-tools, .yy-mobile-modes { display: flex; align-items: center; flex-shrink: 0; gap: 2px; }
+.yy-mobile-tools, .yy-mobile-modes {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  max-width: 100%;
+  gap: 2px;
+}
+.yy-mobile-tools { margin-inline-start: auto; justify-content: flex-end; }
 .yy-mobile-modes { padding: 2px; border-radius: 12px; background: var(--yy-chrome-subtle); }
 .yy-mobile-icon, .yy-mobile-mode {
   min-width: 44px;
@@ -59,17 +70,21 @@
   .yy-mobile-sheet :is(.yy-mobile-row, .yy-mobile-icon):hover { background: var(--yy-accent-soft); }
 }
 .yy-mobile :is(.yy-mobile-icon, .yy-mobile-mode):active, .yy-mobile-sheet button:active { background: var(--yy-accent-soft-pressed); }
-.yy-mobile-mode { min-width: 62px; }
+.yy-mobile-mode { min-width: 62px; white-space: nowrap; }
 .yy-mobile-mode[aria-pressed="true"] {
   color: var(--yy-ink);
   background: var(--yy-chrome-elevated);
   box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
   font-weight: 620;
 }
-.yy-mobile-stage { position: relative; min-height: 0; }
+.yy-mobile-stage { position: relative; min-width: 0; min-height: 0; }
 .yy-shell.yy-mobile .yy-paper { height: 100%; overflow: auto; overscroll-behavior: contain; }
-.yy-shell.yy-mobile .yy-findbar { right: max(8px, var(--yy-safe-right)); width: min(440px, calc(100% - 16px)); }
-.yy-shell.yy-mobile .yy-find-input { min-width: 4em; }
+.yy-shell.yy-mobile .yy-findbar {
+  right: calc(var(--yy-safe-right) + 8px);
+  width: min(440px, calc(100% - var(--yy-safe-left) - var(--yy-safe-right) - 16px));
+}
+.yy-shell.yy-mobile .yy-find-row { flex-wrap: wrap; }
+.yy-shell.yy-mobile .yy-find-input { flex: 1 1 7em; min-width: 0; }
 .yy-shell.yy-mobile #write {
   padding-block: clamp(14px, 4vh, 30px) 55px;
   padding-left: calc(var(--yy-safe-left) + clamp(18px, 5vw, 40px));

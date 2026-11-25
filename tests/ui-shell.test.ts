@@ -1165,6 +1165,68 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     }
   })
 
+  it('Android 在窄屏、横屏和大字号下保持工具可点，宽表格只在块内横向滚动', async () => {
+    const title = '记录与分析_' + 'LONG_DOCUMENT_FILENAME_'.repeat(9) + '.md'
+    const columns = Array.from({ length: 24 }, (_, i) => '独立配置说明第' + (i + 1) + '列')
+    const text = '# ' + 'LONG_SECTION_HEADING_'.repeat(5) + '\n\n短正文可以自然换行。\n\n| ' + columns.join(' | ') +
+      ' |\n| ' + columns.map(() => '---').join(' | ') + ' |\n| ' + columns.map(() => '宽表格内容').join(' | ') + ' |\n'
+    const cases = [
+      { width: 280, height: 740, density: 2, left: 0, right: 0, enlarged: false },
+      { width: 320, height: 740, density: 3, left: 12, right: 14, enlarged: true },
+      { width: 393, height: 820, density: 2.75, left: 0, right: 0, enlarged: false },
+      { width: 820, height: 385, density: 3.5, left: 32, right: 25, enlarged: true },
+    ]
+    for (const { width, height, density, left, right, enlarged } of cases) {
+      const phone = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: density, isMobile: true, hasTouch: true })
+      try {
+        await phone.addInitScript(({ title, text, left, right }) => {
+          const uri = 'content://qa/long-document'
+          const native = window as unknown as Record<string, unknown>
+          native.__TAURI_INTERNALS__ = { invoke: async (cmd: string) => {
+            if (cmd === 'android_pick') return uri
+            if (cmd === 'android_read') return { uri, name: title, text, bom: false, version: '1', writable: true }
+            if (cmd === 'android_insets') return { top: 24, bottom: 10, left, right }
+            return null
+          } }
+        }, { title, text, left, right })
+        await phone.goto(`${baseUrl}/mobile.html`)
+        await phone.getByRole('heading', { name: title, exact: true }).waitFor()
+        if (enlarged) await phone.addStyleTag({ content: 'html { -webkit-text-size-adjust: 150%; } .yy-mobile-mode { font-size: 21px; } .document-theme { font-size: 24px; }' })
+        const geometry = await phone.evaluate(() => {
+          const bounds = (selector: string) => document.querySelector(selector)!.getBoundingClientRect().toJSON()
+          const title = document.querySelector<HTMLElement>('.yy-mobile-title')!
+          return { viewport: document.documentElement.clientWidth, header: bounds('.yy-mobile-header'),
+            footer: bounds('.yy-mobile-footer'), ellipsis: title.clientWidth < title.scrollWidth && getComputedStyle(title).textOverflow === 'ellipsis' }
+        })
+        expect(geometry.viewport).toBe(width)
+        expect(geometry.header.right, JSON.stringify(geometry)).toBeLessThanOrEqual(width)
+        expect(geometry.footer.right, JSON.stringify(geometry)).toBeLessThanOrEqual(width)
+        expect(geometry.ellipsis).toBe(true)
+        for (const label of ['打开文件', '保存文档', '文档主题', '更多操作', '实时', '源码', '大纲', '查找替换', '撤销', '重做']) {
+          const button = (await phone.getByRole('button', { name: label, exact: true }).boundingBox())!
+          expect(button.x, label).toBeGreaterThanOrEqual(left)
+          expect(button.x + button.width, label).toBeLessThanOrEqual(width - right)
+          expect(button.width, label).toBeGreaterThanOrEqual(44)
+          expect(button.height, label).toBeGreaterThanOrEqual(44)
+        }
+        const table = phone.locator('.live-block-preview').filter({ has: phone.locator('table') })
+        await table.waitFor()
+        expect(await table.evaluate(element => {
+          element.scrollLeft = 100
+          const paper = element.closest('.yy-paper')!
+          return element.scrollLeft > 0 && paper.scrollWidth <= paper.clientWidth + 1
+        })).toBe(true)
+        await phone.getByRole('button', { name: '查找替换', exact: true }).click()
+        const close = phone.getByRole('button', { name: '关闭查找替换', exact: true })
+        const box = (await close.boundingBox())!
+        expect(box.x + box.width).toBeLessThanOrEqual(width - right)
+        await close.click()
+      } finally {
+        await phone.close()
+      }
+    }
+  }, 30000)
+
   it('导入主题的标题底线占满实时编辑行，内边距不会盖住随后正文', async () => {
     await mountTestHarness()
     const markdown = '## 使用\r\n\r\n1. 在文件菜单打开文档。\r\n\r\n## Android\n\n预览版提供 APK。\n'
