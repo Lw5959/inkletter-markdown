@@ -239,20 +239,25 @@ async function verifyFull(ports: Ports, scenario: Case) {
   const themes: unknown[] = []
   for (const theme of scenario.themes) {
     await ports.addTheme(theme.path)
-    await frame()
-    await document.fonts.ready
+    const raf = await Promise.race([frame().then(() => true), wait(3_000).then(() => false)])
+    check(raf, '主题切换后渲染首帧 ' + theme.name)
     const paper = getComputedStyle(document.querySelector<HTMLElement>('.document-theme')!)
     const write = getComputedStyle(document.querySelector<HTMLElement>('#write')!)
     const heading = document.querySelector<HTMLElement>('#write h1')
+    // 核对样稿中实际出现的正文，不让另一种字重或语言的字体阻塞后续验收。
+    const bodyFont = `${write.fontSize} ${write.fontFamily}`
+    const bodyFontReady = await until(() => document.fonts.check(bodyFont, 'The draft is wordy.'), 3_000)
+      .then(() => true, () => false)
     themes.push({
       name: theme.name, paper: paper.backgroundColor, color: write.color, font: write.fontFamily,
+      bodyFontReady,
       appearance: document.documentElement.dataset.yeyuAppearance,
       nativeTheme: await getCurrentWindow().theme().catch(() => null),
       sidebar: getComputedStyle(document.querySelector('.yy-left-panel')!).backgroundColor,
       embeddedBackground: paper.backgroundImage.includes('data:image/png;base64,'),
       backgroundRepeat: paper.backgroundRepeat,
       heading: heading ? getComputedStyle(heading).color : null,
-      faces: [...document.fonts].map(face => ({ name: face.family, status: face.status })),
+      faces: [...document.fonts].map(face => ({ name: face.family, weight: face.weight, style: face.style, status: face.status })),
     })
   }
   result.themes = themes
