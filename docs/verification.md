@@ -109,6 +109,15 @@ Chrome 158 使用 `node tests/export-browser.mjs` 的固定样本，比较导出
 
 Android 浏览器回归使用 280、320、393 和 820 CSS px 四种宽度，模拟 2 到 3.5 的设备像素比、大字号以及横屏两侧安全区。Chromium 和 WebKit 均通过长文件名、宽表格、查找替换、顶部及底部按钮的几何与交互检查。280 px 样本中，修复前被撑到约 2520 px 的工具栏恢复到 280 px。窄屏下工具栏可换行，按钮保留 44 × 44 px 触控区域，长表格在自身区域滚动。此版本的手机端验收使用上述浏览器环境。
 
+发布源为 `eb849bd`。TypeScript 检查、生产前端构建及 35 项 WebKit 测试通过。八个安装包随签名、更新清单和校验文件一起发布，17 个资产的 SHA-256 与 GitHub 记录一致。已经从公开地址读回 `latest.json` 和 `SHA256SUMS`，更新清单包含五个桌面架构项。[页屿 0.2.7](https://github.com/Lw5959/yeyu/releases/tag/v0.2.7)
+
+| 安装包 | 验收 |
+|---|---|
+| macOS Apple Silicon / Intel | 两份独立 DMG 的应用名称、0.2.7 版本、单一架构及签名通过。应用签名为临时签名，DMG 待公证。 |
+| Windows x64 | NSIS 安装档案和更新签名通过，内含 x86-64 程序。Windows 原生安装和 Authenticode 签名待验。 |
+| Linux ARM64 / x64 | DEB 和 AppImage 均在相应架构的断网容器通过打开、编辑、保存及 BOM 检查。x64 AppImage 从仿真校验副本提取应用载荷。 |
+| Android ARM64 | APK 的版本为 0.2.7，`versionCode` 为 2007，v2/v3 签名通过，证书与 0.2.6 一致。 |
+
 ### 0.2.6
 
 本地安装包和 SHA-256 校验文件位于 `release/0.2.6/`，构建源为 `70abfd7`。从本版起，安装包在本地生成。GitHub Releases 更新入口和桌面更新签名仍可用于手动发布。
