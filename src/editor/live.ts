@@ -270,6 +270,11 @@ export function liveDecoration(options: EditorOptions, outline: () => OutlineEnt
             if (marks[name]) mark(Math.max(from, visible.from), Math.min(to, visible.to), marks[name], markTags[name])
             if (name === 'Link' && doc.sliceString(from, from + 2) === '[^') mark(from, to, 'footnote')
             const reveal = !view.state.readOnly && active(first.from, first.to)
+            // 目录插件用保留的引用定义定位旧目录。移入光标后仍可编辑原始标记。
+            if (name === 'LinkReference' && !reveal && /^\[yeyu-toc-(begin|end)\]: #yeyu-toc-\1$/.test(first.text)) {
+              ranges.push(Decoration.replace({}).range(from, to))
+              return false
+            }
             if (markers.has(name) && !reveal) {
               if (name === 'LinkMark' || (name === 'HeaderMark' && doc.lineAt(to).number !== first.number)) {
                 mark(from, to, 'punctuation')

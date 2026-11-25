@@ -207,6 +207,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
       leftPanel.focusSearch()
     },
     onOpenShortcuts: openShortcuts,
+    getEnabledPlugins: () => plugins.enabledPlugins(),
     onOpenPlugins: () => plugins.open(),
     onOpenPluginMarket: actions.pluginMarket ? () => plugins.open('market') : undefined,
     getTitlebar: () => titlebar,

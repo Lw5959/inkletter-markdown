@@ -1,6 +1,6 @@
 [package]
 name = "yeyu"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 description = "A desktop Markdown editor"
 
@@ -33,6 +33,7 @@ rmcp = { version = "3.11", features = ["client", "transport-io", "transport-chil
 tungstenite = "0.29"
 url = "2"
 wasmi = { version = "2.0.2", default-features = false, features = ["std", "validate"] }
+rquickjs = "0.14"
 semver = "1"
 sha2 = "0.10"
 

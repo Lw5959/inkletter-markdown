@@ -1,6 +1,6 @@
 use super::{
-    API_VERSION, MAX_PACKAGE, Package, PluginView, Plugins, install, label, list, newer_than,
-    read_package,
+    MAX_PACKAGE, Package, PluginView, Plugins, install, label, list, newer_than, read_package,
+    supports_api,
 };
 use crate::{ai::safe_endpoint, store::Store};
 use reqwest::{Client, Url};
@@ -18,6 +18,9 @@ use tokio::sync::Mutex;
 const INDEX_VERSION: u32 = 1;
 const MAX_INDEX: usize = 1024 * 1024;
 const BUNDLED: &[&[u8]] = &[
+    include_bytes!("../../../examples/plugins/spreadsheet-tools.yeyu-plugin.json"),
+    include_bytes!("../../../examples/plugins/chinese-typography.yeyu-plugin.json"),
+    include_bytes!("../../../examples/plugins/document-toc.yeyu-plugin.json"),
     include_bytes!("../../../examples/plugins/trim-lines.yeyu-plugin.json"),
     include_bytes!("../../../examples/plugins/task-list.yeyu-plugin.json"),
     include_bytes!("../../../examples/plugins/heading-levels.yeyu-plugin.json"),
@@ -171,7 +174,7 @@ impl Offer {
 
     fn view(&self, installed: Option<&str>) -> OfferView {
         let availability = match installed {
-            _ if self.entry.api_version != API_VERSION => Availability::Incompatible,
+            _ if !supports_api(self.entry.api_version) => Availability::Incompatible,
             None => Availability::Install,
             Some(current) if newer_than(&self.version, current) => Availability::Update,
             Some(_) => Availability::Installed,
@@ -343,7 +346,7 @@ pub async fn plugin_market_install(
         .iter()
         .find(|offer| offer.entry.id == id && offer.entry.sha256 == sha256)
         .ok_or("插件目录项已变动，请刷新后重试")?;
-    if offer.entry.api_version != API_VERSION {
+    if !supports_api(offer.entry.api_version) {
         return Err(format!(
             "此插件需要版本 {} 的插件接口",
             offer.entry.api_version
@@ -371,7 +374,7 @@ mod tests {
     #[test]
     fn bundles_install_and_version_checks_preserve_existing_records() {
         let catalog = Catalog::bundled().unwrap();
-        assert_eq!(catalog.offers.len(), 3);
+        assert_eq!(catalog.offers.len(), BUNDLED.len());
         let directory = tempfile::tempdir().unwrap();
         let store = Store(directory.path().to_path_buf());
         let registry = Plugins::default();
@@ -387,15 +390,22 @@ mod tests {
             assert!(install(&store, &registry, package, Some(&offer.version)).is_err());
         }
         let installed = list(&store, &registry).unwrap();
-        assert_eq!(installed.len(), 3);
+        assert_eq!(installed.len(), BUNDLED.len());
         assert!(installed.iter().all(|plugin| !plugin.enabled));
     }
 
     #[test]
     fn downloaded_catalog_pins_relative_url_package_and_semver() {
-        let raw = BUNDLED[0];
         let catalog = Catalog::bundled().unwrap();
-        let mut listing = serde_json::to_value(&catalog.offers[0].entry).unwrap();
+        let trim = catalog
+            .offers
+            .iter()
+            .find(|offer| offer.entry.id == "yeyu.trim-lines")
+            .unwrap();
+        let Location::Bundled(raw) = trim.location else {
+            unreachable!()
+        };
+        let mut listing = serde_json::to_value(&trim.entry).unwrap();
         listing["version"] = "1.0.1".into();
         listing["download"] = "packages/trim-lines.yeyu-plugin.json".into();
         let index = json!({ "name": "开发目录", "schemaVersion": 1, "plugins": [listing] });

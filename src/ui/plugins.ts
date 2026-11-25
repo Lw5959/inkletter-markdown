@@ -22,6 +22,10 @@ export class PluginManager {
     this.render()
   }
 
+  enabledPlugins() {
+    return this.installed.filter(plugin => plugin.enabled)
+  }
+
   open(page: PluginPage = 'installed') {
     const dialog = el('section', {
       className: 'yy-modal yy-plugin-manager',
@@ -36,6 +40,7 @@ export class PluginManager {
     const install = el('button', { className: 'yy-btn yy-btn-primary', type: 'button', text: '从文件安装…' })
     const scope = el('select', { className: 'yy-input', attrs: { 'aria-label': '处理范围' } })
     scope.append(
+      el('option', { text: '命令默认范围', attrs: { value: 'command' } }),
       el('option', { text: '当前选区', attrs: { value: 'selection' } }),
       el('option', { text: '当前全文', attrs: { value: 'document' } }),
     )
@@ -43,7 +48,7 @@ export class PluginManager {
     const error = el('p', { className: 'yy-plugin-error', attrs: { role: 'alert', hidden: '' } })
     const list = el('div', { className: 'yy-plugin-list' })
     // 只有点击命令时才传入选择的文本，插件结果沿用编辑器的差异审阅。
-    body.append(toolbar, el('p', { className: 'yy-plugin-note', text: '插件处理上方选定范围。修改经差异审阅后应用。' }), error, list)
+    body.append(toolbar, el('p', { className: 'yy-plugin-note', text: '插件修改经差异审阅后应用。' }), error, list)
     const market = this.marketPort ? createPluginMarket(this.marketPort, () => selectPage('installed', true)) : null
     const installedTab = el('button', { className: 'yy-mode-btn', type: 'button', text: '已安装' })
     const marketTab = el('button', { className: 'yy-mode-btn', type: 'button', text: '插件市场' })
@@ -95,7 +100,10 @@ export class PluginManager {
       if (!pluginButton) return
       const id = pluginButton.dataset.plugin!
       if (pluginButton.dataset.operation === 'run') {
-        void run({ type: 'plugin-run', id, command: pluginButton.value, scope: scope.value === 'document' ? 'document' : 'selection' })
+        const command = this.installed.find(plugin => plugin.id === id)?.commands.find(item => item.id === pluginButton.value)
+        if (!command) return
+        const range = scope.value === 'command' ? command.scope ?? 'selection' : scope.value === 'document' ? 'document' : 'selection'
+        void run({ type: 'plugin-run', id, command: command.id, scope: range })
       } else if (pluginButton.dataset.operation === 'remove') {
         void run({ type: 'plugin-remove', id })
       } else {

@@ -1,3 +1,4 @@
+mod javascript;
 pub mod market;
 
 use crate::store::{Store, err};
@@ -17,7 +18,8 @@ use wasmi::{
 };
 
 const FILE: &str = "plugins.json";
-const API_VERSION: u32 = 1;
+const WASM_API_VERSION: u32 = 1;
+const JS_API_VERSION: u32 = 2;
 const MAX_PACKAGE: usize = 2 * 1024 * 1024;
 const MAX_TEXT: usize = 4 * 1024 * 1024;
 
@@ -32,13 +34,25 @@ struct Package {
     name: String,
     version: String,
     commands: Vec<Command>,
-    wasm: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    wasm: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    javascript: Option<String>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
 struct Command {
     id: String,
     label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    scope: Option<CommandScope>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum CommandScope {
+    Selection,
+    Document,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -90,28 +104,49 @@ fn label(value: &str) -> bool {
     !value.trim().is_empty() && value.chars().count() <= 120 && !value.chars().any(char::is_control)
 }
 
-fn compile(package: &Package) -> Result<(Engine, Module), String> {
+enum Program<'a> {
+    Wasm(&'a str),
+    JavaScript(&'a str),
+}
+
+fn supports_api(version: u32) -> bool {
+    matches!(version, WASM_API_VERSION | JS_API_VERSION)
+}
+
+fn program(package: &Package) -> Result<Program<'_>, String> {
     let mut commands = BTreeSet::new();
-    if package.api_version != API_VERSION
-        || !identifier(&package.id, true)
+    if !identifier(&package.id, true)
         || !label(&package.name)
         || !label(&package.version)
         || package.commands.is_empty()
         || package.commands.len() > 32
-        || package.wasm.len() > MAX_PACKAGE
         || package.commands.iter().any(|command| {
             !identifier(&command.id, false)
                 || !label(&command.label)
                 || !commands.insert(&command.id)
         })
     {
-        return Err("插件清单无效，页屿支持版本 1 的插件接口".into());
+        return Err("插件清单包含无效的身份或命令".into());
     }
+    match (
+        package.api_version,
+        package.wasm.as_deref(),
+        package.javascript.as_deref(),
+    ) {
+        (WASM_API_VERSION, Some(wasm), None) if !wasm.is_empty() => Ok(Program::Wasm(wasm)),
+        (JS_API_VERSION, None, Some(script)) if !script.trim().is_empty() => {
+            Ok(Program::JavaScript(script))
+        }
+        _ => Err("插件清单须使用版本 1 的 wasm 或版本 2 的 javascript".into()),
+    }
+}
+
+fn compile_wasm(package: &Package, wasm: &str) -> Result<(Engine, Module), String> {
     let mut config = Config::default();
     config.consume_fuel(true);
     let engine = Engine::new(&config);
     let wasm = STANDARD
-        .decode(&package.wasm)
+        .decode(wasm)
         .map_err(|_| "插件的 WebAssembly 编码无效")?;
     let module =
         Module::new(&engine, wasm).map_err(|error| format!("无法加载 WebAssembly：{error}"))?;
@@ -133,7 +168,19 @@ fn compile(package: &Package) -> Result<(Engine, Module), String> {
 }
 
 fn execute(package: &Package, command: &str, text: String) -> Result<String, String> {
-    let (engine, module) = compile(package)?;
+    match program(package)? {
+        Program::Wasm(wasm) => execute_wasm(package, wasm, command, text),
+        Program::JavaScript(script) => javascript::execute(script, command, &text),
+    }
+}
+
+fn execute_wasm(
+    package: &Package,
+    wasm: &str,
+    command: &str,
+    text: String,
+) -> Result<String, String> {
+    let (engine, module) = compile_wasm(package, wasm)?;
     let limits = StoreLimitsBuilder::new()
         .memory_size(32 * 1024 * 1024)
         .table_elements(1024)
@@ -172,6 +219,13 @@ fn execute(package: &Package, command: &str, text: String) -> Result<String, Str
     String::from_utf8(bytes.to_vec()).map_err(|_| "插件返回的内容不是 UTF-8 文本".into())
 }
 
+fn validate(package: &Package) -> Result<(), String> {
+    match program(package)? {
+        Program::Wasm(wasm) => compile_wasm(package, wasm).map(|_| ()),
+        Program::JavaScript(script) => javascript::validate(script, &package.commands),
+    }
+}
+
 #[tauri::command]
 pub fn plugin_list(
     store: State<'_, Store>,
@@ -202,7 +256,7 @@ fn install(
     package: Package,
     market_version: Option<&Version>,
 ) -> Result<Vec<PluginView>, String> {
-    compile(&package)?;
+    validate(&package)?;
     let _lock = plugins.0.lock().map_err(err)?;
     let mut registry: Registry = store.read(FILE)?;
     let existing = registry.entries.get(&package.id);
@@ -327,7 +381,30 @@ mod tests {
         let output = execute(&package, "trim_lines", "首行  \r\n二行\t\r末尾  ".into()).unwrap();
         assert_eq!(output, "首行\r\n二行\r末尾");
         package.commands[0].id = "missing".into();
-        assert!(compile(&package).is_err());
+        assert!(validate(&package).is_err());
+    }
+
+    #[test]
+    fn spreadsheet_cells_round_trip_through_the_bundled_javascript_module() {
+        let package = read_package(include_bytes!(
+            "../../examples/plugins/spreadsheet-tools.yeyu-plugin.json"
+        ))
+        .unwrap();
+        let csv = "名称,备注,数字\r\n页屿,\"空格 | 与, \"\"引号\"\"\r\n和换行\",\r\n";
+        let table = execute(&package, "csv_to_markdown", csv.into()).unwrap();
+        assert!(table.contains("| --- | --- | --- |\r\n"));
+        assert!(table.contains("空格 \\| 与, \"引号\"&#13;&#10;和换行 |  |"));
+        assert_eq!(execute(&package, "markdown_to_csv", table).unwrap(), csv);
+        let tsv = "名称\t备注\r\n页屿\t\"含\t制表符\"";
+        assert_eq!(
+            execute(&package, "tsv_to_markdown", tsv.into()).unwrap(),
+            "| 名称 | 备注 |\r\n| --- | --- |\r\n| 页屿 | 含&#9;制表符 |"
+        );
+        let invalid = "a,b\na,\"没有结束";
+        assert_eq!(
+            execute(&package, "csv_to_markdown", invalid.into()).unwrap(),
+            invalid
+        );
     }
 
     #[test]

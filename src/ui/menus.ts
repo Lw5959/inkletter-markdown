@@ -2,6 +2,7 @@ import type {
   EditorFormat,
   ExportFormat,
   ImageMode,
+  PluginInfo,
   ShellAction,
   ShellState,
   Theme,
@@ -64,6 +65,7 @@ export interface MenuBarContext {
   onOpenFind: (replace: boolean) => void
   onOpenWorkspaceSearch: () => void
   onOpenShortcuts: () => void
+  getEnabledPlugins: () => PluginInfo[]
   onOpenPlugins: () => void
   onOpenPluginMarket?: () => void
   getTitlebar: () => TitlebarView | null
@@ -258,6 +260,18 @@ export class MenuBar {
     }
 
     if (key === 'edit') {
+      const plugins = this.ctx.getEnabledPlugins()
+      const commands: MenuCommand[] = plugins.flatMap(plugin => [
+        { kind: 'heading', label: plugin.name },
+        ...plugin.commands.map(command => ({
+          kind: 'item' as const,
+          label: command.label,
+          disabled: state.presentation.readonly,
+          onSelect: () => this.ctx.dispatch({
+            type: 'plugin-run', id: plugin.id, command: command.id, scope: command.scope ?? 'selection',
+          }),
+        })),
+      ])
       return [
         { kind: 'item', label: '撤销', onSelect: () => this.ctx.dispatch({ type: 'undo' }) },
         { kind: 'item', label: '重做', onSelect: () => this.ctx.dispatch({ type: 'redo' }) },
@@ -272,6 +286,7 @@ export class MenuBar {
         { kind: 'separator' },
         { kind: 'item', label: '快捷键设置…', shortcutId: 'settings.shortcuts', onSelect: () => this.ctx.onOpenShortcuts() },
         { kind: 'item', label: '导入 Typora 配置…', onSelect: () => this.ctx.dispatch({ type: 'typora-config-import' }) },
+        ...(commands.length ? [{ kind: 'submenu' as const, label: '运行插件', items: commands }] : []),
         { kind: 'item', label: '插件管理…', onSelect: () => this.ctx.onOpenPlugins() },
         ...(this.ctx.onOpenPluginMarket
           ? [{ kind: 'item' as const, label: '插件市场…', onSelect: this.ctx.onOpenPluginMarket }]

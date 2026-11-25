@@ -571,16 +571,23 @@ async function verifyPluginMarket(ports: Ports, source: string, publicMarket?: s
     find('yeyu.heading-levels')!.click()
     await until(() => find('yeyu.heading-levels')?.textContent === '已安装')
     await ports.action({ type: 'plugin-remove', id: 'yeyu.heading-levels' })
+    find('yeyu.spreadsheet-tools')!.click()
+    await until(() => find('yeyu.spreadsheet-tools')?.textContent === '已安装')
+    await ports.action({ type: 'plugin-remove', id: 'yeyu.spreadsheet-tools' })
   }
   button(panel, '内置插件').click()
   await until(() => !!find('yeyu.heading-levels'))
-  check(panel.querySelectorAll('.yy-market-card').length === 3, '内置市场提供三款插件')
+  const bundledCount = panel.querySelectorAll('.yy-market-card').length
+  check(bundledCount === 6, '内置市场提供六款插件')
   query.value = '任务'
   query.dispatchEvent(new Event('input'))
   check(panel.querySelectorAll('.yy-market-card').length === 1 && !!find('yeyu.task-list'), '按关键词搜索市场')
   query.value = ''
   query.dispatchEvent(new Event('input'))
-  for (const id of ['yeyu.task-list', 'yeyu.trim-lines', 'yeyu.heading-levels']) {
+  for (const id of [
+    'yeyu.task-list', 'yeyu.trim-lines', 'yeyu.heading-levels',
+    'yeyu.spreadsheet-tools', 'yeyu.chinese-typography', 'yeyu.document-toc',
+  ]) {
     find(id)!.click()
     await until(() => find(id)?.textContent === '已安装' && !find(id)?.disabled)
   }
@@ -606,6 +613,14 @@ async function verifyPluginMarket(ports: Ports, source: string, publicMarket?: s
   const trim = management.querySelector('[aria-label="清理行尾空白"]')!
   button(trim, '启用').click()
   await until(() => !!button(management, '清理行尾空白'))
+  for (const [id, name] of [
+    ['yeyu.spreadsheet-tools', '表格转换'],
+    ['yeyu.chinese-typography', '中文排版'],
+    ['yeyu.document-toc', '文档目录'],
+  ]) {
+    button(management.querySelector(`[aria-label="${name}"]`)!, '启用').click()
+    await until(() => !!management.querySelector(`[data-plugin="${id}"][data-operation="run"]`))
+  }
   button(management, '插件市场').click()
   const market = management.querySelector<HTMLElement>('.yy-plugin-market')!
   const sourceToggle = market.querySelector<HTMLButtonElement>('[aria-label="市场源"]')!
@@ -640,10 +655,70 @@ async function verifyPluginMarket(ports: Ports, source: string, publicMarket?: s
     check((await native.preferences())?.pluginMarketSource === '', '恢复官方市场清除自定义源')
   }
   management.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click()
+  const workflows = await verifyPluginWorkflows(ports)
   return {
-    bundled: 3, search: true, installed: true, reviewAndUndo: true, checksum: true,
-    hotUpdate: true, bundledDuringOnlineLoad: true, publicMarket: publicMarket ?? null,
+    bundled: bundledCount, search: true, installed: true, reviewAndUndo: true, checksum: true,
+    hotUpdate: true, bundledDuringOnlineLoad: true, publicMarket: publicMarket ?? null, workflows,
   }
+}
+
+async function verifyPluginWorkflows(ports: Ports) {
+  const original = ports.text()
+  async function apply(label: string) {
+    const before = ports.text()
+    document.querySelector<HTMLButtonElement>('[data-menu="edit"]')!.click()
+    button(document.querySelector('.yy-menu-popover')!, '运行插件').click()
+    button(document.querySelector('.yy-submenu-panel')!, label).click()
+    await until(() => ports.writing.pending?.view.title === label)
+    check(ports.text() === before, '运行插件后等待用户审阅')
+    document.querySelector<HTMLButtonElement>('[data-suggestion-action="apply-all"]')!.click()
+    await until(() => !ports.writing.pending)
+    check(ports.text() !== before, '从差异视图应用插件修改')
+  }
+
+  const csv = '名称,备注\r\n页屿,"中文 | 英文, 兼容"'
+  const prefix = '\r\n\r\n'
+  const start = original.length + prefix.length
+  ports.editor.replace(original.length, original.length, prefix + csv)
+  ports.editor.select({ anchor: start, head: start + csv.length })
+  await apply('CSV 转 Markdown 表格')
+  check(ports.text().endsWith('| 名称 | 备注 |\r\n| --- | --- |\r\n| 页屿 | 中文 \\| 英文, 兼容 |'), 'JavaScript 转换管道符、逗号和中文')
+  ports.editor.select({ anchor: start, head: ports.text().length })
+  await apply('Markdown 表格转 CSV')
+  check(ports.text() === original + prefix + csv, 'Markdown 表格导回 CSV')
+  ports.editor.undo()
+  ports.editor.undo()
+  ports.editor.undo()
+  check(ports.text() === original, 'JavaScript 插件应用可撤销')
+
+  const tip = '\r\n\r\n同步API文档，共50行。代码 `版本V1`。\r\n'
+  ports.editor.replace(original.length, original.length, tip)
+  ports.editor.select({ anchor: 0, head: 0 })
+  await apply('整理中英文与数字间距')
+  check(ports.text().endsWith(tip.replace('API', ' API ').replace('50', ' 50 ')), 'Rust 中文排版在无选区时处理全文并保留代码')
+  ports.editor.undo()
+  ports.editor.undo()
+  check(ports.text() === original, 'Rust 中文排版可撤销')
+
+  const sample = '# 使用手册\r\n\r\n[TOC]\r\n\r\n## 安装\r\n### 测试 API\r\n## 安装\r\n'
+  ports.editor.replace(0, original.length, sample)
+  ports.editor.select({ anchor: 0, head: 0 })
+  await apply('生成或更新目录')
+  const toc = ports.text()
+  check(toc.includes('- [安装](#安装)\r\n  - [测试 API](#测试-api)\r\n- [安装](#安装-2)'), 'Rust 目录生成层级及重复标题锚点')
+  await ports.action({ type: 'mode', mode: 'live' })
+  ports.editor.select({ anchor: 0, head: 0 })
+  await until(() => !!document.querySelector('[data-markdown-url="#安装-2"]'))
+  document.querySelector('[data-markdown-url="#安装-2"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true, metaKey: true, ctrlKey: true }))
+  check(ports.editor.getSelection().head === toc.lastIndexOf('## 安装'), '实时模式跳转到重复标题')
+  await apply('移除生成的目录')
+  check(!ports.text().includes('yeyu-toc-begin') && ports.text().startsWith('# 使用手册') &&
+    ports.text().endsWith('## 安装\r\n### 测试 API\r\n## 安装\r\n'), '移除目录保留文档标题与正文')
+  ports.editor.undo()
+  ports.editor.undo()
+  ports.editor.undo()
+  check(ports.text() === original, 'Rust 目录操作可撤销')
+  return { javascript: '表格转换', rust: ['中文排版', '文档目录'], reviewAndUndo: true, anchorJump: true }
 }
 
 export async function runNativeQa(ports: Ports) {

@@ -59,8 +59,10 @@ export type McpView = {
 export type ExportFormat = 'html' | 'plain-html' | 'pdf' | 'png' | 'docx' | 'epub' | 'odt' | 'latex'
   | 'rtf' | 'rst' | 'textile' | 'opml' | 'revealjs' | 'json' | 'commonmark'
 export type ImageMode = 'copy' | 'move' | 'upload'
+type PluginScope = 'selection' | 'document'
 export type PluginInfo = {
-  id: string; name: string; version: string; enabled: boolean; commands: { id: string; label: string }[]
+  id: string; name: string; version: string; enabled: boolean;
+  commands: { id: string; label: string; scope?: PluginScope }[]
 }
 export type MarketPlugin = {
   id: string; name: string; version: string; apiVersion: number; sha256: string;
@@ -107,7 +109,7 @@ export type ShellAction =
   | { type: 'plugin-install' }
   | { type: 'plugin-enabled'; id: string; enabled: boolean }
   | { type: 'plugin-remove'; id: string }
-  | { type: 'plugin-run'; id: string; command: string; scope: 'selection' | 'document' }
+  | { type: 'plugin-run'; id: string; command: string; scope: PluginScope }
   | { type: 'mcp-config'; server: McpServer }
   | { type: 'mcp-remove' | 'mcp-connect' | 'mcp-disconnect'; id: string }
   | { type: 'mcp-call'; id: string; item: McpItem; args: Record<string, unknown> }
