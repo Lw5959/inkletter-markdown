@@ -23,6 +23,8 @@ struct Documents {
 #[derive(Deserialize)]
 struct Picked {
     uri: Option<String>,
+    #[serde(default)]
+    uris: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -99,13 +101,52 @@ fn snapshot(uri: String, info: Descriptor, bytes: Vec<u8>) -> Result<Document, S
 #[tauri::command]
 async fn android_pick(
     name: Option<String>,
+    mime: Option<String>,
     documents: State<'_, Documents>,
 ) -> Result<Option<String>, String> {
     let result: Picked = documents
         .plugin
-        .run_mobile_plugin("pickDocument", json!({ "name": name }))
+        .run_mobile_plugin("pickDocument", json!({ "name": name, "mime": mime }))
         .map_err(err)?;
     Ok(result.uri)
+}
+
+#[tauri::command]
+async fn android_pick_many(documents: State<'_, Documents>) -> Result<Vec<String>, String> {
+    let result: Picked = documents
+        .plugin
+        .run_mobile_plugin("pickDocument", json!({ "multiple": true }))
+        .map_err(err)?;
+    Ok(result.uris)
+}
+
+#[tauri::command]
+async fn android_pick_workspace(documents: State<'_, Documents>) -> Result<Option<String>, String> {
+    let result: Picked = documents
+        .plugin
+        .run_mobile_plugin("pickWorkspace", ())
+        .map_err(err)?;
+    Ok(result.uri)
+}
+
+#[tauri::command]
+async fn android_workspace(uri: String, documents: State<'_, Documents>) -> Result<Value, String> {
+    documents
+        .plugin
+        .run_mobile_plugin("workspace", json!({ "uri": uri }))
+        .map_err(err)
+}
+
+#[tauri::command]
+async fn android_print(
+    name: String,
+    html: String,
+    documents: State<'_, Documents>,
+) -> Result<(), String> {
+    documents
+        .plugin
+        .run_mobile_plugin("printHtml", json!({ "name": name, "html": html }))
+        .map_err(err)
 }
 
 #[tauri::command]
@@ -178,6 +219,14 @@ async fn android_save_session(session: Value, store: State<'_, Store>) -> Result
 }
 
 #[tauri::command]
+async fn android_insets(documents: State<'_, Documents>) -> Result<Value, String> {
+    documents
+        .plugin
+        .run_mobile_plugin("insets", ())
+        .map_err(err)
+}
+
+#[tauri::command]
 async fn android_appearance(
     light: bool,
     color: String,
@@ -216,10 +265,15 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             android_pick,
+            android_pick_many,
+            android_pick_workspace,
+            android_workspace,
+            android_print,
             android_read,
             android_write,
             android_load_session,
             android_save_session,
+            android_insets,
             android_appearance,
             android_open_update
         ])

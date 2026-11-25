@@ -1,6 +1,7 @@
 import './dialogs.css'
 import { markdownDiff } from './suggestions'
 import { el } from './ui/helpers'
+import { dismissOnBackdrop } from './ui/dialog-dismiss'
 
 type Choice = { label: string; value: string; primary?: boolean; autofocus?: boolean }
 
@@ -30,6 +31,7 @@ function addButton(controls: HTMLElement, label: string, value: string, primary 
 }
 
 function present(element: HTMLDialogElement) {
+  dismissOnBackdrop(element)
   document.body.append(element)
   element.showModal()
   return new Promise<string>(resolve => element.addEventListener('close', () => {

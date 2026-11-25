@@ -728,6 +728,16 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     }
 
     const viewMenu = page.locator('[data-menu="view"]')
+    const transition = () => viewMenu.evaluate(control => getComputedStyle(control).transitionProperty)
+    expect(await transition()).toContain('background-color')
+    await viewMenu.hover()
+    await page.mouse.down()
+    try {
+      await expect.poll(() => viewMenu.evaluate(control => getComputedStyle(control).scale)).toBe('0.97')
+    } finally {
+      await page.mouse.up()
+    }
+    await page.keyboard.press('Escape')
     const motion = page.getByRole('menuitemcheckbox', { name: '界面动画' })
     await viewMenu.click()
     expect(await motion.getAttribute('aria-checked')).toBe('true')
@@ -739,6 +749,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
         presentation: { focus: false, typewriter: false, spellcheck: false } })
     }, animations)
     await preference(false)
+    expect(await transition()).toBe('none')
     expect(await toggle('left')).toMatchObject({ start: 220, end: 0, animated: false })
     await viewMenu.click()
     expect(await motion.getAttribute('aria-checked')).toBe('false')
@@ -747,6 +758,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
 
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await preference(true)
+    expect(await transition()).toBe('none')
     expect(await toggle('left')).toMatchObject({ start: 0, end: 220, animated: false })
     await page.locator('.yy-doc-title-btn').click()
     expect(await page.locator('.yy-modal-backdrop').evaluate(item => getComputedStyle(item).animationDuration)).toBe('0s')
@@ -927,16 +939,23 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
         const path = 'content://qa/document/01'
         const document = { uri: path, name: '移动笔记.md', text: '# 标题\\r\\n\\r\\n正文\\n', bom: true, version: '1', writable: true }
         const writes = []
+        const reads = []
+        let picks = 0
         window.__TAURI_INTERNALS__ = { invoke: async (cmd, payload) => {
-          if (cmd === 'android_pick') return path
-          if (cmd === 'android_read') return document
+          if (cmd === 'android_pick') { picks++; return picks > 1 ? path : null }
+          if (cmd === 'android_read') { reads.push(payload.uri); return document }
           if (cmd === 'android_write') { writes.push(payload); return { ...document, text: payload.text, version: '2' } }
-          if (cmd === 'android_load_session') return null
+          if (cmd === 'android_load_session') return { uri: 'content://qa/last-note', theme: 'default', animations: true, mode: 'live' }
+          if (cmd === 'android_insets') return { top: 26, bottom: 10, left: 0, right: 0 }
           return null
         } }
         window.__mobileWrites = writes
+        window.__mobileStartup = () => ({ picks, reads })
         await import('/src/mobile.ts')
       })()`)
+      await expect.poll(() => page.evaluate('window.__mobileStartup()')).toEqual({ picks: 1, reads: [] })
+      expect(await page.locator('.yy-paper').isVisible()).toBe(false)
+      expect(await page.getByRole('button', { name: '新建 Markdown' }).isVisible()).toBe(true)
       const open = page.getByRole('button', { name: '打开文件' })
       expect((await open.boundingBox())!.width).toBeGreaterThanOrEqual(44)
       await open.click()
@@ -945,6 +964,14 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       expect(await page.locator('#write').getAttribute('data-mode')).toBe('source')
       await page.locator('.cm-content .cm-line').last().click()
       await page.keyboard.insertText('Android')
+      await page.setViewportSize({ width: 390, height: 218 })
+      await expect.poll(() => page.evaluate(() => {
+        const paper = document.querySelector('.yy-paper')!
+        const caret = document.getSelection()!.getRangeAt(0).getBoundingClientRect()
+        const visible = paper.getBoundingClientRect()
+        return paper.scrollTop > 0 && caret.height > 0 && caret.top >= visible.top - 1 && caret.bottom <= visible.bottom + 1
+      })).toBe(true)
+      await page.setViewportSize({ width: 390, height: 736 })
       await page.getByRole('button', { name: '保存文档' }).click()
       await expect.poll(() => page.evaluate(() => ((window as unknown as Record<string, any>).__mobileWrites).length)).toBe(1)
       const [saved] = await page.evaluate(() => (window as unknown as Record<string, any>).__mobileWrites)
@@ -952,7 +979,6 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       expect(saved.text).toBe('# 标题\r\n\r\n正文\nAndroid')
 
       await page.setViewportSize({ width: 820, height: 420 })
-      await page.getByRole('button', { name: '更多操作' }).click()
       await page.getByRole('button', { name: '文档主题', exact: true }).click()
       const dialog = page.getByRole('dialog', { name: '文档主题' })
       const box = (await dialog.boundingBox())!
@@ -960,6 +986,15 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       expect(box.y + box.height).toBeLessThanOrEqual(420)
       await dialog.getByRole('button', { name: '石墨' }).click()
       expect(await page.locator('html').getAttribute('data-yeyu-appearance')).toBe('dark')
+
+      await page.getByRole('button', { name: '文档主题', exact: true }).click()
+      expect(await dialog.getByRole('button', { name: '石墨' }).getAttribute('aria-pressed')).toBe('true')
+      await page.mouse.click(5, 5)
+      await dialog.waitFor({ state: 'hidden' })
+      await page.getByRole('button', { name: '更多操作' }).click()
+      expect(await page.evaluate(() => window.dispatchEvent(new Event('yeyu:android-back', { cancelable: true })))).toBe(false)
+      await page.getByRole('dialog', { name: '文档操作' }).waitFor({ state: 'hidden' })
+      expect(await page.getByRole('heading', { name: '移动笔记.md' }).isVisible()).toBe(true)
     } finally {
       await page.setViewportSize({ width: 1360, height: 860 })
     }
