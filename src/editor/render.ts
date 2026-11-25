@@ -156,8 +156,11 @@ export async function renderMarkdownWith(markdown: string, { resolveImage, rende
       marker: ['viewBox', 'refX', 'refY', 'markerWidth', 'markerHeight', 'orient', 'markerUnits'],
       path: ['d', 'transform', 'marker-start', 'marker-end', 'stroke-width', 'stroke-linecap', 'stroke-dasharray'],
       rect: ['x', 'y', 'width', 'height', 'rx', 'ry', 'transform'],
-      line: ['x1', 'x2', 'y1', 'y2', 'marker-start', 'marker-end'], polyline: ['points'], polygon: ['points'],
-      circle: ['cx', 'cy', 'r'], ellipse: ['cx', 'cy', 'rx', 'ry'], text: ['x', 'y', 'dx', 'dy', 'transform', 'text-anchor'], tspan: ['x', 'y', 'dx', 'dy'],
+      // Mermaid 用位移把节点形状放到连线计算的坐标，菱形等形状同样需要保留该属性。
+      line: ['x1', 'x2', 'y1', 'y2', 'transform', 'marker-start', 'marker-end'],
+      polyline: ['points', 'transform'], polygon: ['points', 'transform'],
+      circle: ['cx', 'cy', 'r', 'transform'], ellipse: ['cx', 'cy', 'rx', 'ry', 'transform'],
+      text: ['x', 'y', 'dx', 'dy', 'transform', 'text-anchor'], tspan: ['x', 'y', 'dx', 'dy'],
     },
     parser: { lowerCaseTags: false, lowerCaseAttributeNames: false },
     allowedSchemes: ['http', 'https', 'mailto'],

@@ -116,6 +116,10 @@
 }
 :where(.document-theme #write .flowchart .edgePaths path) { stroke: var(--flowchart-edge); }
 :where(.document-theme #write .flowchart text) { fill: currentColor; }
+:where(.document-theme #write .flowchart .edgeLabel .background) {
+  fill: var(--bg-color, var(--background-color, var(--doc-paper)));
+  stroke: none;
+}
 :where(.document-theme #write .flowchart marker [fill="currentColor"]) { fill: var(--flowchart-edge); stroke: none; }
 :where(.document-theme #write) :where(.hljs-keyword, .hljs-selector-tag) { color: var(--doc-syntax-keyword); }
 :where(.document-theme #write) :where(.hljs-string, .hljs-title) { color: var(--doc-syntax-string); }

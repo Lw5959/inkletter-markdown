@@ -166,6 +166,19 @@ try {
       assert.deepEqual(small, [96, 48])
       const [flowchart, branches] = await page.locator('#write svg.flowchart').evaluateAll(graphs => graphs.map(svg => {
         const arrow = svg.querySelector('marker[id$="-pointEnd-margin"]')
+        const decision = svg.querySelector('.node polygon.label-container')
+        const incoming = svg.querySelector('path[id*="-L_A_B_"]')
+        let decisionGeometry
+        if (decision && incoming) {
+          const { x, y, width, height } = decision.getBoundingClientRect()
+          const center = { x: x + width / 2, y: y + height / 2 }
+          const label = decision.parentElement.querySelector('text').getBoundingClientRect()
+          const end = incoming.getPointAtLength(incoming.getTotalLength()).matrixTransform(incoming.getScreenCTM())
+          decisionGeometry = {
+            labelOffset: Math.hypot(label.x + label.width / 2 - center.x, label.y + label.height / 2 - center.y),
+            arrowDistance: Math.abs(end.x - center.x) / (width / 2) + Math.abs(end.y - center.y) / (height / 2),
+          }
+        }
         return {
           width: svg.getBoundingClientRect().width,
           arrow: [arrow.getAttribute('markerWidth'), arrow.getAttribute('markerHeight')],
@@ -174,6 +187,7 @@ try {
           dashed: svg.querySelector('.edge-pattern-dotted')?.getAttribute('stroke-dasharray'),
           thick: svg.querySelector('.edge-thickness-thick')?.getAttribute('stroke-width'),
           label: svg.querySelector('.edgeLabel text')?.textContent.trim(),
+          decisionGeometry,
         }
       }))
       assert.ok(flowchart.width >= 180 && flowchart.width < 300, JSON.stringify(flowchart))
@@ -183,6 +197,9 @@ try {
       assert.equal(branches.dashed, '2 3')
       assert.equal(branches.thick, '2.5')
       assert.equal(branches.label, '通过')
+      const { labelOffset, arrowDistance } = branches.decisionGeometry
+      assert.ok(labelOffset < 2, JSON.stringify(branches.decisionGeometry))
+      assert.ok(arrowDistance > 0.95 && arrowDistance < 1.2, JSON.stringify(branches.decisionGeometry))
     }
     await page.emulateMedia({ media: 'screen' })
     await page.setViewportSize({ width: 360, height: 700 })
