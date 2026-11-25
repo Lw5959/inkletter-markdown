@@ -44,6 +44,12 @@ Chromium 和 WebKit 通过青瓷、松夜的全窗回归。核对了文件树、
 
 macOS 原生窗口也核对了青瓷和松夜的标题栏、左右侧栏、状态栏及模型配置背景，并确认原生窗口明暗同步。
 
+### 悬停、按下和选中
+
+Chromium 和 WebKit 验证了默认浅色和深色、白纸、青瓷、石墨、松夜、本机八套 Typora 主题和一个相对资源夹具。每套测量恢复与放弃草稿、标题栏、文件树、状态栏、一级与二级菜单、AI 和 MCP 中的 14 个控件。普通或选中、悬停和按下时的文字或图标与背景对比度均达到 4.5:1，悬停和按下各有可见反馈。
+
+窄窗口中用鼠标从一级菜单移入二级菜单，独立滚动并选择末尾导出选项。核对标题栏缩放时的左侧展开，以及键盘方向键和 Esc 的逐级导航。macOS 原生窗口验证了导出菜单侧展和强制退出后的草稿恢复，并确认恢复弹窗先聚焦「恢复草稿」。
+
 ### Typora 设置迁移
 
 macOS 原生窗口读取本机 Typora 配置，预览并成功应用 Vue 主题、大纲侧栏和查找偏好。自动化用例覆盖 JSONC 注释、上传地址、macOS 菜单快捷键、键位互换和保留冲突键位。
@@ -81,11 +87,11 @@ Apple M1 Pro，32 GB 内存，macOS 27.2.1。本地 APFS 外置 SSD 上运行发
 
 ## 平台验收范围
 
-0.1.3 安装包和 SHA-256 校验文件位于 `release/0.1.3/`，构建源为 `ecb99ef`。三个平台共用白底折页图标。0.1.0 原生验收和性能测试记录保留在本页。
+0.1.4 安装包和 SHA-256 校验文件位于 `release/0.1.4/`，构建源为 `db9debd`。此前的 0.1.3 安装包仍位于 `release/0.1.3/`，构建源为 `ecb99ef`。
 
 | 安装包 | 验收 |
 |---|---|
-| macOS Universal DMG | Apple Silicon 原生窗口完成主题、配置迁移、导出、MCP 与恢复复测。DMG 含 `arm64` 和 `x86_64`。只读挂载后校验应用临时签名，x86_64 在 Rosetta 下通过命令行启动检查。公证待完成。 |
+| macOS Universal DMG | Apple Silicon 原生 QA 窗口通过导出菜单、主题、文档往返和草稿恢复复测。DMG 含 `arm64` 和 `x86_64`。只读挂载后校验应用临时签名，x86_64 在 Rosetta 下通过命令行启动检查。公证待完成。 |
 | Windows x64 NSIS | 交叉构建与安装档案校验通过。安装包未签名，Windows 原生窗口待验收。 |
 | Linux ARM64 DEB | Debian 13 容器中安装，在 WebKitGTK 与 Xvfb 的桌面窗口打开、编辑和保存 Markdown，验证原文件 BOM 保留。 |
 
@@ -110,3 +116,5 @@ node scripts/native-qa.mjs src-tauri/target/release/yeyu measure
 ```
 
 完整验收用 `full` 参数。可设置 `YEYU_PANDOC`、`YEYU_TEST_MODEL_URL`、`YEYU_TEST_MODEL`。`YEYU_TEST_THEMES` 接受 `[{ "path": "/path/to/theme.css", "name": "主题名" }]`，`YEYU_TEST_TYPORA` 接受期望从本机发现的主题名列表，例如 `["github", "night"]`。测试本机设置预览与迁移时可设置 `YEYU_TEST_TYPORA_CONFIG=1`。脚本会打印临时证据路径。
+
+可把 `YEYU_TEST_THEME_SNAPSHOTS` 指向验收目录下的 `app-data/themes`，再运行 `pnpm test` 将导入主题加入交互回归。设置 `YEYU_TEST_WEBKIT=1` 并安装 Playwright 的 WebKit 后，可以用同一批主题复测 WebKit。
