@@ -72,6 +72,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   let state: ShellState = { ...INITIAL_STATE, presentation: { ...INITIAL_STATE.presentation } }
   let workspaceEntries: WorkspaceEntry[] = []
   let themes: Theme[] = []
+  let localThemes: Theme[] = []
   let activeThemeId = 'default'
   let imageMode: ImageMode = 'copy'
   let leftOpen = typeof window === 'undefined' || window.innerWidth >= 900
@@ -199,7 +200,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
     dispatch,
     shortcuts,
     getState: () => state,
-    getThemes: () => ({ themes, active: activeThemeId }),
+    getThemes: () => ({ themes: [...themes, ...localThemes], active: activeThemeId }),
     getImageMode: () => imageMode,
     setImageMode: mode => {
       imageMode = mode
@@ -330,6 +331,9 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
     const imported = themes.filter(theme => !theme.swatch)
     themePopover.append(el('div', { className: 'yy-menu-heading', text: '内置主题' }),
       themeItem({ id: 'default', name: '默认', styles: [] }), ...builtins.map(themeItem))
+    if (localThemes.length) {
+      themePopover.append(el('div', { className: 'yy-menu-heading', text: '本机 Typora' }), ...localThemes.map(themeItem))
+    }
     if (imported.length) {
       themePopover.append(el('div', { className: 'yy-menu-heading', text: '已导入' }), ...imported.map(themeItem))
     }
@@ -738,11 +742,14 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
       leftPanel.setSearchResults(results)
     },
 
-    setThemes(nextThemes: Theme[], active: string) {
-      themes = nextThemes
+    setThemes(nextThemes: Theme[], active: string, available: Theme[] = []) {
+      localThemes = available
+      const localIds = new Set(available.map(theme => theme.id))
+      themes = nextThemes.filter(theme => !localIds.has(theme.id))
       activeThemeId = active
-      const current = themes.find(theme => theme.id === active)
-      themeStyle.textContent = current ? current.styles.join('\n') : ''
+      const current = nextThemes.find(theme => theme.id === active)
+      const css = current?.styles.join('\n') ?? ''
+      if (themeStyle.textContent !== css) themeStyle.textContent = css
       paperEl.dataset.theme = current?.id ?? 'default'
       appearance.select(current)
       themeBtnLabel.textContent = current?.name ?? '主题'
@@ -751,6 +758,10 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
     },
 
     getAppearance: appearance.get,
+
+    importShortcutBindings: bindings => shortcuts.importBindings(bindings, isMac),
+    setSidebarTab: tab => leftPanel.setTab(tab),
+    setFindOptions: options => findBar.setOptions(options),
 
     setTitlebar(view) {
       titlebar = view

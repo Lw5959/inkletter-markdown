@@ -235,6 +235,7 @@ export class MenuBar {
         { kind: 'item', label: '跨文件检索…', shortcutId: 'nav.searchWorkspace', onSelect: () => this.ctx.onOpenWorkspaceSearch() },
         { kind: 'separator' },
         { kind: 'item', label: '快捷键设置…', shortcutId: 'settings.shortcuts', onSelect: () => this.ctx.onOpenShortcuts() },
+        { kind: 'item', label: '导入 Typora 配置…', onSelect: () => this.ctx.dispatch({ type: 'typora-config-import' }) },
         { kind: 'item', label: '插件管理…', onSelect: () => this.ctx.onOpenPlugins() },
       ]
     }

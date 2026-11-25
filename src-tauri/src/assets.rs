@@ -110,30 +110,62 @@ pub async fn image_upload(
     document: PathBuf,
     image: PathBuf,
     endpoint: String,
+    service: Option<String>,
     http: tauri::State<'_, reqwest::Client>,
 ) -> Result<String, String> {
     let url = crate::ai::safe_endpoint(&endpoint)?;
     let source = resolved(&document, &image)?;
     let mime = image_mime(&source).ok_or("不支持上传该文件类型")?;
-    let bytes = tokio::fs::read(&source).await.map_err(err)?;
-    let part = reqwest::multipart::Part::bytes(bytes)
-        .file_name(file_name(&source))
-        .mime_str(mime)
-        .map_err(err)?;
-    let data: serde_json::Value = http
-        .post(url)
-        .multipart(reqwest::multipart::Form::new().part("file", part))
+    let picgo = service.as_deref() == Some("picgo");
+    let request = if picgo {
+        let loopback = match url.host() {
+            Some(url::Host::Domain(name)) => name == "localhost",
+            Some(url::Host::Ipv4(address)) => address.is_loopback(),
+            Some(url::Host::Ipv6(address)) => address.is_loopback(),
+            None => false,
+        };
+        if !loopback || url.path() != "/upload" {
+            return Err("PicGo / PicList 图床须使用本机的 /upload 接口".into());
+        }
+        // PicGo 的本机服务按绝对路径上传，由服务使用其现有图床配置。
+        http.post(url)
+            .json(&serde_json::json!({ "list": [source] }))
+    } else {
+        let bytes = tokio::fs::read(&source).await.map_err(err)?;
+        let part = reqwest::multipart::Part::bytes(bytes)
+            .file_name(file_name(&source))
+            .mime_str(mime)
+            .map_err(err)?;
+        http.post(url)
+            .multipart(reqwest::multipart::Form::new().part("file", part))
+    };
+    let data: serde_json::Value = request
         .send()
         .await
-        .map_err(err)?
+        .map_err(|error| {
+            if picgo {
+                "无法连接本机图床，请打开 PicGo 或 PicList 并启用上传服务".into()
+            } else {
+                err(error.without_url())
+            }
+        })?
         .error_for_status()
-        .map_err(err)?
+        .map_err(|error| err(error.without_url()))?
         .json()
         .await
         .map_err(err)?;
-    let link = data["url"]
-        .as_str()
-        .ok_or("接口应返回包含 url 字段的 JSON")?;
+    let link = if picgo {
+        if data["success"].as_bool() != Some(true) {
+            return Err("本机图床上传失败，请查看 PicGo 或 PicList 的上传日志".into());
+        }
+        data["result"][0]
+            .as_str()
+            .ok_or("本机图床没有返回图片地址")?
+    } else {
+        data["url"]
+            .as_str()
+            .ok_or("接口应返回包含 url 字段的 JSON")?
+    };
     let parsed = reqwest::Url::parse(link).map_err(err)?;
     if !matches!(parsed.scheme(), "http" | "https") {
         return Err("上传接口返回了不受支持的图片地址".into());

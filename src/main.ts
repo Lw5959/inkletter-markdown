@@ -14,6 +14,7 @@ import { assetPath, imageLinks, insertImages, localImage, resolveImage } from '.
 import type { Relocated } from './images'
 import { importTheme } from './themes'
 import { builtinThemes } from './builtin-themes'
+import { readTyporaProfiles, typoraThemeKey } from './typora'
 import { Writing } from './ai'
 import { normalizePrompts } from './ai-prompts'
 import { Protocol } from './mcp'
@@ -22,10 +23,12 @@ import { bind, chooseHunks, relocate, suggestion } from './suggestions'
 const markdownFilter = { name: 'Markdown', extensions: ['md', 'markdown', 'mdown', 'mkd', 'mkdn', 'mdwn', 'mdtxt', 'mdtext', 'text', 'txt', 'rmd', 'qmd', 'mdx'] }
 const imageFilter = { name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif', 'tiff', 'heic', 'ico'] }
 const defaults: Preferences = {
-  autosave: true, theme: 'default', workspace: null, mcp: [],
+  autosave: true, theme: 'default', typoraThemes: {}, workspace: null, mcp: [],
   hidden: false, allFiles: false, fileGlob: '', zoom: 1, remoteImages: false, uploadEndpoint: '', recent: [],
   aiPrompts: {},
   titlebarMaterial: 'liquid',
+  uploadService: 'multipart', autosaveDelay: 1_100, spellcheck: true,
+  findOptions: { matchCase: false, wholeWord: false },
 }
 
 let settings: Preferences = { ...defaults }
@@ -36,6 +39,7 @@ let revision = 0
 let cachedRevision = -1
 let cachedText = ''
 let themes: Theme[] = [...builtinThemes]
+let typoraThemePaths: string[] = []
 let lastExport: ExportFormat | null = null
 let diskConflict: string | null | undefined
 let saving: Promise<boolean> | null = null
@@ -153,7 +157,7 @@ function scheduleAutosave() {
       if (!switching && diskConflict === undefined && state.dirty) {
         void saveFile(false, true).catch(error => update('自动保存失败：' + reason(error)))
       }
-    }, 1_100)
+    }, settings.autosaveDelay)
   }
 }
 
@@ -440,8 +444,15 @@ async function manageImages(mode: ImageMode) {
   if (!links.length) throw new Error('文档中没有可处理的本地图片')
   let endpoint = settings.uploadEndpoint
   if (mode === 'upload') {
-    const value = await readSetting('上传图片', '将文档引用的本地图片上传到指定接口。接口需接收名为 file 的字段并返回 url。', endpoint)
+    const description = settings.uploadService === 'picgo'
+      ? '将文档引用的本地图片交给 PicGo 或 PicList。请先打开图床应用并启用本机上传服务。'
+      : '将文档引用的本地图片上传到指定接口。接口需接收名为 file 的字段并返回 url。'
+    const value = await readSetting('上传图片', description, endpoint)
     if (!value) return
+    if (settings.uploadService === 'picgo' && value !== endpoint) {
+      const target = new URL(value)
+      if (!['127.0.0.1', '[::1]', 'localhost'].includes(target.hostname) || target.pathname !== '/upload') settings.uploadService = 'multipart'
+    }
     settings.uploadEndpoint = endpoint = value
     await persist()
   }
@@ -450,7 +461,7 @@ async function manageImages(mode: ImageMode) {
   const originals: string[] = []
   for (const link of links) {
     const image = localImage(link.url)!
-    if (mode === 'upload') replacements.push(await invoke<string>('image_upload', { document, image, endpoint }))
+    if (mode === 'upload') replacements.push(await invoke<string>('image_upload', { document, image, endpoint, service: settings.uploadService }))
     else {
       const result = await invoke<Relocated>('image_copy', { document, image })
       replacements.push(assetPath(result.path))
@@ -588,13 +599,21 @@ async function dispatch(action: ShellAction) {
       break
     }
     case 'theme-import':
-    case 'theme-import-typora': {
+    case 'theme-import-typora':
+    case 'theme': {
+      const path = action.type === 'theme' ? typoraThemePaths.find(path => typoraThemeId(path) === action.id) : undefined
+      if (action.type === 'theme' && !path) {
+        settings.theme = action.id
+        syncThemeMenu()
+        await persist()
+        break
+      }
       if (importingThemes) break
       importingThemes = true
       try {
         if (action.type === 'theme-import-typora') update('正在导入主题')
-        const paths = action.type === 'theme-import-typora'
-          ? await invoke<string[]>('typora_theme_paths')
+        const paths = path ? [path] : action.type === 'theme-import-typora'
+          ? await refreshTyporaThemes()
           : await open({ multiple: true, filters: [{ name: 'CSS 主题', extensions: ['css'] }] })
         if (paths?.length) await addThemes(paths)
         else if (action.type === 'theme-import-typora') update('未找到本机 Typora 主题，可直接导入主题 CSS')
@@ -603,16 +622,20 @@ async function dispatch(action: ShellAction) {
       }
       break
     }
-    case 'theme':
-      settings.theme = action.id
-      shell.setThemes(themes, settings.theme)
-      await persist()
-      break
+    case 'typora-config-import': await migrateTyporaPreferences(); break
     case 'format': editor.format(action.format); editor.focus(); break
     case 'undo': editor.undo(); editor.focus(); break
     case 'redo': editor.redo(); editor.focus(); break
     case 'outline': editor.select({ anchor: action.from, head: action.from }); editor.focus(); break
-    case 'presentation': state.presentation = action.value; editor.setPresentation(action.value); update(); break
+    case 'presentation':
+      state.presentation = action.value
+      editor.setPresentation(action.value)
+      update()
+      if (settings.spellcheck !== action.value.spellcheck) {
+        settings.spellcheck = action.value.spellcheck
+        await persist()
+      }
+      break
     case 'autosave':
       state.autosave = settings.autosave = action.enabled
       scheduleAutosave()
@@ -830,17 +853,47 @@ async function dispatch(action: ShellAction) {
   }
 }
 
+const typoraThemeId = (path: string) => 'typora:' + path
+const themeName = (path: string) => path.split(/[/\\]/).pop()!.replace(/\.css$/i, '')
+
+function syncThemeMenu() {
+  // 本机主题先显示名称，使用后把同一入口绑定到已保存的离线主题。
+  const local = new Map<string, Theme>()
+  for (const path of typoraThemePaths) {
+    const theme = themes.find(theme => theme.id === settings.typoraThemes[path])
+      ?? { id: typoraThemeId(path), name: themeName(path), styles: [] }
+    local.set(theme.id, theme)
+  }
+  shell.setThemes(themes, settings.theme, [...local.values()])
+}
+
+async function refreshTyporaThemes() {
+  const paths = await invoke<string[]>('typora_theme_paths')
+  if (paths.length !== typoraThemePaths.length || paths.some((path, index) => path !== typoraThemePaths[index])) {
+    typoraThemePaths = paths
+    syncThemeMenu()
+  }
+  return paths
+}
+
+async function loadTheme(path: string) {
+  const result = await importTheme(path, themes)
+  if (!themes.some(item => item.id === result.theme.id)) themes = [...themes, result.theme]
+  return result
+}
+
 async function addThemes(paths: string[]) {
   const available = new Map<string, Theme>()
+  const linked: [string, string][] = []
   const missing = new Set<string>()
   const failures: string[] = []
   update('正在导入主题')
   for (const path of paths) {
     try {
-      const result = await importTheme(path, themes)
+      const result = await loadTheme(path)
       const { theme } = result
-      if (!themes.some(item => item.id === theme.id)) themes = [...themes, theme]
       available.set(theme.id, theme)
+      if (typoraThemePaths.includes(path)) linked.push([path, theme.id])
       for (const file of result.missing) missing.add(file)
     } catch (error) {
       failures.push(path.split(/[/\\]/).pop() + ' ' + reason(error))
@@ -849,11 +902,86 @@ async function addThemes(paths: string[]) {
   if (!available.size) throw new Error('主题导入失败，' + failures[0])
   const single = paths.length === 1 ? available.values().next().value : undefined
   if (single) settings.theme = single.id
-  shell.setThemes(themes, settings.theme)
-  if (single) await persist()
+  if (linked.length) settings.typoraThemes = { ...settings.typoraThemes, ...Object.fromEntries(linked) }
+  syncThemeMenu()
+  if (single || linked.length) await persist()
   const success = single ? '已使用主题 ' + single.name : `已有 ${available.size} 套主题可用，可从主题菜单切换`
   update(success + (missing.size ? '，缺少资源 ' + [...missing].join('、') : '')
     + (failures.length ? '，导入失败 ' + failures.join('、') : ''))
+}
+
+async function migrateTyporaPreferences() {
+  const paths = await refreshTyporaThemes().catch(() => [])
+  let configurationPath: string | null = null
+  const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+  for (;;) {
+    let changes: ReturnType<typeof readTyporaProfiles> | undefined
+    let loadError = ''
+    try { changes = readTyporaProfiles(await native.typoraProfiles(configurationPath), systemDark) }
+    catch (error) { loadError = reason(error) }
+    const selected = changes?.theme ? typoraThemeKey(changes.theme) : ''
+    const themePath = selected ? paths.find(path => typoraThemeKey(themeName(path)) === selected) : undefined
+    const theme = selected ? themes.find(theme => theme.id === settings.typoraThemes[themePath ?? '']
+      || (!themePath && typoraThemeKey(theme.name) === selected)) : undefined
+    const rows: string[] = []
+    const notes: string[] = []
+    if (changes?.theme) {
+      if (theme || themePath) rows.push('主题 · ' + changes.theme)
+      else notes.push('找不到主题 ' + changes.theme + ' 的样式，可从主题菜单导入 CSS。')
+    }
+    if (changes?.upload) rows.push('图床 · ' + (changes.upload.service === 'picgo' ? 'PicGo / PicList' : new URL(changes.upload.endpoint).host))
+    if (changes?.unsupportedUpload) notes.push('原图床工具需要单独配置。支持 PicGo、PicList 和 HTTP 上传接口。')
+    const shortcutCount = Object.keys(changes?.shortcuts ?? {}).length
+    if (shortcutCount) rows.push(`快捷键 · ${shortcutCount} 项，冲突项保留页屿当前配置`)
+    if (changes?.unsupportedShortcuts) notes.push(`${changes.unsupportedShortcuts} 个快捷键缺少对应命令或键位。`)
+    if (changes?.sidebar) rows.push('侧栏 · ' + ({ files: '文件', outline: '大纲', search: '检索' }[changes.sidebar]))
+    if (changes?.autosave !== undefined) rows.push('自动保存 · ' + (changes.autosave ? '开启' : '关闭'))
+    if (changes?.autosaveDelay !== undefined) rows.push(`自动保存等待 · ${changes.autosaveDelay / 60_000} 分钟`)
+    if (changes?.spellcheck !== undefined) rows.push('拼写检查 · ' + (changes.spellcheck ? '开启' : '关闭'))
+    if (changes?.matchCase !== undefined || changes?.wholeWord !== undefined) rows.push('查找 · 大小写和全词匹配偏好')
+    const choices = [{ value: 'cancel', label: '取消' }, { value: 'file', label: '选择配置文件…' }]
+    const action = await choose('导入 Typora 配置', [...(rows.length ? rows : [loadError || '本机配置中没有可导入的项目。']), ...notes].join('\n'),
+      rows.length ? [...choices, { value: 'apply', label: '导入配置', primary: true }] : choices)
+    if (action === 'file') {
+      configurationPath = await open({ filters: [{ name: 'Typora 配置', extensions: ['plist', 'json', 'jsonc'] }] })
+      if (!configurationPath) return
+      continue
+    }
+    if (action !== 'apply' || !changes) return
+
+    const loadedTheme = !theme && themePath ? (await loadTheme(themePath)).theme : theme
+    const previous = settings
+    settings = { ...settings,
+      theme: loadedTheme?.id ?? settings.theme,
+      typoraThemes: loadedTheme && themePath ? { ...settings.typoraThemes, [themePath]: loadedTheme.id } : settings.typoraThemes,
+      uploadService: changes.upload?.service ?? settings.uploadService,
+      uploadEndpoint: changes.upload?.endpoint ?? settings.uploadEndpoint,
+      autosave: changes.autosave ?? settings.autosave,
+      autosaveDelay: changes.autosaveDelay ?? settings.autosaveDelay,
+      spellcheck: changes.spellcheck ?? settings.spellcheck,
+      sidebarTab: changes.sidebar ?? settings.sidebarTab,
+      findOptions: {
+        matchCase: changes.matchCase ?? settings.findOptions.matchCase,
+        wholeWord: changes.wholeWord ?? settings.findOptions.wholeWord,
+      },
+    }
+    try { await persist() } catch (error) { settings = previous; throw error }
+    syncThemeMenu()
+    applyTypingPreferences()
+    scheduleAutosave()
+    const shortcuts = shell.importShortcutBindings(changes.shortcuts)
+    update('已导入 Typora 配置' + (shortcuts.applied ? `，应用 ${shortcuts.applied} 个快捷键` : '')
+      + (shortcuts.conflicts ? `，跳过 ${shortcuts.conflicts} 个冲突快捷键` : ''))
+    return
+  }
+}
+
+function applyTypingPreferences() {
+  state.autosave = settings.autosave
+  state.presentation.spellcheck = settings.spellcheck
+  editor.setPresentation(state.presentation)
+  shell.setFindOptions(settings.findOptions)
+  if (settings.sidebarTab) shell.setSidebarTab(settings.sidebarTab)
 }
 
 async function shareSelection() {
@@ -908,13 +1036,13 @@ async function startup() {
     settings.aiPrompts = normalizePrompts(settings.aiPrompts)
     writing.setPrompts(settings.aiPrompts)
     themes = [...builtinThemes, ...imported]
-    state.autosave = settings.autosave
     state.workspaceFilter = { hidden: settings.hidden, all: settings.allFiles, glob: settings.fileGlob }
     if (settings.zoom !== 1) {
       await getCurrentWebview().setZoom(settings.zoom)
       if (macTitlebar) document.documentElement.style.setProperty('--yy-titlebar-zoom', String(settings.zoom))
     }
-    shell.setThemes(themes, settings.theme)
+    syncThemeMenu()
+    void refreshTyporaThemes().catch(() => {})
     protocol.configure(settings.mcp)
     const startupTasks = [writing.load(), invoke<PluginInfo[]>('plugin_list').then(setPlugins)]
     if (macTitlebar) startupTasks.push(applyTitlebar(settings.titlebarMaterial === 'frosted' ? 'frosted' : 'liquid'))
@@ -922,6 +1050,8 @@ async function startup() {
       state.workspace = settings.workspace
       startupTasks.push(refreshTree(), protocol.workspace(state.workspace))
     }
+    update()
+    applyTypingPreferences()
     update()
     const result = await Promise.allSettled(startupTasks)
     const rejected = result.find(item => item.status === 'rejected')
@@ -954,6 +1084,7 @@ async function startup() {
   window.setInterval(() => { void monitor() }, 1_650)
   window.addEventListener('focus', () => {
     void monitor()
+    if (loaded) void refreshTyporaThemes().catch(() => {})
     if (state.workspace) void refreshTree().catch(error => update(reason(error)))
   })
   const currentWindow = getCurrentWindow()

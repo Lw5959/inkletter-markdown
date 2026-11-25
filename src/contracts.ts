@@ -33,6 +33,7 @@ export type Appearance = 'light' | 'dark'
 export type TitlebarMaterial = 'frosted' | 'liquid'
 export type TitlebarView = { material: TitlebarMaterial; liquidAvailable: boolean }
 export type Theme = { id: string; name: string; styles: string[]; swatch?: { paper: string; ink: string } }
+export type SidebarTab = 'files' | 'outline' | 'search'
 export type WorkspaceEntry = { path: string; name: string; children?: WorkspaceEntry[] }
 export type SearchResult = { path: string; name: string; line: number; preview: string }
 export type FindQuery = { text: string; replacement: string; regex: boolean; matchCase: boolean; wholeWord: boolean }
@@ -67,6 +68,7 @@ export type ShellAction =
   | { type: 'mode'; mode: EditorMode }
   | { type: 'theme'; id: string }
   | { type: 'theme-import-typora' }
+  | { type: 'typora-config-import' }
   | { type: 'export'; format: ExportFormat }
   | { type: 'outline'; from: number }
   | { type: 'search-workspace'; text: string; regex: boolean }
@@ -116,7 +118,10 @@ export interface Shell {
   setOutline(outline: OutlineEntry[]): void
   setWorkspace(entries: WorkspaceEntry[]): void
   setSearchResults(results: SearchResult[]): void
-  setThemes(themes: Theme[], active: string): void
+  setThemes(themes: Theme[], active: string, localThemes?: Theme[]): void
+  importShortcutBindings(bindings: Readonly<Record<string, string>>): { applied: number; conflicts: number }
+  setSidebarTab(tab: SidebarTab): void
+  setFindOptions(options: Pick<FindQuery, 'matchCase' | 'wholeWord'>): void
   getAppearance(): Appearance
   setTitlebar(view: TitlebarView): void
   setAI(view: AiView): void

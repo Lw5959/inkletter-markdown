@@ -5,6 +5,7 @@ import { invoke, native, reason } from './native'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { imageLinks } from './images'
 import { aiTasks } from './ai-prompts'
+import { readTyporaProfiles, typoraThemeKey } from './typora'
 
 type Case = {
   phase: 'full' | 'recover' | 'measure'
@@ -15,10 +16,12 @@ type Case = {
   mb10: string
   themes: { path: string; name: string }[]
   typora?: string[]
+  typoraConfig?: boolean
   exports: Record<string, string>
   recoveryText?: string
   model?: { endpoint: string; name: string }
   mcp: string
+  picgo?: string
   plugin: string
   updatedPlugin: string
 }
@@ -155,6 +158,14 @@ async function verifyThemeImport(ports: Ports, expected: string[]) {
   const paper = document.querySelector<HTMLElement>('.document-theme')!
   const themeList = () => invoke<Theme[]>('theme_list')
   const choose = (name: string) => { themeMenu.click(); button(popover, name).click() }
+  themeMenu.click()
+  await until(() => expected.every(name => Boolean(button(popover, name))))
+  const local = expected.includes('night') ? 'night' : expected[0]
+  button(popover, local).click()
+  await until(() => themeMenu.textContent === local)
+  themeMenu.click()
+  check(button(popover, local).getAttribute('aria-checked') === 'true', '本机主题首次点击即可使用并显示选中态')
+  themeMenu.click()
   choose('白纸')
   await until(() => paper.dataset.theme === 'builtin-paper')
   check(getComputedStyle(paper).backgroundColor === 'rgb(255, 255, 255)', '白纸主题的正文背景为纯白')
@@ -180,9 +191,6 @@ async function verifyThemeImport(ports: Ports, expected: string[]) {
 }
 
 async function verifyShellPalette(ports: Ports) {
-  const canvas = document.createElement('canvas')
-  canvas.width = canvas.height = 1
-  const context = canvas.getContext('2d')!
   const ai = document.querySelector<HTMLButtonElement>('[data-toggle="ai"]')!
   const pane = document.querySelector('.yy-ai-pane')!
   const summary = []
@@ -191,13 +199,15 @@ async function verifyShellPalette(ports: Ports) {
     ai.click()
     button(pane, '模型配置').click()
     const samples = ['.yy-topbar', '.yy-left-panel', '.yy-right-panel', '.yy-statusbar', '.yy-ai-settings']
+    const background = (selector: string) => getComputedStyle(document.querySelector(selector)!).backgroundColor
+    await until(() => background('.yy-right-panel') === background('.yy-left-panel'), 2_000).catch(() => {
+      const right = document.querySelector('.yy-right-panel')!
+      throw new Error(`协作栏没有应用主题 ${background('.yy-right-panel')} / ${background('.yy-left-panel')} / ${getComputedStyle(right).getPropertyValue('--yy-chrome-bg')}`)
+    })
     const surfaces = samples.map(selector => {
-      const color = getComputedStyle(document.querySelector(selector)!).backgroundColor
-      context.clearRect(0, 0, 1, 1)
-      context.fillStyle = color
-      context.fillRect(0, 0, 1, 1)
-      const [red, green, blue, alpha] = context.getImageData(0, 0, 1, 1).data
-      check(green > Math.max(red, blue) && alpha > 0, '窗口区域跟随主题 ' + selector)
+      const color = background(selector)
+      const [red, green, blue, alpha = 1] = (color.match(/[-\d.]+/g) ?? []).map(Number)
+      check(green > Math.max(red, blue) && alpha > 0, `窗口区域跟随主题 ${selector} ${color}`)
       return color
     })
     check(await getCurrentWindow().theme() === appearance, '原生窗口明暗与主题一致')
@@ -207,6 +217,25 @@ async function verifyShellPalette(ports: Ports) {
   }
   await ports.action({ type: 'theme', id: 'default' })
   return summary
+}
+
+async function verifyTyporaConfig(ports: Ports) {
+  const expected = readTyporaProfiles(await native.typoraProfiles(), matchMedia('(prefers-color-scheme: dark)').matches)
+  const applying = ports.action({ type: 'typora-config-import' })
+  await until(() => Boolean(document.querySelector('.app-dialog[open] [value="apply"]')))
+  const dialog = document.querySelector('.app-dialog[open]')!
+  check(dialog.querySelector('h2')?.textContent === '导入 Typora 配置', 'Typora 配置预览')
+  if (expected.theme) check(dialog.querySelector('p')?.textContent?.includes(expected.theme), '预览包含本机当前主题')
+  dialog.querySelector<HTMLButtonElement>('[value="apply"]')!.click()
+  await applying
+  const settings = await native.preferences()
+  check(ports.state.detail.startsWith('已导入 Typora 配置'), '应用 Typora 设置')
+  const selected = (await invoke<Theme[]>('theme_list')).find(theme => theme.id === settings?.theme)
+  if (expected.theme) check(selected && typoraThemeKey(selected.name) === typoraThemeKey(expected.theme), '应用本机 Typora 主题')
+  if (expected.sidebar) check(settings?.sidebarTab === expected.sidebar, '保存侧栏偏好')
+  if (expected.matchCase !== undefined) check(settings?.findOptions?.matchCase === expected.matchCase, '保存查找偏好')
+  await ports.action({ type: 'autosave', enabled: false })
+  return { theme: selected?.name, sidebar: settings?.sidebarTab, findOptions: settings?.findOptions }
 }
 
 async function verifyFull(ports: Ports, scenario: Case) {
@@ -264,10 +293,19 @@ async function verifyFull(ports: Ports, scenario: Case) {
   }
   const image = imageLinks(ports.text())[0]
   check(image && image.url.includes('assets/'), '实际文档含相对路径图片')
+  if (scenario.picgo) {
+    const url = await invoke<string>('image_upload', { document: scenario.guide, image: image.url, endpoint: scenario.picgo, service: 'picgo' })
+    check(url === 'https://example.test/icon.png', 'PicGo 本机上传协议')
+    result.picgo = true
+  }
   ports.editor.select({ anchor: 0, head: 0 })
   result.shellPalette = await verifyShellPalette(ports)
   await mark('shell-palette', result.shellPalette)
   if (scenario.typora?.length) result.localTypora = await verifyThemeImport(ports, scenario.typora)
+  if (scenario.typoraConfig) {
+    result.typoraConfig = await verifyTyporaConfig(ports)
+    await mark('typora-config', result.typoraConfig)
+  }
   const themes: unknown[] = []
   for (const theme of scenario.themes) {
     await ports.addTheme(theme.path)

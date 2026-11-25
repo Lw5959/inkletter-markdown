@@ -13,6 +13,7 @@ mod store;
 mod themes;
 #[cfg(target_os = "macos")]
 mod titlebar;
+mod typora;
 mod workspace;
 
 use std::{path::PathBuf, time::Duration};
@@ -123,6 +124,7 @@ fn main() {
             themes::theme_abort,
             themes::theme_list,
             themes::typora_theme_paths,
+            typora::typora_profiles,
             assets::image_data,
             assets::image_insert,
             assets::image_copy,

@@ -359,6 +359,38 @@ export class ShortcutRegistry {
     return SHORTCUT_DEFINITIONS.find(def => def.id !== id && this.get(def.id) === normalized)
   }
 
+  importBindings(bindings: Readonly<Record<string, string>>, isMac: boolean) {
+    const keys = (combo: string) => {
+      const parsed = parseCombo(combo)
+      if (!parsed) return ''
+      if (parsed.mod) {
+        parsed.mod = false
+        if (isMac) parsed.meta = true
+        else parsed.ctrl = true
+      }
+      return serializeCombo(parsed)
+    }
+    const pending = new Map<ShortcutCommandId, string>()
+    for (const { id } of SHORTCUT_DEFINITIONS) {
+      const combo = bindings[id]
+      if (typeof combo === 'string') pending.set(id, combo)
+    }
+    const requested = pending.size
+    // 先看整批导入后的键位以允许互换。冲突项回到原键位后再检查剩余条目。
+    for (;;) {
+      const conflicts = [...pending].filter(([id, combo]) => combo && SHORTCUT_DEFINITIONS.some(other =>
+        other.id !== id && keys(pending.get(other.id) ?? this.get(other.id)) === keys(combo)))
+      if (!conflicts.length) break
+      for (const [id] of conflicts) pending.delete(id)
+    }
+    for (const [id, combo] of pending) this.bindings.set(id, combo)
+    if (pending.size) {
+      this.persist()
+      this.notify()
+    }
+    return { applied: pending.size, conflicts: requested - pending.size }
+  }
+
   resetOne(id: ShortcutCommandId) {
     const def = SHORTCUT_DEFINITIONS.find(item => item.id === id)
     if (!def) return

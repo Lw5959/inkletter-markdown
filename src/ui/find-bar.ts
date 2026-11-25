@@ -171,6 +171,15 @@ export class FindBar {
     return btn
   }
 
+  setOptions(options: Pick<FindQuery, 'matchCase' | 'wholeWord'>) {
+    this.matchCase = options.matchCase
+    this.wholeWord = options.wholeWord
+    for (const [button, enabled] of [[this.caseBtn, this.matchCase], [this.wordBtn, this.wholeWord]] as const) {
+      button.classList.toggle('is-active', enabled)
+      button.setAttribute('aria-pressed', String(enabled))
+    }
+  }
+
   private getQuery(): FindQuery {
     return {
       text: this.findInput.value,

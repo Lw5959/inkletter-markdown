@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { spawn, execFileSync } from 'node:child_process'
 import { createServer } from 'node:http'
-import { copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
@@ -56,6 +56,7 @@ const setup = {
   phase: kind, root, guide, mb1, mb10, exports, plugin, updatedPlugin,
   themes: [...themes, { path: customTheme, name: '相对资源与级联夹具' }],
   typora: process.env.YEYU_TEST_TYPORA ? JSON.parse(process.env.YEYU_TEST_TYPORA) : undefined,
+  typoraConfig: process.env.YEYU_TEST_TYPORA_CONFIG === '1',
   model: process.env.YEYU_TEST_MODEL_URL ? { endpoint: process.env.YEYU_TEST_MODEL_URL, name: process.env.YEYU_TEST_MODEL ?? 'yeyu-qwen' } : undefined,
 }
 const logfile = (phase) => join(folder, phase + '.log')
@@ -96,6 +97,18 @@ async function result(name, limit = 75_000) {
 
 async function serveMcp() {
   const http = createServer(async (request, response) => {
+    if (request.method === 'POST' && request.url === '/upload') {
+      try {
+        const chunks = []
+        for await (const chunk of request) chunks.push(chunk)
+        const { list } = JSON.parse(Buffer.concat(chunks).toString())
+        assert.deepEqual(list, [realpathSync(join(assets, 'icon.png'))])
+        response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ success: true, result: ['https://example.test/icon.png'] }))
+      } catch {
+        response.writeHead(400).end('Unexpected upload request')
+      }
+      return
+    }
     const app = new McpServer({ name: 'test-yeyu-remote', version: '0.1.0' })
     app.registerTool('ping_sample', { description: 'Return a fixed test message' }, () => ({ content: [{ type: 'text', text: 'pong' }] }))
     app.registerResource('sample', 'notes://sample', { description: 'A Markdown resource', mimeType: 'text/markdown' }, uri =>
@@ -152,7 +165,7 @@ try {
     console.log(JSON.stringify({ ...ready, ...metrics, rssStartupKiB, rssAfter10MbKiB: rss() }, null, 2))
   } else {
     remote = await serveMcp()
-    boot(kind, { mcp: remote.url })
+    boot(kind, { mcp: remote.url, picgo: new URL('/upload', remote.url).href })
     const output = await result('exported', 90_000)
     assert.equal(output.themes.at(-1).color, 'rgb(27, 61, 53)')
     assert.equal(output.themes.at(-1).embeddedBackground, true)

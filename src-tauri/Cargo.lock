@@ -6068,7 +6068,7 @@ dependencies = [
 
 [[package]]
 name = "yeyu"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "base64 0.22.1",
  "blake3",
@@ -6081,6 +6081,7 @@ dependencies = [
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
+ "plist",
  "regex",
  "reqwest",
  "rmcp",
