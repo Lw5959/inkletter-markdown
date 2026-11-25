@@ -89,6 +89,25 @@ Apple M1 Pro，32 GB 内存，macOS 27.2.1。本地 APFS 外置 SSD 上运行发
 
 ## 平台验收范围
 
+### 0.2.4
+
+安装包与 SHA-256 校验文件位于 `release/0.2.4/`。应用源码为 `829fb56`，macOS 独立打包配置为 `81e69ea`。两个 DMG 分别装入单一架构的应用。
+
+| 安装包 | 验收 |
+|---|---|
+| macOS Apple Silicon `arm64.dmg` | 只读挂载验证映像、`arm64` 二进制和临时签名。Apple M1 Pro 的原生 QA 窗口通过动效开关、模型切换、Cocoa 中文组合输入、文档往返、导出和草稿恢复 |
+| macOS Intel `x64.dmg` | 只读挂载验证映像、`x86_64` 二进制和临时签名，在 Rosetta 下通过命令行启动检查。Intel 设备的桌面验收待完成 |
+| Windows x64 NSIS | 交叉构建与安装档案校验通过。Windows 桌面验收待完成 |
+| Linux ARM64 DEB | Debian 13 断网容器安装成功，在 Xvfb 桌面打开、编辑、保存并保留 BOM |
+
+macOS 安装包尚未公证，Windows 安装包尚未签名。
+
+- Chromium 的全套 30 项测试、Rust 的 15 项测试及 WebKit 的相关界面测试通过。侧栏双向过渡、菜单开关、系统减少动态效果和焦点恢复均已验证。分批检查默认明暗、四款内置、八款本机 Typora 主题和一个导入夹具的悬停、按下及选中态，受检文字样本最低对比度为 5.21:1。
+- macOS 原生窗口从旧单模型配置迁移，在设置页添加供应商及模型并验证重启保留选择。Chat Completions 驱动本机 Qwen 改写选区，结果经差异审阅应用后可撤销。Anthropic Messages 和 Responses 通过独立的本机 SSE 夹具核对请求地址、模型 ID 和会话隔离。Responses 的测试密钥经过系统钥匙串，并核对配置文件没有密钥明文。
+- 本机验证 HTML、PDF、PNG 和 DOCX 导出、DOCX 导回、MCP 双向调用、插件离线安装及外部改动冲突。动画关闭后侧栏即时展开和收起，强制退出后保留关闭状态。
+
+用发布配置在 Apple M1 Pro、32 GB、macOS 27.2.1 上启动三个独立进程，沿用 1 MiB 和 10 MiB 固定样本。启动为 732–977 ms，打开 1 MiB 为 77–95 ms，输入到下一帧的 P95 为 18–26 ms。10 MiB 打开为 130–132 ms，滚动到底编辑后保存为 119–146 ms，首屏挂载 28 行。主进程 RSS 包括启动时的 114–120 MiB 和 10 MiB 往返后的 199–202 MiB。
+
 ### 0.2.3
 
 安装包和 SHA-256 校验文件位于 `release/0.2.3/`，构建源为 `de3ef2b`。市场提交 `5e2f897` 包含九款插件。匿名下载核对了所有包的摘要、接口和版本，前一版六款的包和地址均保留。[公网目录](https://lw5959.github.io/yeyu-plugin-market/index.json) · [市场发布提交](https://github.com/Lw5959/yeyu-plugin-market/commit/5e2f897)
