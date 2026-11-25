@@ -14,6 +14,8 @@ export const formatExtensions: Record<ExportFormat, string> = {
 const documentStyles = baseStyles + `
 @page { size: A4; margin: 18mm; }
 html, body { margin: 0; }
+/* 给长图和打印保留正文空间。横图仍可用满正文宽度，图片保持原始比例。 */
+:where(.typora-export #write img) { max-height: 20rem; object-fit: contain; }
 @media print {
   #write { width: auto !important; max-width: none !important; padding: 0 !important; }
   #write :is(h1, h2, h3, h4, figcaption) { break-after: avoid; }

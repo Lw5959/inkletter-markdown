@@ -134,6 +134,37 @@ try {
       { ...expected, style: true, imageUrls: ['data:image/png;base64,YQ==', 'missing.png', 'unsafe.png'] },
       { ...expected, style: false, imageUrls: ['data:image/png;base64,Yg==', 'missing.png', 'unsafe.png'] },
     ])
+
+    const imagePage = await page.evaluate(async () => {
+      const { exportHtml } = await import('/export.js')
+      const sizes = [[1024, 1024], [1500, 300], [96, 48]]
+      const images = new Map(sizes.map(([width, height], index) => {
+        const canvas = Object.assign(document.createElement('canvas'), { width, height })
+        return [`image-${index}.png`, canvas.toDataURL()]
+      }))
+      const markdown = [...images.keys()].map(name => `![图片](${name})`).join('\n\n')
+      return exportHtml(markdown, '图片尺寸', { resolveImage: async name => images.get(name) ?? name }, undefined, false, 'light')
+    })
+    await page.setContent(imagePage)
+    const imageSizes = () => page.locator('#write img').evaluateAll(async elements => {
+      await Promise.all(elements.map(element => element.decode()))
+      return elements.map(element => {
+        const { width, height } = element.getBoundingClientRect()
+        return [width, height]
+      })
+    })
+    // PNG 与 PDF 使用相同的导出页，分别检查屏幕和打印媒体的图片布局。
+    for (const media of ['screen', 'print']) {
+      await page.emulateMedia({ media })
+      const [square, wide, small] = await imageSizes()
+      assert.deepEqual(square, [320, 320])
+      assert.ok(wide[0] > 320 && Math.abs(wide[0] / wide[1] - 5) < 0.01)
+      assert.deepEqual(small, [96, 48])
+    }
+    await page.emulateMedia({ media: 'screen' })
+    await page.setViewportSize({ width: 360, height: 700 })
+    const [narrowSquare] = await imageSizes()
+    assert.ok(narrowSquare[0] < 320 && narrowSquare[0] === narrowSquare[1])
   }
 } finally {
   await browser?.close()
