@@ -115,7 +115,7 @@ stats.onmessage = ({ data }: MessageEvent<{ task: number; doc: number; words: nu
       const key = JSON.stringify(outline)
       if (key !== outlineKey) { outlineKey = key; shell.setOutline(outline) }
     }
-    if (statsPending) updateCounters()
+    if (statsPending && !statsTimer) updateCounters()
     return
   }
   if (data.task !== statsTask || data.doc !== revision) return
@@ -150,7 +150,9 @@ function onChange() {
   window.clearTimeout(checkpointTimer)
   checkpointTimer = window.setTimeout(() => { void checkpoint() }, 380)
   scheduleAutosave()
-  if (!statsTimer) statsTimer = window.setTimeout(updateCounters, 280)
+  // 连续录入时优先呈现按键结果，短暂停下再把整份文档交给统计线程。
+  window.clearTimeout(statsTimer)
+  statsTimer = window.setTimeout(updateCounters, 280)
 }
 
 function updateCounters() {
