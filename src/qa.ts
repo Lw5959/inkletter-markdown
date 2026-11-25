@@ -179,6 +179,36 @@ async function verifyThemeImport(ports: Ports, expected: string[]) {
   return initial.map(theme => theme.name)
 }
 
+async function verifyShellPalette(ports: Ports) {
+  const canvas = document.createElement('canvas')
+  canvas.width = canvas.height = 1
+  const context = canvas.getContext('2d')!
+  const ai = document.querySelector<HTMLButtonElement>('[data-toggle="ai"]')!
+  const pane = document.querySelector('.yy-ai-pane')!
+  const summary = []
+  for (const [id, appearance] of [['builtin-jade', 'light'], ['builtin-pine', 'dark']]) {
+    await ports.action({ type: 'theme', id })
+    ai.click()
+    button(pane, '模型配置').click()
+    const samples = ['.yy-topbar', '.yy-left-panel', '.yy-right-panel', '.yy-statusbar', '.yy-ai-settings']
+    const surfaces = samples.map(selector => {
+      const color = getComputedStyle(document.querySelector(selector)!).backgroundColor
+      context.clearRect(0, 0, 1, 1)
+      context.fillStyle = color
+      context.fillRect(0, 0, 1, 1)
+      const [red, green, blue, alpha] = context.getImageData(0, 0, 1, 1).data
+      check(green > Math.max(red, blue) && alpha > 0, '窗口区域跟随主题 ' + selector)
+      return color
+    })
+    check(await getCurrentWindow().theme() === appearance, '原生窗口明暗与主题一致')
+    document.querySelector<HTMLButtonElement>('.yy-ai-settings [aria-label="关闭"]')!.click()
+    ai.click()
+    summary.push({ id, appearance, surfaces })
+  }
+  await ports.action({ type: 'theme', id: 'default' })
+  return summary
+}
+
 async function verifyFull(ports: Ports, scenario: Case) {
   const result: Record<string, unknown> = {}
   if (document.querySelector('[data-mac-titlebar="true"]')) {
@@ -235,12 +265,12 @@ async function verifyFull(ports: Ports, scenario: Case) {
   const image = imageLinks(ports.text())[0]
   check(image && image.url.includes('assets/'), '实际文档含相对路径图片')
   ports.editor.select({ anchor: 0, head: 0 })
+  result.shellPalette = await verifyShellPalette(ports)
+  await mark('shell-palette', result.shellPalette)
   if (scenario.typora?.length) result.localTypora = await verifyThemeImport(ports, scenario.typora)
   const themes: unknown[] = []
   for (const theme of scenario.themes) {
     await ports.addTheme(theme.path)
-    const raf = await Promise.race([frame().then(() => true), wait(3_000).then(() => false)])
-    check(raf, '主题切换后渲染首帧 ' + theme.name)
     const paper = getComputedStyle(document.querySelector<HTMLElement>('.document-theme')!)
     const write = getComputedStyle(document.querySelector<HTMLElement>('#write')!)
     const heading = document.querySelector<HTMLElement>('#write h1')

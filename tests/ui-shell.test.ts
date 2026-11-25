@@ -1,14 +1,15 @@
 import { existsSync } from 'node:fs'
 import { platform } from 'node:os'
-import { chromium, type Browser, type Page } from 'playwright-core'
+import { chromium, webkit, type Browser, type Page } from 'playwright-core'
 import { createServer, type ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
+const useWebKit = process.env.YEYU_TEST_WEBKIT === '1'
 const browserPath = process.env.YEYU_CHROME || (platform() === 'darwin'
   ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
   : '/usr/bin/chromium')
 
-const hasBrowser = existsSync(browserPath)
+const hasBrowser = existsSync(useWebKit ? webkit.executablePath() : browserPath)
 
 describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
   let server: ViteDevServer
@@ -25,7 +26,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     const addr = server.httpServer?.address()
     const port = typeof addr === 'object' && addr ? addr.port : 1420
     baseUrl = `http://127.0.0.1:${port}`
-    browser = await chromium.launch({ executablePath: browserPath, headless: true })
+    browser = useWebKit ? await webkit.launch() : await chromium.launch({ executablePath: browserPath, headless: true })
     page = await browser.newPage({ viewport: { width: 1360, height: 860 } })
     await page.route(`${baseUrl}/__ui_harness__`, async route => {
       await route.fulfill({
@@ -41,16 +42,18 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     await server?.close()
   })
 
-  async function mountTestHarness() {
+  async function mountTestHarness(macTitlebar = false) {
     await page.goto(`${baseUrl}/__ui_harness__`, { waitUntil: 'domcontentloaded' })
     await page.evaluate(`(async () => {
       localStorage.clear()
       const { mountShell } = await import('/src/ui/index.ts')
       const { createEditor } = await import('/src/editor/index.ts')
+      const { builtinThemes } = await import('/src/builtin-themes.ts')
       const root = document.getElementById('app')
       const actions = []
       const nativeThemes = []
       const shell = mountShell(root, {
+        macTitlebar: ${macTitlebar},
         onWindowAppearance(theme) { nativeThemes.push(theme) },
         dispatch(action) {
           actions.push(action)
@@ -61,7 +64,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
         onSelectionChange() {},
       })
       editor.setMarkdown('# 页屿测试文档\\n\\n第一段正文。\\n\\n## 二级标题\\n\\n第二段正文。\\n')
-      window.__test = { shell, editor, actions, nativeThemes }
+      window.__test = { shell, editor, actions, nativeThemes, builtinThemes }
     })()`)
   }
 
@@ -116,6 +119,119 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     expect(await paper.evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(32, 32, 32)')
     await page.emulateMedia({ colorScheme: 'light' })
   })
+
+  it('青瓷和松夜同步标题栏、工作区、AI、MCP 与弹窗的配色', async () => {
+    await mountTestHarness(true)
+    await page.emulateMedia({ colorScheme: 'light' })
+    await page.evaluate(() => {
+      const { shell } = (window as unknown as Record<string, any>).__test
+      const path = '/ws/设计稿.md'
+      shell.setState({ title: '设计稿.md', path, mode: 'live', workspace: '/ws', autosave: true,
+        presentation: { focus: false, typewriter: false, spellcheck: false, readonly: false } })
+      shell.setWorkspace([{ path, name: '设计稿.md' }])
+    })
+
+    const tint = async (selector: string, property = 'background-color') => {
+      const color = await page.locator(selector).first().evaluate((element, propertyName) => {
+        const canvas = document.createElement('canvas')
+        canvas.width = canvas.height = 1
+        const context = canvas.getContext('2d')!
+        context.fillStyle = getComputedStyle(element).getPropertyValue(propertyName)
+        context.fillRect(0, 0, 1, 1)
+        return Array.from(context.getImageData(0, 0, 1, 1).data)
+      }, property)
+      const [red, green, blue, alpha] = color
+      expect(green, selector).toBeGreaterThan(Math.max(red, blue))
+      expect(alpha, selector).toBeGreaterThan(0)
+      return color
+    }
+
+    for (const [id, colorScheme] of [['builtin-jade', 'light'], ['builtin-pine', 'dark']]) {
+      await page.evaluate(id => {
+        const { shell, builtinThemes } = (window as unknown as Record<string, any>).__test
+        shell.setThemes(builtinThemes, id)
+        shell.setTitlebar({ material: 'frosted' })
+      }, id)
+      expect(await page.locator('html').getAttribute('data-yeyu-appearance')).toBe(colorScheme)
+      expect((await tint('.yy-topbar'))[3]).toBeLessThan(255)
+      await page.evaluate(() => (window as unknown as Record<string, any>).__test.shell.setTitlebar({ material: 'liquid' }))
+      expect((await tint('.yy-topbar'))[3]).toBeLessThan(255)
+      await tint('.yy-left-panel')
+      await tint('.yy-tree-row.is-active')
+      await tint('.yy-tree-row.is-active .yy-tree-main', 'color')
+      await tint('.yy-status-chip.is-active')
+      await page.locator('[data-left-tab="search"]').click()
+      await tint('.yy-search-form .yy-input')
+      await page.locator('[data-left-tab="files"]').click()
+
+      await page.locator('[data-toggle="ai"]').click()
+      await tint('.yy-right-panel')
+      await tint('.yy-ai-input-box')
+      await page.getByLabel('AI 指令输入').fill('润色正文')
+      await tint('.yy-ai-send')
+      await page.getByRole('button', { name: '模型配置', exact: true }).click()
+      await tint('.yy-ai-settings')
+      await tint('.yy-ai-settings select')
+      await page.keyboard.press('Escape')
+      await page.getByRole('button', { name: '默认提示词', exact: true }).click()
+      await tint('.yy-ai-task-choice[aria-pressed="true"]')
+      await tint('.yy-ai-template')
+      await page.keyboard.press('Escape')
+
+      await page.locator('[data-toggle="mcp"]').click()
+      await tint('.yy-mcp-bridge')
+      await page.locator('[data-mcp-action="toggle-form"]').click()
+      await tint('.yy-mcp-pane .yy-config-card input')
+      await page.locator('[data-mcp-action="toggle-form"]').click()
+      await page.locator('[data-toggle="mcp"]').click()
+
+      await page.locator('.yy-doc-title-btn').click()
+      await tint('.yy-modal-quickopen')
+      await page.keyboard.press('Escape')
+      await page.getByRole('menuitem', { name: '编辑', exact: true }).click()
+      await page.getByRole('menuitem', { name: /插件管理/ }).click()
+      await tint('.yy-plugin-manager')
+      await page.keyboard.press('Escape')
+      await page.getByRole('menuitem', { name: '编辑', exact: true }).click()
+      await page.getByRole('menuitem', { name: /快捷键设置/ }).click()
+      await tint('.yy-modal-shortcuts')
+      await page.keyboard.press('Escape')
+
+      await page.evaluate(`(async () => {
+        const { readSetting } = await import('/src/dialogs.ts')
+        void readSetting('资源设置', '输入地址。', 'https://example.test')
+      })()`)
+      await tint('.app-dialog')
+      await tint('.app-dialog input')
+      await tint('.app-dialog-primary')
+      await page.keyboard.press('Escape')
+    }
+    const imported = await page.evaluate(() => {
+      const { shell } = (window as unknown as Record<string, any>).__test
+      shell.setThemes([{ id: 'imported', name: '导入的低对比度主题', styles: [`.document-theme {
+        --side-bar-bg-color: #dfe6f2;
+        --primary-color: #cdd5e6;
+        color: #b2bcce;
+      }`] }], 'imported')
+      const styles = getComputedStyle(document.documentElement)
+      const luminance = (name: string) => {
+        const [red, green, blue] = styles.getPropertyValue(name).match(/\d+/g)!.map(value => {
+          const channel = Number(value) / 255
+          return channel <= .04045 ? channel / 12.92 : ((channel + .055) / 1.055) ** 2.4
+        })
+        return .2126 * red + .7152 * green + .0722 * blue
+      }
+      return {
+        sidebar: getComputedStyle(document.querySelector('.yy-left-panel')!).backgroundColor,
+        accentContrast: (luminance('--yy-theme-surface') + .05) / (luminance('--yy-theme-accent') + .05),
+      }
+    })
+    expect(imported.sidebar).toBe('rgb(223, 230, 242)')
+    expect(imported.accentContrast).toBeGreaterThanOrEqual(4.5)
+    await page.evaluate(() => (window as unknown as Record<string, any>).__test.shell.setThemes([], 'default'))
+    expect(await page.locator('.yy-left-panel').evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(255, 255, 255)')
+    expect(await page.locator('html').getAttribute('data-yeyu-theme')).toBeNull()
+  }, 15_000)
 
   it('挂载外壳、文档容器状态、主题作用域隔离与切换', async () => {
     await mountTestHarness()

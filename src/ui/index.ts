@@ -89,8 +89,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   const shortcuts = new ShortcutRegistry()
   const isMac = detectMac()
 
-  // Append theme stylesheet after shell/editor styles so user themes win on #write & .document-theme,
-  // while higher-specificity .yy-shell .yy-chrome rules keep UI chrome isolated.
+  // 文档加载导入的样式，外壳取其中的颜色并沿用自己的控件样式。
   const themeStyle = document.createElement('style')
   themeStyle.dataset.yeyuTheme = 'true'
   document.head.append(themeStyle)
@@ -745,7 +744,6 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
       const current = themes.find(theme => theme.id === active)
       themeStyle.textContent = current ? current.styles.join('\n') : ''
       paperEl.dataset.theme = current?.id ?? 'default'
-      root.ownerDocument.documentElement.toggleAttribute('data-yeyu-theme', !!current)
       appearance.select(current)
       themeBtnLabel.textContent = current?.name ?? '主题'
       themeBtn.title = '当前主题：' + (current?.name ?? '默认')
@@ -786,7 +784,6 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
       window.removeEventListener('keydown', onWindowKeyDown)
       document.removeEventListener('mousedown', onDocMouseDown)
       appearance.destroy()
-      root.ownerDocument.documentElement.removeAttribute('data-yeyu-theme')
       menuBar.destroy()
       leftPanel.destroy()
       modals.destroy()

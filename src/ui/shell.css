@@ -1,4 +1,4 @@
-/* 界面颜色与文档排版分离。导入主题只作用于文档区域。 */
+/* 外壳用同一组颜色绘制各页面，文档主题保留自己的排版。 */
 
 :root {
   color-scheme: light;
@@ -9,6 +9,9 @@
   --yy-chrome-bg: #fff;
   --yy-chrome-elevated: #fff;
   --yy-chrome-subtle: #f2f2f2;
+  --yy-titlebar-bg: color-mix(in srgb, var(--yy-chrome-bg), var(--yy-chrome-subtle) 70%);
+  --yy-titlebar-glass: color-mix(in srgb, var(--yy-chrome-bg) 26%, transparent);
+  --yy-dialog-backdrop: rgb(0 0 0 / .25);
 
   --yy-ink: #242424;
   --yy-ink-muted: #626262;
@@ -27,6 +30,7 @@
   --yy-warn-ink: #7d5315;
   --yy-danger: #b23a32;
   --yy-danger-bg: #fae8e6;
+  --yy-on-danger: #fff;
   --yy-success: #1b6548;
   --yy-success-bg: #e2f1ea;
   --yy-mcp-bg: #eeeeee;
@@ -41,8 +45,8 @@
 
 :root[data-yeyu-appearance="dark"] {
   color-scheme: dark;
-  --yy-canvas: color-mix(in srgb, var(--yy-theme-surface, #232323) 82%, #161616);
-  --yy-chrome-bg: color-mix(in srgb, var(--yy-theme-surface, #262626) 90%, #242424);
+  --yy-canvas: #212121;
+  --yy-chrome-bg: #262626;
   --yy-chrome-elevated: color-mix(in srgb, var(--yy-chrome-bg) 94%, #fff);
   --yy-chrome-subtle: color-mix(in srgb, var(--yy-chrome-bg) 90%, #fff);
   --yy-ink: #e6e6e6;
@@ -61,16 +65,48 @@
   --yy-success-bg: #263b2e;
   --yy-danger: #f1a09a;
   --yy-danger-bg: #492d2c;
+  --yy-on-danger: #291210;
   --yy-warn-ink: #f0c992;
   --yy-warn-bg: #433724;
+  --yy-dialog-backdrop: rgb(0 0 0 / .44);
 }
 
-:root[data-yeyu-appearance="light"][data-yeyu-theme] {
-  --yy-canvas: var(--yy-theme-surface, #fff);
-  --yy-chrome-bg: color-mix(in srgb, var(--yy-theme-surface, #fff) 36%, #fff);
-  --yy-chrome-elevated: color-mix(in srgb, var(--yy-theme-surface, #fff) 18%, #fff);
+:root[data-yeyu-theme] {
+  --yy-canvas: var(--yy-theme-surface);
+  --yy-chrome-bg: var(--yy-theme-surface);
+  --yy-chrome-elevated: color-mix(in srgb, var(--yy-chrome-bg) 78%, #fff);
+  --yy-chrome-subtle: color-mix(in srgb, var(--yy-chrome-bg), var(--yy-ink) 8%);
+  --yy-ink: var(--yy-theme-ink);
+  --yy-ink-muted: color-mix(in srgb, var(--yy-ink) 85%, var(--yy-chrome-bg));
+  --yy-ink-faint: color-mix(in srgb, var(--yy-ink) 78%, var(--yy-chrome-bg));
+  --yy-accent: var(--yy-theme-accent);
+  --yy-on-accent: var(--yy-theme-on-accent);
+  --yy-accent-hover: color-mix(in srgb, var(--yy-accent), var(--yy-ink) 25%);
+  --yy-accent-soft: color-mix(in srgb, var(--yy-chrome-bg), var(--yy-accent) 15%);
+  --yy-accent-border: color-mix(in srgb, var(--yy-chrome-bg), var(--yy-accent) 35%);
+  --yy-border: color-mix(in srgb, var(--yy-chrome-bg), var(--yy-ink) 12%);
+  --yy-border-strong: color-mix(in srgb, var(--yy-chrome-bg), var(--yy-ink) 24%);
+  --yy-titlebar-bg: color-mix(in srgb, var(--yy-chrome-bg), var(--yy-accent) 9%);
+  --yy-titlebar-glass: color-mix(in srgb, var(--yy-titlebar-bg) 78%, transparent);
+  --yy-mcp-ink: var(--yy-accent);
+  --yy-mcp-bg: var(--yy-accent-soft);
+  --yy-warn-bg: color-mix(in srgb, var(--yy-chrome-bg), var(--yy-warn-ink) 14%);
+  --yy-danger-bg: color-mix(in srgb, var(--yy-chrome-bg), var(--yy-danger) 12%);
+  --yy-success-bg: color-mix(in srgb, var(--yy-chrome-bg), var(--yy-success) 12%);
 }
 
+:root[data-yeyu-appearance="dark"][data-yeyu-theme] {
+  --yy-chrome-elevated: color-mix(in srgb, var(--yy-chrome-bg), var(--yy-ink) 8%);
+}
+
+:where(.yy-chrome, .app-dialog) {
+  accent-color: var(--yy-accent);
+}
+
+:where(.yy-chrome, .app-dialog) ::selection {
+  background: var(--yy-accent-soft);
+  color: var(--yy-ink);
+}
 
 html,
 body {
@@ -197,7 +233,7 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] {
   align-items: center;
   gap: 12px;
   padding: 0 12px;
-  background: color-mix(in srgb, var(--yy-chrome-bg), var(--yy-chrome-subtle) 70%);
+  background: var(--yy-titlebar-bg);
   border-bottom: 1px solid var(--yy-border);
   z-index: 30;
   user-select: none;
@@ -213,7 +249,7 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] {
 }
 
 html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
-  background: color-mix(in srgb, var(--yy-chrome-bg) 26%, transparent);
+  background: var(--yy-titlebar-glass);
 }
 
 .yy-shell[data-mac-titlebar="true"] .yy-body {
@@ -361,6 +397,7 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
   cursor: pointer;
 }
 
+.yy-shell .yy-menu-item.is-selected,
 .yy-shell .yy-menu-item:hover:not(:disabled),
 .yy-shell .yy-menu-item:focus-visible {
   background: var(--yy-accent-soft);
@@ -485,13 +522,13 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 .yy-shell .yy-btn-danger {
   background: var(--yy-danger);
   border-color: var(--yy-danger);
-  color: #fff;
+  color: var(--yy-on-danger);
 }
 
 .yy-shell .yy-btn-danger:hover:not(:disabled) {
-  background: #922e27;
-  border-color: #922e27;
-  color: #fff;
+  background: color-mix(in srgb, var(--yy-danger), var(--yy-ink) 16%);
+  border-color: var(--yy-danger);
+  color: var(--yy-on-danger);
 }
 
 .yy-shell .yy-btn-ghost {
@@ -591,6 +628,11 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
   min-height: 62px;
 }
 
+.yy-shell :is(.yy-input, .yy-textarea, .yy-quickopen-input)::placeholder {
+  color: var(--yy-ink-faint);
+  opacity: 1;
+}
+
 .yy-shell .yy-input:focus,
 .yy-shell .yy-textarea:focus,
 .yy-shell button:focus-visible {
@@ -635,7 +677,11 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
   white-space: nowrap;
 }
 
-.yy-shell .yy-badge.is-accent,
+.yy-shell .yy-badge.is-accent {
+  background: var(--yy-accent-soft);
+  color: var(--yy-accent);
+}
+
 .yy-shell .yy-badge.is-success {
   background: var(--yy-success-bg);
   color: var(--yy-success);
@@ -1020,7 +1066,7 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
   display: flex;
   flex-direction: column;
   position: relative;
-  background: var(--yy-paper-bg);
+  background: var(--yy-canvas);
 }
 
 .yy-shell .yy-stage-banner {
@@ -1031,7 +1077,7 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
   padding: 6px 16px;
   background: var(--yy-warn-bg);
   color: var(--yy-warn-ink);
-  border-bottom: 1px solid #e7d1a4;
+  border-bottom: 1px solid color-mix(in srgb, var(--yy-warn-bg), var(--yy-warn-ink) 28%);
   font-size: 12px;
 }
 
@@ -1231,7 +1277,7 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 .yy-shell .yy-alert-error {
   background: var(--yy-danger-bg);
   color: var(--yy-danger);
-  border: 1px solid #e7b8b3;
+  border: 1px solid color-mix(in srgb, var(--yy-danger-bg), var(--yy-danger) 28%);
 }
 
 /* Diff Suggestion Reviewer */
@@ -1443,7 +1489,7 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 }
 
 .yy-shell .yy-status-dot.is-connecting {
-  background: #c77b25;
+  background: var(--yy-warn-ink);
 }
 
 .yy-shell .yy-status-dot.is-error {
@@ -1494,7 +1540,7 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 }
 
 .yy-shell .yy-approval-card {
-  border-color: #d6b472;
+  border-color: color-mix(in srgb, var(--yy-warn-bg), var(--yy-warn-ink) 28%);
   background: var(--yy-warn-bg);
 }
 
@@ -1585,6 +1631,11 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
   font-weight: 550;
 }
 
+:root[data-yeyu-theme] .yy-shell .yy-status-chip.is-active {
+  background: var(--yy-accent-soft);
+  color: var(--yy-accent);
+}
+
 .yy-shell .yy-status-metric {
   white-space: nowrap;
 }
@@ -1595,7 +1646,7 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: rgb(0 0 0 / .25);
+  background: var(--yy-dialog-backdrop);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -1874,7 +1925,7 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 .yy-shell .yy-kbd-btn.is-active {
   border-color: var(--yy-accent);
   background: var(--yy-accent);
-  color: #fff;
+  color: var(--yy-on-accent);
 }
 
 .yy-shell .yy-muted-note {

@@ -1,4 +1,4 @@
-/* 写作栏和设置页沿用窗口外观，以同一套黑、白、灰层次区分控件。 */
+/* 写作、差异审阅和设置页沿用外壳主题的层次与强调色。 */
 .yy-shell .yy-ai-toolbar,
 .yy-shell .yy-composer-bar {
   display: flex;
@@ -44,8 +44,8 @@
   width: 40px;
   height: 40px;
   border-radius: 13px;
-  background: var(--yy-chrome-subtle);
-  color: var(--yy-ink);
+  background: var(--yy-accent-soft);
+  color: var(--yy-accent);
 }
 
 .yy-shell .yy-ai-mark svg {
@@ -78,7 +78,7 @@
   max-width: 90%;
   padding: 9px 12px;
   border-radius: 12px 12px 4px 12px;
-  background: var(--yy-chrome-subtle);
+  background: var(--yy-accent-soft);
 }
 
 .yy-shell .yy-ai-conversation > .yy-msg-assistant {
@@ -115,7 +115,7 @@
 }
 
 .yy-shell .yy-ai-input-box:focus-within {
-  border-color: var(--yy-border-strong);
+  border-color: var(--yy-accent);
 }
 
 .yy-shell .yy-ai-input {
@@ -363,8 +363,8 @@
 
 .yy-shell .yy-ai-task-choice:hover,
 .yy-shell .yy-ai-task-choice[aria-pressed="true"] {
-  background: var(--yy-chrome-subtle);
-  color: var(--yy-ink);
+  background: var(--yy-accent-soft);
+  color: var(--yy-accent);
 }
 
 .yy-shell .yy-ai-task-choice[aria-pressed="true"] {
