@@ -88,13 +88,15 @@ Apple M1 Pro，32 GB 内存，macOS 27.2.1。本地 APFS 外置 SSD 上运行发
 
 ## 平台验收范围
 
-0.1.4 安装包和 SHA-256 校验文件位于 `release/0.1.4/`，构建源为 `db9debd`。此前的 0.1.3 安装包仍位于 `release/0.1.3/`，构建源为 `ecb99ef`。
+0.2.0 安装包和 SHA-256 校验文件位于 `release/0.2.0/`，构建源为 `5c67e00`。随附三个 MIT 插件及许可文本。可部署的静态市场目录位于 `release/plugin-market/`，目录及三个包的 SHA-256 一致。
+
+0.1.4 和 0.1.3 的安装包仍在各版本目录，构建源分别为 `db9debd` 和 `ecb99ef`。
 
 | 安装包 | 验收 |
 |---|---|
-| macOS Universal DMG | Apple Silicon 原生 QA 窗口通过导出菜单、主题、文档往返和草稿恢复复测。DMG 含 `arm64` 和 `x86_64`。只读挂载后校验应用临时签名，x86_64 在 Rosetta 下通过命令行启动检查。公证待完成。 |
+| macOS Universal DMG | Apple Silicon 原生 QA 窗口通过插件市场、导出、文档往返和草稿恢复。DMG 含 `arm64` 和 `x86_64`。只读挂载后校验应用临时签名，x86_64 在 Rosetta 下通过命令行启动检查。公证待完成。 |
 | Windows x64 NSIS | 交叉构建与安装档案校验通过。安装包未签名，Windows 原生窗口待验收。 |
-| Linux ARM64 DEB | Debian 13 容器中安装，在 WebKitGTK 与 Xvfb 的桌面窗口打开、编辑和保存 Markdown，验证原文件 BOM 保留。 |
+| Linux ARM64 DEB | Debian 13 容器中安装。在断网容器的 WebKitGTK 与 Xvfb 桌面窗口中搜索并安装任务清单。打开、编辑和保存 Markdown 通过，原文件 BOM 保留。 |
 
 Intel 物理 Mac、Linux x64 安装包和人工中文拼音候选操作待验收。三种 AI 协议均在本机真实模型上通过，远程账号鉴权待验收。Typora 功能差异及后续里程碑见[功能对照表](feature-matrix.md)。
 
