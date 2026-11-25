@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
-Name=Yeyu
-Comment=A desktop Markdown editor
+Name=页屿
+Comment=Markdown 编辑器
 Exec=yeyu %F
 Icon=yeyu
 StartupWMClass=yeyu

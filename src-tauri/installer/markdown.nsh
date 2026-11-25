@@ -11,8 +11,9 @@
   WriteRegStr HKCU "Software\Classes\${YEYU_PROG_ID}" "" "Markdown Document"
   WriteRegStr HKCU "Software\Classes\${YEYU_PROG_ID}\DefaultIcon" "" '$\"$INSTDIR\${MAINBINARYNAME}.exe$\",0'
   WriteRegStr HKCU "Software\Classes\${YEYU_PROG_ID}\shell\open\command" "" '$\"$INSTDIR\${MAINBINARYNAME}.exe$\" $\"%1$\"'
-  WriteRegStr HKCU "${YEYU_CAPABILITIES}" "ApplicationName" "Yeyu"
-  WriteRegStr HKCU "${YEYU_CAPABILITIES}" "ApplicationDescription" "Yeyu Markdown editor"
+  WriteRegStr SHCTX "${UNINSTKEY}" "DisplayName" "页屿"
+  WriteRegStr HKCU "${YEYU_CAPABILITIES}" "ApplicationName" "页屿"
+  WriteRegStr HKCU "${YEYU_CAPABILITIES}" "ApplicationDescription" "页屿 Markdown 编辑器"
   WriteRegStr HKCU "Software\RegisteredApplications" "Yeyu" "${YEYU_CAPABILITIES}"
   !insertmacro YEYU_REGISTER_EXTENSION "md"
   !insertmacro YEYU_REGISTER_EXTENSION "markdown"
