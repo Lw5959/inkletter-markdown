@@ -25,6 +25,31 @@
 
 [Themeable 源码](https://github.com/jhildenbiddle/typora-themeable) · [Dracula 源码](https://github.com/dracula/typora)
 
+在本机 Typora 1.8.10 的主题目录，用固定样稿验证六套随附主题和两套已安装主题。Chromium 和 WebKit 都加载了八套 CSS 及其引用资源。实时视图与 HTML 导出中的同一条链接颜色、代码块底色均一致。Whitey 的正文容器占满编辑区可用宽度。Night 和 Vue Dark 会同时切换标题栏、侧栏和状态栏的明暗。
+
+macOS 原生窗口在首次导入前从顶栏菜单发现八套本机主题。点击 Night 即应用并显示选中态，批量导入和重复导入沿用每套主题的 ID。八套主题均逐套切换并核对样稿正文，Night 和 Vue Dark 同时切换了原生窗口的明暗。带自定义 CSS、相对背景图和覆盖样式的样稿通过 HTML、PDF、PNG 和 DOCX 导出。
+
+| 本机主题 | 核对的字体或样式 |
+|---|---|
+| GitHub、Gothic、Newsprint | Open Sans、TeX Gyre Adventor、PT Serif 的正文与粗体随主题加载。Gothic 的一个 Didact Gothic 备用字形范围在 macOS 原生窗口报字体加载错误 |
+| Night、Vue Dark | 整窗暗色和主题任务框。Vue Dark 加载 Source Sans Pro 和 Roboto Mono |
+| Pixyll、Vue | Pixyll 加载 Merriweather 和 Lato，Vue 加载 Source Sans Pro 和 Roboto Mono |
+| Whitey | 正常正文宽度、标题分隔线及任务框。样本 CSS 依赖系统中的 Vollkorn 字体，未安装时由浏览器回退 |
+
+实时引用和 YAML 仍呈现原文行，HTML 中按完整块排版。针对旧版 CodeMirror 源码界面编写的选择器不会完整匹配。测试使用本机 CSS 和字体，安装包只包含页屿自带主题。
+
+### 整窗配色
+
+Chromium 和 WebKit 通过青瓷、松夜的全窗回归。核对了文件树、跨文件检索、标题栏的半透明材质叠色、状态栏、AI 对话、模型设置、默认提示词、MCP 表单、快速打开、插件、快捷键和应用内输入弹窗。低对比度的导入主题使用其侧栏颜色，应用控件的文字和强调色经过对比度调整。切回默认后，浅色正文和侧栏恢复纯白。
+
+macOS 原生窗口也核对了青瓷和松夜的标题栏、左右侧栏、状态栏及模型配置背景，并确认原生窗口明暗同步。
+
+### Typora 设置迁移
+
+macOS 原生窗口读取本机 Typora 配置，预览并成功应用 Vue 主题、大纲侧栏和查找偏好。自动化用例覆盖 JSONC 注释、上传地址、macOS 菜单快捷键、键位互换和保留冲突键位。
+
+本机测试服务核对了 PicGo 上传请求中的图片绝对路径和返回的 URL。真实图床账号联调待验收。[Typora 快捷键格式](https://support.typora.io/Shortcut-Keys/) · [PicGo 上传协议](https://docs.picgo.app/gui/guide/advance)
+
 ## 性能首轮
 
 Apple M1 Pro，32 GB 内存，macOS 27.2.1。本地 APFS 外置 SSD 上运行发布配置，测试程序生成 1 MiB 和 10 MiB 固定文件，包含中英文、标题、表格、行内格式和混合换行。
@@ -56,11 +81,11 @@ Apple M1 Pro，32 GB 内存，macOS 27.2.1。本地 APFS 外置 SSD 上运行发
 
 ## 平台验收范围
 
-本地安装包构建源为 `9cfd234`。三个包和 SHA-256 校验文件位于 `release/0.1.0/`。原生完整流程以 `6d62074` 的发布配置验收，滚动条改动另做 Chromium 与 WebKit 界面回归。
+0.1.3 安装包和 SHA-256 校验文件位于 `release/0.1.3/`，构建源为 `ecb99ef`。三个平台共用白底折页图标。0.1.0 原生验收和性能测试记录保留在本页。
 
 | 安装包 | 验收 |
 |---|---|
-| macOS Universal DMG | Apple Silicon 的发布配置通过桌面端完整流程。DMG 含 `arm64` 和 `x86_64`，x86_64 在 Rosetta 下通过命令行启动检查。DMG 内程序使用临时签名，公证待完成。 |
+| macOS Universal DMG | Apple Silicon 原生窗口完成主题、配置迁移、导出、MCP 与恢复复测。DMG 含 `arm64` 和 `x86_64`。只读挂载后校验应用临时签名，x86_64 在 Rosetta 下通过命令行启动检查。公证待完成。 |
 | Windows x64 NSIS | 交叉构建与安装档案校验通过。安装包未签名，Windows 原生窗口待验收。 |
 | Linux ARM64 DEB | Debian 13 容器中安装，在 WebKitGTK 与 Xvfb 的桌面窗口打开、编辑和保存 Markdown，验证原文件 BOM 保留。 |
 
@@ -84,4 +109,4 @@ pnpm tauri build --features qa --config "$qa_config" --no-bundle --ci
 node scripts/native-qa.mjs src-tauri/target/release/yeyu measure
 ```
 
-完整验收用 `full` 参数。可设置 `YEYU_PANDOC`、`YEYU_TEST_MODEL_URL`、`YEYU_TEST_MODEL`，以及 `YEYU_TEST_THEMES`，后者为 `[{ "path": "/path/to/theme.css", "name": "主题名" }]`。脚本会打印临时证据路径。
+完整验收用 `full` 参数。可设置 `YEYU_PANDOC`、`YEYU_TEST_MODEL_URL`、`YEYU_TEST_MODEL`。`YEYU_TEST_THEMES` 接受 `[{ "path": "/path/to/theme.css", "name": "主题名" }]`，`YEYU_TEST_TYPORA` 接受期望从本机发现的主题名列表，例如 `["github", "night"]`。测试本机设置预览与迁移时可设置 `YEYU_TEST_TYPORA_CONFIG=1`。脚本会打印临时证据路径。
