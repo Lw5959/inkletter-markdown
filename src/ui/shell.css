@@ -20,7 +20,10 @@
   --yy-accent: #303030;
   --yy-on-accent: #fff;
   --yy-accent-hover: #171717;
+  --yy-accent-pressed: color-mix(in srgb, var(--yy-accent-hover), var(--yy-on-accent) 8%);
   --yy-accent-soft: #ededed;
+  --yy-accent-soft-hover: color-mix(in srgb, var(--yy-accent-soft), var(--yy-accent) 4%);
+  --yy-accent-soft-pressed: color-mix(in srgb, var(--yy-accent-soft), var(--yy-accent) 8%);
   --yy-accent-border: #d7d7d7;
 
   --yy-border: #ededed;
@@ -279,7 +282,7 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 
 .yy-shell .yy-topbar-right .yy-tool-btn:hover,
 .yy-shell .yy-topbar-right .yy-tool-btn.is-active {
-  color: var(--yy-accent);
+  color: var(--yy-ink);
   background: var(--yy-accent-soft);
 }
 
@@ -299,8 +302,12 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 }
 
 .yy-shell .yy-doc-title-btn:hover {
-  background: var(--yy-chrome-subtle);
-  border-color: var(--yy-border);
+  background: var(--yy-accent-soft);
+  border-color: var(--yy-accent-border);
+}
+
+.yy-shell .yy-doc-title-btn:active {
+  background: var(--yy-accent-soft-pressed);
 }
 
 .yy-shell .yy-doc-title-text {
@@ -338,8 +345,15 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 
 .yy-shell .yy-menu-trigger:hover,
 .yy-shell .yy-menu-trigger.is-open {
-  background: var(--yy-chrome-subtle);
-  color: var(--yy-accent);
+  background: var(--yy-accent-soft);
+}
+
+.yy-shell .yy-menu-trigger:where(.is-open):hover {
+  background: var(--yy-accent-soft-hover);
+}
+
+.yy-shell .yy-menu-trigger:active {
+  background: var(--yy-accent-soft-pressed);
 }
 
 .yy-shell .yy-menu-popover,
@@ -398,11 +412,25 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 }
 
 .yy-shell .yy-menu-item.is-selected,
+.yy-shell .yy-menu-item[aria-checked="true"],
+.yy-shell .yy-menu-item[aria-expanded="true"],
 .yy-shell .yy-menu-item:hover:not(:disabled),
 .yy-shell .yy-menu-item:focus-visible {
   background: var(--yy-accent-soft);
-  color: var(--yy-accent);
-  outline: none;
+  color: var(--yy-ink);
+}
+
+.yy-shell .yy-menu-item:focus-visible {
+  outline: 1px solid var(--yy-accent);
+  outline-offset: -1px;
+}
+
+.yy-shell .yy-menu-item:where([aria-checked="true"], [aria-expanded="true"], .is-selected):hover:not(:disabled) {
+  background: var(--yy-accent-soft-hover);
+}
+
+.yy-shell .yy-menu-item:active:not(:disabled) {
+  background: var(--yy-accent-soft-pressed);
 }
 
 .yy-shell .yy-menu-item:disabled {
@@ -449,21 +477,15 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
   color: var(--yy-ink-faint);
 }
 
-.yy-shell .yy-submenu-wrap {
-  position: relative;
-}
-
 .yy-shell .yy-submenu-panel {
-  position: static;
-  margin: 3px 0 4px 16px;
-  border-left: 2px solid var(--yy-accent-border);
-  box-shadow: none;
-  display: none;
+  min-width: 0;
+  width: 224px;
+  overscroll-behavior: contain;
 }
 
-.yy-shell .yy-submenu-wrap.is-open > .yy-submenu-panel,
-.yy-shell .yy-submenu-wrap:hover > .yy-submenu-panel {
-  display: block;
+.yy-shell .yy-submenu-panel .yy-menu-label {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* Shared Buttons, Inputs, Badges ------------------------------------------ */
@@ -498,7 +520,11 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 .yy-shell .yy-icon-btn:hover:not(:disabled) {
   background: var(--yy-accent-soft);
   border-color: var(--yy-accent-border);
-  color: var(--yy-accent);
+  color: var(--yy-ink);
+}
+
+.yy-shell :is(.yy-btn, .yy-tool-btn, .yy-icon-btn):active:not(:disabled) {
+  background: var(--yy-accent-soft-pressed);
 }
 
 .yy-shell .yy-btn:disabled,
@@ -519,6 +545,12 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
   color: var(--yy-on-accent);
 }
 
+.yy-shell .yy-btn-primary:active:not(:disabled) {
+  background: var(--yy-accent-pressed);
+  border-color: var(--yy-accent-pressed);
+  color: var(--yy-on-accent);
+}
+
 .yy-shell .yy-btn-danger {
   background: var(--yy-danger);
   border-color: var(--yy-danger);
@@ -531,6 +563,11 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
   color: var(--yy-on-danger);
 }
 
+.yy-shell .yy-btn-danger:active:not(:disabled) {
+  background: color-mix(in srgb, var(--yy-danger), var(--yy-ink) 27%);
+  color: var(--yy-on-danger);
+}
+
 .yy-shell .yy-btn-ghost {
   background: transparent;
   border-color: transparent;
@@ -539,6 +576,10 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 .yy-shell .yy-btn-ghost:hover:not(:disabled) {
   background: var(--yy-chrome-subtle);
   border-color: transparent;
+}
+
+.yy-shell .yy-btn-ghost:active:not(:disabled) {
+  background: var(--yy-accent-soft-pressed);
 }
 
 .yy-shell .yy-btn-sm {
@@ -565,7 +606,11 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 .yy-shell .yy-tool-btn.is-active {
   background: var(--yy-accent-soft);
   border-color: var(--yy-accent-border);
-  color: var(--yy-accent);
+  color: var(--yy-ink);
+}
+
+.yy-shell :is(.yy-tool-btn, .yy-icon-btn):where(.is-active):hover:not(:disabled):where(:not(:active)) {
+  background: var(--yy-accent-soft-hover);
 }
 
 .yy-shell .yy-icon-btn-sm {
@@ -601,9 +646,18 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 
 .yy-shell .yy-mode-btn.is-active {
   background: var(--yy-chrome-elevated);
-  color: var(--yy-accent);
+  color: var(--yy-ink);
   font-weight: 600;
   box-shadow: 0 1px 2px rgb(0 0 0 / .07);
+}
+
+.yy-shell .yy-mode-btn:hover {
+  background: var(--yy-accent-soft);
+  color: var(--yy-ink);
+}
+
+.yy-shell .yy-mode-btn:active {
+  background: var(--yy-accent-soft-pressed);
 }
 
 .yy-shell .yy-input,
@@ -798,8 +852,16 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 .yy-shell .yy-seg-tab.is-active {
   background: var(--yy-accent-soft);
   border-color: transparent;
-  color: var(--yy-accent);
+  color: var(--yy-ink);
   font-weight: 600;
+}
+
+.yy-shell .yy-seg-tab:where(.is-active):hover {
+  background: var(--yy-accent-soft-hover);
+}
+
+.yy-shell .yy-seg-tab:active {
+  background: var(--yy-accent-soft-pressed);
 }
 
 .yy-shell .yy-pane {
@@ -868,6 +930,15 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
   color: var(--yy-on-accent);
 }
 
+.yy-shell .yy-toggle-chip:not(.is-active):hover {
+  background: var(--yy-accent-soft);
+  color: var(--yy-ink);
+}
+
+.yy-shell .yy-toggle-chip:not(.is-active):active {
+  background: var(--yy-accent-soft-pressed);
+}
+
 .yy-shell .yy-search-meta {
   font-size: 11.5px;
   color: var(--yy-ink-muted);
@@ -913,6 +984,14 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
   background: var(--yy-accent-soft);
 }
 
+.yy-shell .yy-tree-row:where(.is-active):hover {
+  background: var(--yy-accent-soft-hover);
+}
+
+.yy-shell .yy-tree-row:active {
+  background: var(--yy-accent-soft-pressed);
+}
+
 .yy-shell .yy-tree-row.is-selected-dir {
   box-shadow: inset 2px 0 0 var(--yy-accent);
 }
@@ -933,7 +1012,6 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 }
 
 .yy-shell .yy-tree-row.is-active .yy-tree-main {
-  color: var(--yy-accent);
   font-weight: 600;
 }
 
@@ -947,7 +1025,7 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 }
 
 .yy-shell .yy-tree-row.is-active .yy-tree-type {
-  color: var(--yy-accent);
+  color: var(--yy-ink);
 }
 
 .yy-shell .yy-tree-label {
@@ -988,6 +1066,13 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 .yy-shell .yy-outline-item:hover {
   background: var(--yy-accent-soft);
   color: var(--yy-accent);
+}
+
+.yy-shell .yy-outline-item:active,
+.yy-shell .yy-search-item:active,
+.yy-shell .yy-quickopen-item.is-active:active {
+  background: var(--yy-accent-soft-pressed);
+  color: var(--yy-ink);
 }
 
 
@@ -1266,6 +1351,23 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
   color: var(--yy-on-accent);
 }
 
+.yy-shell .yy-chip:not(.is-active):active {
+  background: var(--yy-accent-soft-pressed);
+  color: var(--yy-ink);
+}
+
+.yy-shell :is(.yy-toggle-chip, .yy-chip, .yy-kbd-btn).is-active:hover {
+  background: var(--yy-accent-hover);
+  border-color: var(--yy-accent-hover);
+  color: var(--yy-on-accent);
+}
+
+.yy-shell :is(.yy-toggle-chip, .yy-chip, .yy-kbd-btn).is-active:active {
+  background: var(--yy-accent-pressed);
+  border-color: var(--yy-accent-pressed);
+  color: var(--yy-on-accent);
+}
+
 .yy-shell .yy-alert {
   margin: 6px 10px 0;
   padding: 7px 9px;
@@ -1426,8 +1528,17 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 
 .yy-shell .yy-seg-mini-btn.is-active {
   background: var(--yy-chrome-elevated);
-  color: var(--yy-accent);
+  color: var(--yy-ink);
   font-weight: 600;
+}
+
+.yy-shell .yy-seg-mini-btn:hover {
+  background: var(--yy-accent-soft);
+  color: var(--yy-ink);
+}
+
+.yy-shell .yy-seg-mini-btn:active {
+  background: var(--yy-accent-soft-pressed);
 }
 
 .yy-shell .yy-mcp-conn-list,
@@ -1627,13 +1738,17 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 
 .yy-shell .yy-status-chip.is-active {
   border-color: transparent;
+  background: var(--yy-accent-soft);
   color: var(--yy-ink);
   font-weight: 550;
 }
 
-:root[data-yeyu-theme] .yy-shell .yy-status-chip.is-active {
-  background: var(--yy-accent-soft);
-  color: var(--yy-accent);
+.yy-shell .yy-status-chip:where(.is-active):hover {
+  background: var(--yy-accent-soft-hover);
+}
+
+.yy-shell .yy-status-chip:active {
+  background: var(--yy-accent-soft-pressed);
 }
 
 .yy-shell .yy-status-metric {

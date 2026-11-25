@@ -17,6 +17,8 @@
 .app-dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 .app-dialog-actions button { border: 1px solid var(--yy-border-strong); border-radius: 6px; background: var(--yy-chrome-elevated); color: var(--yy-ink); padding: 6px 12px; }
 .app-dialog :is(button, input):focus-visible { outline: 2px solid var(--yy-accent); outline-offset: 1px; }
-.app-dialog-actions button:hover { background: var(--yy-accent-soft); color: var(--yy-accent); }
+.app-dialog-actions button:not(.app-dialog-primary):hover { background: var(--yy-accent-soft); }
+.app-dialog-actions button:not(.app-dialog-primary):active { background: var(--yy-accent-soft-pressed); }
 .app-dialog-actions .app-dialog-primary { background: var(--yy-accent); color: var(--yy-on-accent); border-color: var(--yy-accent); }
-.app-dialog-actions .app-dialog-primary:hover { background: var(--yy-accent-hover); }
+.app-dialog-actions .app-dialog-primary:hover { background: var(--yy-accent-hover); border-color: var(--yy-accent-hover); }
+.app-dialog-actions .app-dialog-primary:active { background: var(--yy-accent-pressed); border-color: var(--yy-accent-pressed); }

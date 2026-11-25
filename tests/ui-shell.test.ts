@@ -1,8 +1,10 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { platform } from 'node:os'
-import { chromium, webkit, type Browser, type Page } from 'playwright-core'
+import { join } from 'node:path'
+import { chromium, webkit, type Browser, type Locator, type Page } from 'playwright-core'
 import { createServer, type ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import type { Theme } from '../src/contracts'
 
 const useWebKit = process.env.YEYU_TEST_WEBKIT === '1'
 const browserPath = process.env.YEYU_CHROME || (platform() === 'darwin'
@@ -28,6 +30,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     baseUrl = `http://127.0.0.1:${port}`
     browser = useWebKit ? await webkit.launch() : await chromium.launch({ executablePath: browserPath, headless: true })
     page = await browser.newPage({ viewport: { width: 1360, height: 860 } })
+    page.setDefaultTimeout(5000)
     await page.route(`${baseUrl}/__ui_harness__`, async route => {
       await route.fulfill({
         status: 200,
@@ -67,6 +70,203 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       window.__test = { shell, editor, actions, nativeThemes, builtinThemes }
     })()`)
   }
+
+  async function controlColors(control: Locator) {
+    return control.evaluate(element => {
+      const context = (window as unknown as Record<string, any>).__test.contrastPixel as CanvasRenderingContext2D
+      const read = (color: string) => {
+        context.clearRect(0, 0, 1, 1)
+        context.fillStyle = 'transparent'
+        context.fillStyle = color
+        context.fillRect(0, 0, 1, 1)
+        return Array.from(context.getImageData(0, 0, 1, 1).data)
+      }
+      const layers: number[][] = []
+      for (let node: Element | null = element; node; node = node.parentElement) {
+        const color = read(getComputedStyle(node).backgroundColor)
+        layers.unshift(color)
+        if (color[3] === 255) break
+      }
+      const blend = (background: number[], color: number[]) => {
+        const alpha = color[3] / 255
+        return background.map((channel, index) => channel * (1 - alpha) + color[index] * alpha)
+      }
+      const background = layers.reduce(blend, [255, 255, 255])
+      const style = getComputedStyle(element)
+      const foreground = blend(background, read(style.color))
+      const luminance = (channels: number[]) => {
+        const [red, green, blue] = channels.map(channel => {
+          const normalized = channel / 255
+          return normalized <= .04045 ? normalized / 12.92 : ((normalized + .055) / 1.055) ** 2.4
+        })
+        return .2126 * red + .7152 * green + .0722 * blue
+      }
+      const luminances = [luminance(foreground) + .05, luminance(background) + .05]
+      return { contrast: Math.max(...luminances) / Math.min(...luminances), background: background.join(','), active: element.matches(':active') }
+    })
+  }
+
+  it('各主题的恢复按钮、菜单、侧栏和协作控件在悬停及按下时可读', async () => {
+    await mountTestHarness(true)
+    const directory = process.env.YEYU_TEST_THEME_SNAPSHOTS
+    const imported = directory ? readdirSync(directory, { withFileTypes: true }).filter(entry => entry.isDirectory())
+      .map(entry => JSON.parse(readFileSync(join(directory, entry.name, 'theme.json'), 'utf8')) as Theme) : []
+    const themes = await page.evaluate(extra => {
+      const test = (window as unknown as Record<string, any>).__test
+      const canvas = document.createElement('canvas')
+      canvas.width = canvas.height = 1
+      test.contrastPixel = canvas.getContext('2d', { willReadFrequently: true })
+      test.interactionThemes = [...test.builtinThemes as Theme[], ...extra]
+      return (test.interactionThemes as Theme[]).map(({ id, name }) => ({ id, name }))
+    }, imported)
+    let lowestContrast = Number.POSITIVE_INFINITY
+    const samples = [
+      { id: 'default', name: '默认浅色', scheme: 'light' as const },
+      { id: 'default', name: '默认深色', scheme: 'dark' as const },
+      ...themes.map(theme => ({ id: theme.id, name: theme.name, scheme: 'light' as const })),
+    ]
+    await page.evaluate(() => {
+      const { shell } = (window as unknown as Record<string, any>).__test
+      const path = '/ws/交互检查.md'
+      shell.setState({ title: '交互检查.md', path, mode: 'live', workspace: '/ws', autosave: true,
+        presentation: { focus: false, typewriter: false, spellcheck: false, readonly: false } })
+      shell.setWorkspace([{ path, name: '交互检查.md' }])
+    })
+    for (const sample of samples) {
+      await page.emulateMedia({ colorScheme: sample.scheme })
+      await page.evaluate(id => {
+        const test = (window as unknown as Record<string, any>).__test
+        test.shell.setThemes(test.interactionThemes, id)
+      }, sample.id)
+
+      const inspect = async (control: Locator, name: string) => {
+        const normal = await controlColors(control)
+        await control.hover()
+        const hover = await controlColors(control)
+        await page.mouse.down()
+        const pressed = await controlColors(control)
+        await page.mouse.move(2, 850)
+        await page.mouse.up()
+        expect.soft(pressed.active, `${sample.name} ${name} 按下态`).toBe(true)
+        for (const [state, colors] of [['默认或选中', normal], ['悬停', hover], ['按下', pressed]] as const) {
+          lowestContrast = Math.min(lowestContrast, colors.contrast)
+          expect.soft(colors.contrast, `${sample.name} ${name} ${state}`).toBeGreaterThanOrEqual(4.5)
+        }
+        expect.soft(hover.background, `${sample.name} ${name} 悬停反馈`).not.toBe(normal.background)
+        expect.soft(pressed.background, `${sample.name} ${name} 按下反馈`).not.toBe(hover.background)
+      }
+
+      await page.evaluate(`(async () => {
+        const { choose } = await import('/src/dialogs.ts')
+        window.__test.recovery = choose('恢复未保存文档', '恢复上次保留的文档。', [
+          { label: '放弃草稿', value: 'discard' }, { label: '恢复草稿', value: 'recover', primary: true, autofocus: true }
+        ])
+      })()`)
+      const recovery = page.getByRole('button', { name: '恢复草稿' })
+      expect(await recovery.evaluate(element => element === document.activeElement)).toBe(true)
+      await inspect(recovery, '恢复草稿')
+      await inspect(page.getByRole('button', { name: '放弃草稿' }), '放弃草稿')
+      await recovery.click()
+      expect(await page.evaluate(() => (window as unknown as Record<string, any>).__test.recovery)).toBe('recover')
+
+      await inspect(page.locator('.yy-doc-title-btn'), '文档标题')
+      await inspect(page.locator('[data-mode-btn="live"]'), '当前编辑模式')
+      await inspect(page.locator('[data-left-tab="files"]'), '选中文件侧栏')
+      await inspect(page.locator('.yy-tree-row.is-active .yy-tree-main'), '当前文件')
+      await inspect(page.locator('[data-status-toggle="autosave"]'), '自动保存')
+      const file = page.locator('[data-menu="file"]')
+      await inspect(file, '文件菜单入口')
+      await file.click()
+      const popover = page.locator('.yy-menu-popover')
+      await inspect(popover.getByRole('menuitemcheckbox', { name: '自动保存' }), '已勾选菜单项')
+      await popover.getByRole('menuitem', { name: '导出为' }).hover()
+      await inspect(page.locator('.yy-submenu-panel').getByRole('menuitem', { name: 'PDF 文档' }), '二级菜单项')
+      await page.mouse.click(760, 800)
+
+      const ai = page.locator('[data-toggle="ai"]')
+      await ai.click()
+      await page.mouse.move(2, 850)
+      await inspect(ai, '已展开的 AI 侧栏')
+      await page.getByRole('textbox', { name: 'AI 指令输入' }).fill('交互样稿')
+      await inspect(page.getByRole('button', { name: '发送', exact: true }), 'AI 发送')
+      await page.getByRole('button', { name: '默认提示词', exact: true }).click()
+      await inspect(page.locator('.yy-ai-task-choice[aria-pressed="true"]'), '选中的提示词')
+      await page.keyboard.press('Escape')
+      const mcp = page.locator('[data-toggle="mcp"]')
+      await mcp.click()
+      await page.locator('[data-mcp-action="toggle-form"]').click()
+      await inspect(page.locator('.yy-seg-mini-btn.is-active'), '选中的 MCP 连接方式')
+      await page.locator('[data-mcp-action="toggle-form"]').click()
+      await mcp.click()
+    }
+    await page.emulateMedia({ colorScheme: 'light' })
+    if (directory) {
+      console.log(`已检查 ${samples.length} 套外观的悬停、按下和选中态，包含 ${imported.length} 套导入主题，最低对比度 ${lowestContrast.toFixed(2)}:1`)
+    }
+  }, 120_000)
+
+  it('二级菜单向侧边展开，独立滚动并支持鼠标和键盘逐级返回', async () => {
+    try {
+      await page.setViewportSize({ width: 640, height: 360 })
+      await mountTestHarness(true)
+      const file = page.locator('[data-menu="file"]')
+      const popover = page.locator('.yy-menu-popover')
+      const submenu = page.locator('.yy-submenu-panel')
+      const exportMenu = popover.getByRole('menuitem', { name: '导出为' })
+      await file.click()
+      const parentHeight = await popover.evaluate(element => element.scrollHeight)
+      await exportMenu.hover()
+      expect(await exportMenu.getAttribute('aria-expanded')).toBe('true')
+      expect(await popover.evaluate(element => element.scrollHeight)).toBe(parentHeight)
+      expect(await submenu.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true)
+      const parent = (await popover.boundingBox())!
+      const child = (await submenu.boundingBox())!
+      expect(child.x).toBeGreaterThanOrEqual(parent.x + parent.width - 2)
+      expect(child.y).toBeGreaterThanOrEqual(7)
+      expect(child.y + child.height).toBeLessThanOrEqual(353)
+      const row = (await exportMenu.boundingBox())!
+      await page.mouse.move(child.x + 16, row.y + row.height / 2, { steps: 8 })
+      await page.waitForTimeout(220)
+      expect(await submenu.isVisible()).toBe(true)
+      const parentScroll = await popover.evaluate(element => element.scrollTop)
+      await page.mouse.wheel(0, 800)
+      await expect.poll(() => submenu.evaluate(element => element.scrollTop)).toBeGreaterThan(0)
+      expect(await popover.evaluate(element => element.scrollTop)).toBe(parentScroll)
+      await submenu.getByRole('menuitem', { name: 'CommonMark' }).click()
+      expect(await submenu.isVisible()).toBe(false)
+      expect(await page.evaluate(() => (window as unknown as Record<string, any>).__test.actions.at(-1))).toEqual({ type: 'export', format: 'commonmark' })
+
+      for (let repeat = 0; repeat < 2; repeat++) {
+        await file.focus()
+        await page.keyboard.press('ArrowDown')
+        await page.keyboard.press('ArrowDown')
+        expect(await popover.getByRole('menuitem', { name: /^打开文件…/ }).evaluate(element => element === document.activeElement)).toBe(true)
+        await exportMenu.focus()
+        await page.keyboard.press('ArrowRight')
+        await page.keyboard.press('ArrowDown')
+        expect(await submenu.getByRole('menuitem', { name: '纯 HTML（无样式）' }).evaluate(element => element === document.activeElement)).toBe(true)
+        await page.keyboard.press('ArrowLeft')
+        expect(await exportMenu.evaluate(element => element === document.activeElement)).toBe(true)
+        await page.keyboard.press('ArrowRight')
+        await page.keyboard.press('Escape')
+        expect(await submenu.isVisible()).toBe(false)
+        expect(await popover.isVisible()).toBe(true)
+        await page.keyboard.press('Escape')
+        expect(await popover.isVisible()).toBe(false)
+        expect(await file.evaluate(element => element === document.activeElement)).toBe(true)
+      }
+
+      await page.evaluate(() => document.documentElement.style.setProperty('--yy-titlebar-zoom', '0.8'))
+      await page.locator('[data-menu="view"]').click()
+      await popover.getByRole('menuitem', { name: '文档主题' }).hover()
+      const view = (await popover.boundingBox())!
+      const theme = (await submenu.boundingBox())!
+      expect(theme.x).toBeGreaterThanOrEqual(7)
+      expect(theme.x + theme.width).toBeLessThanOrEqual(view.x + 2)
+    } finally {
+      await page.setViewportSize({ width: 1360, height: 860 })
+    }
+  }, 30_000)
 
   it('默认主题用系统外观并可从导入主题切回', async () => {
     await mountTestHarness()

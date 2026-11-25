@@ -35,7 +35,7 @@ export const IMAGE_MODES: readonly { mode: ImageMode; label: string }[] = [
   { mode: 'upload', label: '按配置上传图片' },
 ]
 
-type MenuEntry =
+type MenuCommand =
   | { kind: 'separator' }
   | { kind: 'heading'; label: string }
   | {
@@ -46,11 +46,8 @@ type MenuEntry =
       disabled?: boolean
       onSelect: () => void
     }
-  | {
-      kind: 'submenu'
-      label: string
-      items: MenuEntry[]
-    }
+
+type MenuEntry = MenuCommand | { kind: 'submenu'; label: string; items: MenuCommand[] }
 
 export interface MenuBarContext {
   dispatch: (action: ShellAction) => void
@@ -80,14 +77,19 @@ const TOP_MENUS: readonly { key: TopMenuKey; label: string }[] = [
   { key: 'format', label: '格式' },
   { key: 'view', label: '视图' },
 ]
+const menuMargin = 8
 
 export class MenuBar {
   readonly element: HTMLElement
   private triggers = new Map<TopMenuKey, HTMLButtonElement>()
   private dropdown: HTMLElement
+  private submenu: HTMLElement
+  private submenuTrigger: HTMLButtonElement | null = null
+  private submenuCloseTimer = 0
   private openMenu: TopMenuKey | null = null
   private docPointerDown: (event: MouseEvent) => void
   private docKeyDown: (event: KeyboardEvent) => void
+  private onResize: () => void
   private isMac = detectMac()
 
   constructor(private ctx: MenuBarContext) {
@@ -141,7 +143,27 @@ export class MenuBar {
       className: 'yy-menu-popover',
       attrs: { role: 'menu', hidden: '' },
     })
-    this.element.append(this.dropdown)
+    this.submenu = el('div', {
+      className: 'yy-submenu-panel',
+      attrs: { role: 'menu', hidden: '' },
+    })
+    // 子菜单独立于可滚动的一级菜单，避免滚动容器裁切展开的内容。
+    this.element.append(this.dropdown, this.submenu)
+    for (const panel of [this.dropdown, this.submenu]) {
+      panel.addEventListener('keydown', event => this.navigatePanel(event, panel))
+      panel.addEventListener('pointerenter', () => this.cancelSubmenuClose())
+      panel.addEventListener('pointerleave', () => {
+        if (!this.submenu.contains(document.activeElement)) this.deferSubmenuClose()
+      })
+    }
+    this.dropdown.addEventListener('scroll', () => this.positionSubmenu())
+
+    this.onResize = () => {
+      if (!this.openMenu) return
+      this.positionDropdown(this.triggers.get(this.openMenu)!)
+      this.positionSubmenu()
+    }
+    window.addEventListener('resize', this.onResize)
 
     this.docPointerDown = event => {
       if (!this.openMenu) return
@@ -153,9 +175,17 @@ export class MenuBar {
       if (event.key === 'Escape') {
         event.preventDefault()
         event.stopPropagation()
+        if (this.submenuTrigger) {
+          this.closeSubmenu(true)
+          return
+        }
         const key = this.openMenu
         this.close(false)
         this.triggers.get(key)?.focus()
+      } else if (event.key === 'Tab') {
+        const key = this.openMenu
+        this.close(false)
+        this.triggers.get(key)?.focus({ preventScroll: true })
       }
     }
     document.addEventListener('mousedown', this.docPointerDown)
@@ -290,7 +320,7 @@ export class MenuBar {
 
     // view menu
     const titlebar = this.ctx.getTitlebar()
-    const themeItems: MenuEntry[] = [{ id: 'default', name: '默认' }, ...themes].map(theme => ({
+    const themeItems: MenuCommand[] = [{ id: 'default', name: '默认' }, ...themes].map(theme => ({
       kind: 'item',
       label: theme.name,
       checked: theme.id === active,
@@ -400,7 +430,7 @@ export class MenuBar {
     ]
   }
 
-  private renderEntries(container: HTMLElement, entries: MenuEntry[], menuKey: TopMenuKey) {
+  private renderEntries(container: HTMLElement, entries: MenuEntry[]) {
     container.replaceChildren()
     for (const entry of entries) {
       if (entry.kind === 'separator') {
@@ -412,7 +442,6 @@ export class MenuBar {
         continue
       }
       if (entry.kind === 'submenu') {
-        const subWrap = el('div', { className: 'yy-submenu-wrap' })
         const btn = el('button', {
           className: 'yy-menu-item yy-submenu-trigger',
           type: 'button',
@@ -423,35 +452,19 @@ export class MenuBar {
           el('span', { className: 'yy-menu-label', text: entry.label }),
           el('span', { className: 'yy-icon yy-menu-arrow', html: icons.chevronRight }),
         )
-        const subPanel = el('div', { className: 'yy-submenu-panel', attrs: { role: 'menu' } })
-        this.renderEntries(subPanel, entry.items, menuKey)
-
-        const toggleSub = (open: boolean) => {
-          subWrap.classList.toggle('is-open', open)
-          btn.setAttribute('aria-expanded', String(open))
-        }
-        btn.addEventListener('click', event => {
-          event.stopPropagation()
-          toggleSub(!subWrap.classList.contains('is-open'))
+        btn.addEventListener('pointerenter', event => {
+          if (event.pointerType !== 'touch') this.openSubmenu(btn, entry.items)
         })
+        btn.addEventListener('click', () => this.openSubmenu(btn, entry.items))
         btn.addEventListener('keydown', event => {
           if (event.key === 'ArrowRight' || event.key === 'Enter' || event.key === ' ') {
             event.preventDefault()
             event.stopPropagation()
-            toggleSub(true)
-            subPanel.querySelector<HTMLButtonElement>('.yy-menu-item:not([disabled])')?.focus()
+            this.openSubmenu(btn, entry.items)
+            this.submenu.querySelector<HTMLButtonElement>('.yy-menu-item:not([disabled])')?.focus()
           }
         })
-        subPanel.addEventListener('keydown', event => {
-          if (event.key === 'ArrowLeft') {
-            event.preventDefault()
-            event.stopPropagation()
-            toggleSub(false)
-            btn.focus()
-          }
-        })
-        subWrap.append(btn, subPanel)
-        container.append(subWrap)
+        container.append(btn)
         continue
       }
 
@@ -481,36 +494,119 @@ export class MenuBar {
         this.close(false)
         entry.onSelect()
       })
+      if (container === this.dropdown) btn.addEventListener('pointerenter', () => this.deferSubmenuClose())
       container.append(btn)
     }
+  }
 
-    container.addEventListener('keydown', event => {
-      const items = Array.from(container.children)
-        .map(child => (child.classList.contains('yy-submenu-wrap')
-          ? child.querySelector<HTMLButtonElement>(':scope > .yy-menu-item')
-          : (child instanceof HTMLButtonElement ? child : null)))
-        .filter((item): item is HTMLButtonElement => Boolean(item && !item.disabled))
-      const active = document.activeElement as HTMLButtonElement | null
-      const idx = active ? items.indexOf(active) : -1
-      if (event.key === 'ArrowDown' && items.length > 0) {
-        event.preventDefault()
-        event.stopPropagation()
-        items[(idx + 1 + items.length) % items.length].focus()
-      } else if (event.key === 'ArrowUp' && items.length > 0) {
-        event.preventDefault()
-        event.stopPropagation()
-        items[(idx - 1 + items.length) % items.length].focus()
-      } else if (container === this.dropdown && event.key === 'ArrowRight') {
-        event.preventDefault()
-        this.moveTopMenu(menuKey, 1)
-      } else if (container === this.dropdown && event.key === 'ArrowLeft') {
-        event.preventDefault()
-        this.moveTopMenu(menuKey, -1)
-      }
-    })
+  private navigatePanel(event: KeyboardEvent, panel: HTMLElement) {
+    const { key } = event
+    if (key === 'ArrowDown' || key === 'ArrowUp' || key === 'Home' || key === 'End') {
+      const items = [...panel.querySelectorAll<HTMLButtonElement>('.yy-menu-item:not([disabled])')]
+      if (!items.length) return
+      event.preventDefault()
+      event.stopPropagation()
+      this.cancelSubmenuClose()
+      if (panel === this.dropdown) this.closeSubmenu()
+      const index = items.findIndex(item => item === document.activeElement)
+      let target = 0
+      if (key === 'End' || (key === 'ArrowUp' && index < 0)) target = items.length - 1
+      else if (key !== 'Home') target = (index + (key === 'ArrowDown' ? 1 : -1) + items.length) % items.length
+      items[target].focus()
+    } else if (key === 'ArrowLeft' && panel === this.submenu) {
+      event.preventDefault()
+      event.stopPropagation()
+      this.closeSubmenu(true)
+    } else if ((key === 'ArrowLeft' || key === 'ArrowRight') && panel === this.dropdown && this.openMenu) {
+      event.preventDefault()
+      event.stopPropagation()
+      this.moveTopMenu(this.openMenu, key === 'ArrowRight' ? 1 : -1)
+    }
+  }
+
+  private openSubmenu(trigger: HTMLButtonElement, entries: MenuCommand[]) {
+    this.cancelSubmenuClose()
+    if (this.submenuTrigger === trigger) return
+    this.closeSubmenu()
+    this.submenuTrigger = trigger
+    this.renderEntries(this.submenu, entries)
+    trigger.setAttribute('aria-expanded', 'true')
+    this.submenu.setAttribute('aria-label', trigger.textContent ?? '')
+    this.submenu.hidden = false
+    this.submenu.scrollTop = 0
+    this.positionSubmenu()
+  }
+
+  private cancelSubmenuClose() {
+    window.clearTimeout(this.submenuCloseTimer)
+  }
+
+  private deferSubmenuClose() {
+    if (!this.submenuTrigger) return
+    this.cancelSubmenuClose()
+    // 允许鼠标斜向移入子菜单，经过一级菜单相邻条目时保留短暂的过渡时间。
+    this.submenuCloseTimer = window.setTimeout(() => {
+      this.closeSubmenu(this.submenu.contains(document.activeElement))
+    }, 180)
+  }
+
+  private closeSubmenu(restoreFocus = false) {
+    this.cancelSubmenuClose()
+    const trigger = this.submenuTrigger
+    if (!trigger) return
+    this.submenuTrigger = null
+    trigger.setAttribute('aria-expanded', 'false')
+    this.submenu.hidden = true
+    this.submenu.replaceChildren()
+    if (restoreFocus) trigger.focus({ preventScroll: true })
+  }
+
+  private menuBounds() {
+    const bar = this.element.getBoundingClientRect()
+    const height = Number.parseFloat(getComputedStyle(this.element).height)
+    return { bar, scale: height > 0 ? bar.height / height : 1 }
+  }
+
+  private positionDropdown(trigger: HTMLButtonElement) {
+    const { bar, scale } = this.menuBounds()
+    this.dropdown.style.left = `${trigger.offsetLeft}px`
+    const overflow = this.dropdown.getBoundingClientRect().right + menuMargin - window.innerWidth
+    if (overflow > 0) {
+      const left = Math.max((menuMargin - bar.left) / scale, trigger.offsetLeft - overflow / scale)
+      this.dropdown.style.left = `${left}px`
+    }
+  }
+
+  private positionSubmenu() {
+    if (!this.submenuTrigger) return
+    // macOS 标题栏有反向缩放，先在窗口坐标夹紧，再换回菜单栏自己的坐标。
+    const { bar, scale } = this.menuBounds()
+    const anchor = this.submenuTrigger.getBoundingClientRect()
+    const parent = this.dropdown.getBoundingClientRect()
+    if (anchor.bottom <= parent.top || anchor.top >= parent.bottom) {
+      this.closeSubmenu()
+      return
+    }
+    this.submenu.style.maxHeight = `${(window.innerHeight - menuMargin * 2) / scale}px`
+    const viewportRight = window.innerWidth - menuMargin
+    const rightSpace = viewportRight - parent.right + 1
+    const leftSpace = parent.left - menuMargin + 1
+    this.submenu.style.maxWidth = ''
+    const preferredWidth = this.submenu.getBoundingClientRect().width
+    const openRight = preferredWidth <= rightSpace || rightSpace >= leftSpace
+    // 空间不足时先缩窄并允许标签换行，极窄视口再让两个菜单少量重叠。
+    const availableWidth = (openRight ? rightSpace : leftSpace) / scale
+    this.submenu.style.maxWidth = `${Math.min(Math.max(availableWidth, 144), (viewportRight - menuMargin) / scale)}px`
+    const panel = this.submenu.getBoundingClientRect()
+    const left = openRight ? parent.right - 1 : parent.left - panel.width + 1
+    const x = Math.max(menuMargin, Math.min(left, viewportRight - panel.width))
+    const y = Math.max(menuMargin, Math.min(Math.max(anchor.top - 6 * scale, parent.top), window.innerHeight - menuMargin - panel.height))
+    this.submenu.style.left = `${(x - bar.left) / scale}px`
+    this.submenu.style.top = `${(y - bar.top) / scale}px`
   }
 
   open(key: TopMenuKey, focusFirst = false) {
+    this.closeSubmenu()
     this.openMenu = key
     for (const [menuKey, trigger] of this.triggers) {
       const active = menuKey === key
@@ -518,18 +614,21 @@ export class MenuBar {
       trigger.setAttribute('aria-expanded', String(active))
     }
     const trigger = this.triggers.get(key)!
-    this.renderEntries(this.dropdown, this.buildEntries(key), key)
-    this.dropdown.style.left = `${trigger.offsetLeft}px`
+    this.renderEntries(this.dropdown, this.buildEntries(key))
+    this.dropdown.setAttribute('aria-label', trigger.textContent ?? '')
     this.dropdown.removeAttribute('hidden')
+    this.dropdown.scrollTop = 0
+    this.positionDropdown(trigger)
     if (focusFirst) {
       queueMicrotask(() => {
-        this.dropdown.querySelector<HTMLButtonElement>('.yy-menu-item:not([disabled])')?.focus()
+        if (this.openMenu === key) this.dropdown.querySelector<HTMLButtonElement>('.yy-menu-item:not([disabled])')?.focus()
       })
     }
   }
 
   close(restoreFocus = false) {
     if (!this.openMenu) return
+    this.closeSubmenu()
     this.openMenu = null
     for (const trigger of this.triggers.values()) {
       trigger.classList.remove('is-open')
@@ -541,7 +640,9 @@ export class MenuBar {
   }
 
   destroy() {
+    this.close()
     document.removeEventListener('mousedown', this.docPointerDown)
     window.removeEventListener('keydown', this.docKeyDown, true)
+    window.removeEventListener('resize', this.onResize)
   }
 }

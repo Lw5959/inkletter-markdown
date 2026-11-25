@@ -60,8 +60,13 @@ export async function prepareRecovery() {
     const dialog = [...document.querySelectorAll<HTMLDialogElement>('.app-dialog')].find(element =>
       element.querySelector('h2')?.textContent === '恢复未保存文档')
     if (dialog?.open) {
-      dialog.querySelector<HTMLButtonElement>('[value="recover"]')!.click()
       observer.disconnect()
+      const recover = dialog.querySelector<HTMLButtonElement>('[value="recover"]')!
+      if (document.activeElement !== recover) {
+        void mark('failure', { error: '恢复提示打开后未聚焦恢复草稿按钮' })
+        return
+      }
+      recover.click()
     }
   })
   observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['open'] })
@@ -266,6 +271,20 @@ async function verifyFull(ports: Ports, scenario: Case) {
   await ports.action({ type: 'autosave', enabled: false })
   await ports.setWorkspace(scenario.root)
   await ports.openPath(scenario.guide, 1, false)
+  const file = document.querySelector<HTMLButtonElement>('[data-menu="file"]')!
+  file.click()
+  const menu = document.querySelector<HTMLElement>('.yy-menu-popover')!
+  const exportMenu = button(menu, '导出为')
+  exportMenu.scrollIntoView({ block: 'nearest' })
+  const menuHeight = menu.scrollHeight
+  exportMenu.click()
+  const flyout = document.querySelector<HTMLElement>('.yy-submenu-panel')!
+  const parentBox = menu.getBoundingClientRect()
+  const flyoutBox = flyout.getBoundingClientRect()
+  check(!flyout.hidden && flyout.scrollHeight > 0 && menu.scrollHeight === menuHeight, '导出菜单独立展开')
+  check(flyoutBox.left >= parentBox.right - 2 || flyoutBox.right <= parentBox.left + 2, '导出菜单在一级菜单侧边')
+  file.click()
+  result.menuFlyout = true
   const filtered = await invoke<WorkspaceEntry[]>('workspace_tree', { root: scenario.root, hidden: false, all: false, filter: '**/*.png' })
   check(filtered.length === 1 && filtered[0].children?.some(child => child.name === 'icon.png'), '文件树路径规则')
   const original = await native.read(scenario.guide)

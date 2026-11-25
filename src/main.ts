@@ -1070,7 +1070,7 @@ async function startup() {
         await checkpoint()
       } else {
         const option = await choose('恢复未保存文档', '恢复上次退出时保留的“' + recovery.title + '”。', [
-          { value: 'discard', label: '放弃草稿' }, { value: 'recover', label: '恢复草稿', primary: true },
+          { value: 'discard', label: '放弃草稿' }, { value: 'recover', label: '恢复草稿', primary: true, autofocus: true },
         ])
         if (option !== 'discard') setDocument(base, recovery)
         else await checkpoint()

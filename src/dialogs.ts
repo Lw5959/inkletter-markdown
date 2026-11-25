@@ -1,6 +1,6 @@
 import './dialogs.css'
 
-type Choice = { label: string; value: string; primary?: boolean }
+type Choice = { label: string; value: string; primary?: boolean; autofocus?: boolean }
 
 function dialog(title: string, detail: string) {
   const element = document.createElement('dialog')
@@ -24,6 +24,7 @@ function addButton(controls: HTMLElement, label: string, value: string, primary 
   button.textContent = label
   if (primary) button.classList.add('app-dialog-primary')
   controls.append(button)
+  return button
 }
 
 function present(element: HTMLDialogElement) {
@@ -37,7 +38,9 @@ function present(element: HTMLDialogElement) {
 
 export function choose(title: string, detail: string, choices: Choice[]) {
   const { element, form, controls } = dialog(title, detail)
-  for (const option of choices) addButton(controls, option.label, option.value, option.primary)
+  for (const option of choices) {
+    addButton(controls, option.label, option.value, option.primary).autofocus = option.autofocus ?? false
+  }
   form.append(controls)
   return present(element)
 }
