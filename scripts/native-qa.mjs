@@ -55,6 +55,7 @@ writeFileSync(updatedPlugin, JSON.stringify({ ...JSON.parse(readFileSync(plugin,
 const setup = {
   phase: kind, root, guide, mb1, mb10, exports, plugin, updatedPlugin,
   themes: [...themes, { path: customTheme, name: '相对资源与级联夹具' }],
+  typora: process.env.YEYU_TEST_TYPORA ? JSON.parse(process.env.YEYU_TEST_TYPORA) : undefined,
   model: process.env.YEYU_TEST_MODEL_URL ? { endpoint: process.env.YEYU_TEST_MODEL_URL, name: process.env.YEYU_TEST_MODEL ?? 'yeyu-qwen' } : undefined,
 }
 const logfile = (phase) => join(folder, phase + '.log')

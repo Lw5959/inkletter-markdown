@@ -2,7 +2,7 @@
 .document-theme #write .cm-editor.cm-focused { outline: none; }
 .document-theme #write .cm-editor { height: auto; }
 .document-theme #write .cm-scroller { overflow: visible; font: inherit; }
-.document-theme #write[data-mode="source"] .cm-scroller { font: 13.5px/1.68 var(--doc-mono); }
+.document-theme #write[data-mode="source"] .cm-scroller { font: 13.5px/1.68 var(--font-monospace, var(--doc-mono)); }
 .document-theme #write .cm-content { caret-color: currentColor; min-width: 0; padding-block: 0; }
 .document-theme #write .cm-line { padding-inline: 0; }
 :where(.document-theme #write) .cm-line.live-empty { min-height: .9em; font-size: .68em; line-height: .9; }
@@ -16,10 +16,9 @@
 :where(.document-theme #write) :where(.live-strong) { font-weight: 700; }
 :where(.document-theme #write) :where(.live-em) { font-style: italic; }
 :where(.document-theme #write) :where(.live-del) { text-decoration: line-through; }
-:where(.document-theme #write) :where(.live-link) { text-decoration: underline; text-underline-offset: .15em; }
-:where(.document-theme #write) :where(.live-link-label) { cursor: pointer; color: var(--link-color, var(--doc-accent)); }
+:where(.document-theme #write) :where(.live-link-label) { cursor: pointer; text-decoration: underline; }
 :where(.document-theme #write) :where(.live-punctuation) { opacity: .42; }
-:where(.document-theme #write) :where(.live-code, .live-fence, .live-yaml) { font-family: var(--doc-mono); background: var(--doc-code); }
+:where(.document-theme #write) :where(.live-code, .live-fence, .live-yaml) { font-family: var(--font-monospace, var(--doc-mono)); background: var(--doc-code); }
 :where(.document-theme #write) :where(.live-yaml) { color: var(--doc-muted); font-size: .8em; }
 :where(.document-theme #write) :where(.cm-line.live-quote) { border-inline-start: 2px solid var(--doc-rule); padding-inline-start: .9em; color: var(--doc-muted); }
 :where(.document-theme #write) :where(.live-footnote, .live-reference) { color: var(--link-color, var(--doc-accent)); }
@@ -30,7 +29,7 @@
 :where(.document-theme #write) :where(.live-inline-preview img) { max-width: 100%; max-height: 22rem; }
 :where(.document-theme #write) :where(.live-block-preview) { display: block; max-width: 100%; overflow-x: auto; padding: .25em 0; }
 :where(.document-theme #write) :where(.live-block-preview table, .live-block-preview pre, .live-block-preview figure) { margin-block: 0; }
-:where(.document-theme #write) :where(.live-toc) > a { display: block; font-size: .9em; }
-:where(.document-theme #write) :where(.live-toc) > :not(.toc-h1) { padding-inline-start: 1em; }
-:where(.document-theme #write) :where(.live-toc) > :is(.toc-h3, .toc-h4, .toc-h5, .toc-h6) { padding-inline-start: 2em; }
+:where(.document-theme #write) :where(.live-toc .md-toc-item) { display: block; font-size: .9em; }
+:where(.document-theme #write) :where(.live-toc .md-toc-item:not(.toc-h1)) { padding-inline-start: 1em; }
+:where(.document-theme #write) :where(.live-toc :is(.toc-h3, .toc-h4, .toc-h5, .toc-h6)) { padding-inline-start: 2em; }
 :where(.document-theme #write.editor-focus) :where(.cm-line:not(.cm-activeLine)) { opacity: .45; }

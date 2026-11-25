@@ -301,8 +301,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   }
   const renderThemePopover = () => {
     themePopover.replaceChildren()
-    themePopover.append(el('div', { className: 'yy-menu-heading', text: '文档主题' }))
-    for (const theme of [{ id: 'default', name: '默认' }, ...themes]) {
+    const themeItem = (theme: Theme) => {
       const active = theme.id === activeThemeId
       const item = el('button', {
         className: `yy-menu-item${active ? ' is-selected' : ''}`,
@@ -313,23 +312,42 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
         el('span', { className: 'yy-menu-check', html: active ? icons.check : '' }),
         el('span', { className: 'yy-menu-label', text: theme.name }),
       )
+      if (theme.swatch) {
+        const sample = el('span', {
+          className: 'yy-theme-sample',
+          html: '<svg viewBox="0 0 18 12" width="18" height="12" aria-hidden="true"><path d="M3 4h12M3 8h8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>',
+        })
+        sample.style.backgroundColor = theme.swatch.paper
+        sample.style.color = theme.swatch.ink
+        item.append(sample)
+      }
       item.addEventListener('click', () => {
         closeThemePopover()
         dispatch({ type: 'theme', id: theme.id })
       })
-      themePopover.append(item)
+      return item
+    }
+    const builtins = themes.filter(theme => theme.swatch)
+    const imported = themes.filter(theme => !theme.swatch)
+    themePopover.append(el('div', { className: 'yy-menu-heading', text: '内置主题' }),
+      themeItem({ id: 'default', name: '默认', styles: [] }), ...builtins.map(themeItem))
+    if (imported.length) {
+      themePopover.append(el('div', { className: 'yy-menu-heading', text: '已导入' }), ...imported.map(themeItem))
     }
     themePopover.append(el('div', { className: 'yy-menu-sep', attrs: { role: 'separator' } }))
-    const importBtn = el('button', { className: 'yy-menu-item', type: 'button', attrs: { role: 'menuitem' } })
-    importBtn.append(
-      el('span', { className: 'yy-menu-check', html: icons.plus }),
-      el('span', { className: 'yy-menu-label', text: '导入本地主题 CSS…' }),
-    )
-    importBtn.addEventListener('click', () => {
-      closeThemePopover()
-      dispatch({ type: 'theme-import' })
-    })
-    themePopover.append(importBtn)
+    for (const [type, label] of [
+      ['theme-import-typora', '导入本机 Typora 主题'],
+      ['theme-import', '导入主题 CSS…'],
+    ] as const) {
+      const item = el('button', { className: 'yy-menu-item', type: 'button', attrs: { role: 'menuitem' } })
+      item.append(el('span', { className: 'yy-menu-check', html: icons.plus }),
+        el('span', { className: 'yy-menu-label', text: label }))
+      item.addEventListener('click', () => {
+        closeThemePopover()
+        dispatch({ type })
+      })
+      themePopover.append(item)
+    }
   }
   themeBtn.addEventListener('click', event => {
     event.stopPropagation()
@@ -727,6 +745,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
       const current = themes.find(theme => theme.id === active)
       themeStyle.textContent = current ? current.styles.join('\n') : ''
       paperEl.dataset.theme = current?.id ?? 'default'
+      root.ownerDocument.documentElement.toggleAttribute('data-yeyu-theme', !!current)
       appearance.select(current)
       themeBtnLabel.textContent = current?.name ?? '主题'
       themeBtn.title = '当前主题：' + (current?.name ?? '默认')
@@ -767,6 +786,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
       window.removeEventListener('keydown', onWindowKeyDown)
       document.removeEventListener('mousedown', onDocMouseDown)
       appearance.destroy()
+      root.ownerDocument.documentElement.removeAttribute('data-yeyu-theme')
       menuBar.destroy()
       leftPanel.destroy()
       modals.destroy()

@@ -1,4 +1,4 @@
-import type { AiProtocol, Editor, ExportFormat, PluginInfo, ShellAction, ShellState, WorkspaceEntry } from './contracts'
+import type { AiProtocol, Editor, ExportFormat, PluginInfo, ShellAction, ShellState, Theme, WorkspaceEntry } from './contracts'
 import type { Writing } from './ai'
 import type { Protocol } from './mcp'
 import { invoke, native, reason } from './native'
@@ -14,6 +14,7 @@ type Case = {
   mb1: string
   mb10: string
   themes: { path: string; name: string }[]
+  typora?: string[]
   exports: Record<string, string>
   recoveryText?: string
   model?: { endpoint: string; name: string }
@@ -148,6 +149,36 @@ async function measure(ports: Ports, scenario: Case) {
   await mark('measurement', result)
 }
 
+async function verifyThemeImport(ports: Ports, expected: string[]) {
+  const themeMenu = document.querySelector<HTMLButtonElement>('[data-toggle="theme-popover"]')!
+  const popover = document.querySelector('.yy-popover-panel')!
+  const paper = document.querySelector<HTMLElement>('.document-theme')!
+  const themeList = () => invoke<Theme[]>('theme_list')
+  const choose = (name: string) => { themeMenu.click(); button(popover, name).click() }
+  choose('白纸')
+  await until(() => paper.dataset.theme === 'builtin-paper')
+  check(getComputedStyle(paper).backgroundColor === 'rgb(255, 255, 255)', '白纸主题的正文背景为纯白')
+  choose('石墨')
+  await until(() => paper.dataset.theme === 'builtin-graphite')
+  check(document.documentElement.dataset.yeyuAppearance === 'dark', '石墨主题覆盖整窗')
+
+  async function importLocalThemes() {
+    choose('导入本机 Typora 主题')
+    await until(() => ports.state.detail === `已有 ${expected.length} 套主题可用，可从主题菜单切换`, 45_000)
+    const imported = await themeList()
+    check(imported.map(theme => theme.name).sort().join('\n') === [...expected].sort().join('\n'), '本机 Typora 主题完整导入')
+    check(paper.dataset.theme === 'builtin-graphite', '批量导入保留当前主题')
+    return imported
+  }
+
+  const initial = await importLocalThemes()
+  const repeated = await importLocalThemes()
+  check(initial.every((theme, index) => theme.id === repeated[index].id), '重复导入沿用主题 ID')
+  choose(initial[0].name)
+  await until(() => paper.dataset.theme === initial[0].id)
+  return initial.map(theme => theme.name)
+}
+
 async function verifyFull(ports: Ports, scenario: Case) {
   const result: Record<string, unknown> = {}
   if (document.querySelector('[data-mac-titlebar="true"]')) {
@@ -204,6 +235,7 @@ async function verifyFull(ports: Ports, scenario: Case) {
   const image = imageLinks(ports.text())[0]
   check(image && image.url.includes('assets/'), '实际文档含相对路径图片')
   ports.editor.select({ anchor: 0, head: 0 })
+  if (scenario.typora?.length) result.localTypora = await verifyThemeImport(ports, scenario.typora)
   const themes: unknown[] = []
   for (const theme of scenario.themes) {
     await ports.addTheme(theme.path)

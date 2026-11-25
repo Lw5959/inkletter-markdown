@@ -298,7 +298,8 @@ export class MenuBar {
 
     themeItems.push(
       { kind: 'separator' },
-      { kind: 'item', label: '导入本地主题 CSS…', onSelect: () => this.ctx.dispatch({ type: 'theme-import' }) },
+      { kind: 'item', label: '导入本机 Typora 主题', onSelect: () => this.ctx.dispatch({ type: 'theme-import-typora' }) },
+      { kind: 'item', label: '导入主题 CSS…', onSelect: () => this.ctx.dispatch({ type: 'theme-import' }) },
     )
 
     return [

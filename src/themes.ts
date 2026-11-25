@@ -81,7 +81,7 @@ export function scopeTheme(css: Root) {
   return css.toString()
 }
 
-export async function importTheme(path: string): Promise<{ theme: Theme; missing: string[] }> {
+export async function importTheme(path: string, installed: readonly Theme[] = []): Promise<{ theme: Theme; missing: string[] }> {
   const info = await invoke<Import>('theme_begin', { path })
   const missing = new Set<string>()
   const resources = new Map<string, Promise<string | null>>()
@@ -140,6 +140,13 @@ export async function importTheme(path: string): Promise<{ theme: Theme; missing
       if (root) styles.push(scopeTheme(root))
     }
     if (!styles.length) throw new Error('所选目录缺少主题 CSS')
+    // 同名且内容相同的主题沿用原来的 ID，重复导入时保留已选主题。
+    const existing = installed.find(theme => theme.name === info.name && theme.styles.length === styles.length
+      && theme.styles.every((sheet, index) => sheet === styles[index]))
+    if (existing) {
+      await invoke('theme_abort', { id: info.id })
+      return { theme: existing, missing: [...missing] }
+    }
     const theme = { id: info.id, name: info.name, styles }
     await invoke('theme_finish', { theme })
     return { theme, missing: [...missing] }

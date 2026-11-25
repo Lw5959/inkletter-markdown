@@ -13,6 +13,7 @@ import { exportHtml, formatExtensions, print, visual } from './export'
 import { assetPath, imageLinks, insertImages, localImage, resolveImage } from './images'
 import type { Relocated } from './images'
 import { importTheme } from './themes'
+import { builtinThemes } from './builtin-themes'
 import { Writing } from './ai'
 import { normalizePrompts } from './ai-prompts'
 import { Protocol } from './mcp'
@@ -34,12 +35,13 @@ let documentId = 0
 let revision = 0
 let cachedRevision = -1
 let cachedText = ''
-let themes: Theme[] = []
+let themes: Theme[] = [...builtinThemes]
 let lastExport: ExportFormat | null = null
 let diskConflict: string | null | undefined
 let saving: Promise<boolean> | null = null
 let switching = false
 let opening = false
+let importingThemes = false
 let loaded = false
 let checkpointTimer = 0
 let autoSaveTimer = 0
@@ -585,10 +587,20 @@ async function dispatch(action: ShellAction) {
       await openPath(destination, 1, false)
       break
     }
-    case 'theme-import': {
-      const path = await open({ filters: [{ name: 'Typora CSS 主题', extensions: ['css'] }] })
-      if (!path) break
-      await addTheme(path)
+    case 'theme-import':
+    case 'theme-import-typora': {
+      if (importingThemes) break
+      importingThemes = true
+      try {
+        if (action.type === 'theme-import-typora') update('正在导入主题')
+        const paths = action.type === 'theme-import-typora'
+          ? await invoke<string[]>('typora_theme_paths')
+          : await open({ multiple: true, filters: [{ name: 'CSS 主题', extensions: ['css'] }] })
+        if (paths?.length) await addThemes(paths)
+        else if (action.type === 'theme-import-typora') update('未找到本机 Typora 主题，可直接导入主题 CSS')
+      } finally {
+        importingThemes = false
+      }
       break
     }
     case 'theme':
@@ -818,13 +830,30 @@ async function dispatch(action: ShellAction) {
   }
 }
 
-async function addTheme(path: string) {
-  const { theme, missing } = await importTheme(path)
-  themes = [...themes, theme]
-  settings.theme = theme.id
+async function addThemes(paths: string[]) {
+  const available = new Map<string, Theme>()
+  const missing = new Set<string>()
+  const failures: string[] = []
+  update('正在导入主题')
+  for (const path of paths) {
+    try {
+      const result = await importTheme(path, themes)
+      const { theme } = result
+      if (!themes.some(item => item.id === theme.id)) themes = [...themes, theme]
+      available.set(theme.id, theme)
+      for (const file of result.missing) missing.add(file)
+    } catch (error) {
+      failures.push(path.split(/[/\\]/).pop() + ' ' + reason(error))
+    }
+  }
+  if (!available.size) throw new Error('主题导入失败，' + failures[0])
+  const single = paths.length === 1 ? available.values().next().value : undefined
+  if (single) settings.theme = single.id
   shell.setThemes(themes, settings.theme)
-  await persist()
-  update(missing.length ? '已使用主题，缺少资源 ' + missing.join('、') : '已使用主题 ' + theme.name)
+  if (single) await persist()
+  const success = single ? '已使用主题 ' + single.name : `已有 ${available.size} 套主题可用，可从主题菜单切换`
+  update(success + (missing.size ? '，缺少资源 ' + [...missing].join('、') : '')
+    + (failures.length ? '，导入失败 ' + failures.join('、') : ''))
 }
 
 async function shareSelection() {
@@ -878,7 +907,7 @@ async function startup() {
     settings = { ...defaults, ...preferences }
     settings.aiPrompts = normalizePrompts(settings.aiPrompts)
     writing.setPrompts(settings.aiPrompts)
-    themes = imported
+    themes = [...builtinThemes, ...imported]
     state.autosave = settings.autosave
     state.workspaceFilter = { hidden: settings.hidden, all: settings.allFiles, glob: settings.fileGlob }
     if (settings.zoom !== 1) {
@@ -918,7 +947,7 @@ async function startup() {
   }
   if (__YEYU_QA__) {
     void import('./qa').then(({ runNativeQa }) => runNativeQa({
-      editor, state, action: dispatch, openPath, setWorkspace, addTheme, installPlugin, exportTo,
+      editor, state, action: dispatch, openPath, setWorkspace, addTheme: path => addThemes([path]), installPlugin, exportTo,
       saveFile, checkpoint, text, writing, protocol, monitor, shareSelection, setDocument,
     }))
   }

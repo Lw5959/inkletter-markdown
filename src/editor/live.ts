@@ -12,6 +12,7 @@ const marks: Record<string, string> = {
   Link: 'link', Autolink: 'link', LinkReference: 'reference', TableCell: 'cell',
 }
 const inlineTags: Record<string, string> = { Highlight: 'mark', Subscript: 'sub', Superscript: 'sup' }
+const markTags: Record<string, string> = { StrongEmphasis: 'strong', Emphasis: 'em', Strikethrough: 'del', InlineCode: 'code' }
 const markers = new Set(['EmphasisMark', 'StrikethroughMark', 'CodeMark', 'HeaderMark', 'LinkMark', 'HighlightMark', 'SubscriptMark', 'SuperscriptMark', 'QuoteMark'])
 const blocks: Record<string, string> = {
   Blockquote: 'quote', Table: 'table', FencedCode: 'fence', CodeBlock: 'fence', HorizontalRule: 'rule',
@@ -89,22 +90,25 @@ class Toc extends WidgetType {
   eq(other: Toc) { return other.version === this.version }
   toDOM(view: EditorView) {
     const element = view.dom.ownerDocument.createElement('span')
-    element.className = 'live-block-preview live-toc'
+    element.className = 'live-block-preview live-toc md-toc'
     element.contentEditable = 'false'
+    const content = element.appendChild(element.ownerDocument.createElement('span'))
+    content.className = 'md-toc-content'
     // 目录可见时再取全量大纲。编辑和滚动时的装饰计算仍限于视窗。
     const window = view.dom.ownerDocument.defaultView!
     this.timer = window.setTimeout(() => {
       if (!element.isConnected) return
       for (const entry of this.outline()) {
-        const item = element.ownerDocument.createElement('a')
-        item.href = '#' + (entry.id ?? '')
-        item.className = 'toc-h' + entry.level
-        item.textContent = entry.title
-        item.addEventListener('click', event => {
+        const item = content.appendChild(element.ownerDocument.createElement('span'))
+        item.className = `toc-h${entry.level} md-toc-item md-toc-h${entry.level}`
+        const link = item.appendChild(element.ownerDocument.createElement('a'))
+        link.href = '#' + (entry.id ?? '')
+        link.className = 'md-toc-inner'
+        link.textContent = entry.title
+        link.addEventListener('click', event => {
           event.preventDefault()
           this.jump(entry.from)
         })
-        element.append(item)
       }
       view.requestMeasure()
     }, 160)
@@ -230,8 +234,8 @@ export function liveDecoration(options: EditorOptions, outline: () => OutlineEnt
         if (!lineClasses.has(from)) lineClasses.set(from, new Set())
         lineClasses.get(from)!.add('live-' + name)
       }
-      const mark = (from: number, to: number, name: string) => {
-        if (from < to) ranges.push(Decoration.mark({ class: 'live-' + name }).range(from, to))
+      const mark = (from: number, to: number, name: string, tagName?: string) => {
+        if (from < to) ranges.push(Decoration.mark({ class: 'live-' + name, tagName }).range(from, to))
       }
       // YAML 中的横线可能被增量语法树识别为标题标记。在装饰阶段先划定它的范围。
       const yamlEnd = doc.line(1).text.trimEnd() === '---' && view.viewport.from < 65_536
@@ -262,7 +266,8 @@ export function liveDecoration(options: EditorOptions, outline: () => OutlineEnt
             if (inlineTags[name] && from < to) {
               ranges.push(Decoration.mark({ tagName: inlineTags[name], class: 'live-' + name.toLowerCase() }).range(from, to))
             }
-            if (marks[name]) mark(Math.max(from, visible.from), Math.min(to, visible.to), marks[name])
+            // 与 HTML 导出共享行内标签，使同一套主题选择器命中实时文本。
+            if (marks[name]) mark(Math.max(from, visible.from), Math.min(to, visible.to), marks[name], markTags[name])
             if (name === 'Link' && doc.sliceString(from, from + 2) === '[^') mark(from, to, 'footnote')
             const reveal = !view.state.readOnly && active(first.from, first.to)
             if (markers.has(name) && !reveal) {
@@ -280,6 +285,7 @@ export function liveDecoration(options: EditorOptions, outline: () => OutlineEnt
               else ranges.push(Decoration.replace({ widget: new Bullet() }).range(from, to))
             }
             if (name === 'TaskMarker' && !reveal) {
+              addLine(first.from, 'task')
               ranges.push(Decoration.replace({
                 widget: new TaskCheckbox(from, /x/i.test(doc.sliceString(from, to)), view.state.readOnly),
               }).range(from, to))
@@ -294,7 +300,7 @@ export function liveDecoration(options: EditorOptions, outline: () => OutlineEnt
                 const end = parent.name === 'Autolink' ? to : label?.from
                 if (end !== undefined && end > start) {
                   ranges.push(Decoration.mark({
-                    class: 'live-link-label', attributes: { 'data-markdown-url': url },
+                    tagName: 'a', class: 'live-link-label', attributes: { 'data-markdown-url': url },
                   }).range(start, end))
                   if (!reveal && parent.name === 'Link' && parent.to <= first.to) {
                     ranges.push(Decoration.replace({}).range(parent.from, start))
@@ -344,6 +350,7 @@ export function liveDecoration(options: EditorOptions, outline: () => OutlineEnt
         }
       }
       for (const [from, classes] of lineClasses) {
+        if (classes.has('live-task')) classes.add('md-task-list-item')
         ranges.push(Decoration.line({ class: [...classes].join(' ') }).range(from))
       }
       return Decoration.set(ranges, true)

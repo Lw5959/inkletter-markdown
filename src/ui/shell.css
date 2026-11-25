@@ -65,6 +65,12 @@
   --yy-warn-bg: #433724;
 }
 
+:root[data-yeyu-appearance="light"][data-yeyu-theme] {
+  --yy-canvas: var(--yy-theme-surface, #fff);
+  --yy-chrome-bg: color-mix(in srgb, var(--yy-theme-surface, #fff) 36%, #fff);
+  --yy-chrome-elevated: color-mix(in srgb, var(--yy-theme-surface, #fff) 18%, #fff);
+}
+
 
 html,
 body {
@@ -318,6 +324,14 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 
 .yy-shell .yy-popover-wrap {
   position: relative;
+}
+
+.yy-shell .yy-theme-sample {
+  margin-inline-start: auto;
+  display: inline-flex;
+  flex: none;
+  border: 1px solid var(--yy-border-strong);
+  border-radius: 3px;
 }
 
 .yy-shell .yy-popover-panel {
@@ -1033,6 +1047,12 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
   min-height: 0;
   overflow: auto;
   position: relative;
+}
+
+/* Typora 的 html/body 可使用外边距，正文区域在页屿窗口中仍按可用空间铺开。 */
+.yy-shell .yy-stage > .yy-paper.document-theme {
+  min-width: 0;
+  margin: 0;
 }
 
 :where(.yy-paper.document-theme[data-typewriter="true"]) {

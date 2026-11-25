@@ -12,6 +12,9 @@
   --doc-code: #f5f5f5;
   --doc-selection: #dcdcdc;
   --doc-mark: #e9e9e9;
+  --doc-syntax-keyword: #8159a3;
+  --doc-syntax-string: #337356;
+  --doc-syntax-number: #a45b34;
   background-color: var(--bg-color, var(--background-color, var(--doc-paper)));
   color: var(--text-color, var(--doc-ink));
   accent-color: var(--doc-accent);
@@ -29,6 +32,9 @@
   --doc-code: #2d2d2d;
   --doc-selection: #494949;
   --doc-mark: #424242;
+  --doc-syntax-keyword: #c8a5df;
+  --doc-syntax-string: #a5c99d;
+  --doc-syntax-number: #e0ad89;
 }
 
 :where(.document-theme #write) {
@@ -69,7 +75,7 @@
 :where(.document-theme #write) :where(table) { border-collapse: collapse; font-size: .94em; }
 :where(.document-theme #write) :where(th, td) { border: 1px solid var(--doc-rule); padding: .42em .72em; }
 :where(.document-theme #write) :where(th) { background-color: var(--doc-surface); font-weight: 620; }
-:where(.document-theme #write) :where(pre, code) { font-family: var(--doc-mono); font-size: .88em; }
+:where(.document-theme #write) :where(pre, code) { font-family: var(--font-monospace, var(--doc-mono)); font-size: .88em; }
 :where(.document-theme #write) :where(pre) {
   background: var(--doc-code);
   padding: .82em 1em;
@@ -82,13 +88,16 @@
 :where(.document-theme #write) :where(mark) { background: var(--doc-mark); color: inherit; }
 :where(.document-theme #write) :where(.yaml-frontmatter) { color: var(--doc-muted); font-size: .8em; }
 :where(.document-theme #write) :where(.footnotes) { font-size: .85em; color: var(--doc-muted); }
-:where(.document-theme #write) ::selection { background: var(--doc-selection); }
+:where(.document-theme #write) ::selection {
+  background: var(--select-text-bg-color, var(--doc-selection));
+  color: var(--select-text-font-color, inherit);
+}
 
 :where(.document-theme #write) :where(.markdown-diagram svg) { width: 100%; height: auto; }
 :where(.document-theme #write) :where(.markdown-diagram :is(rect, polygon, circle, ellipse)) { fill: var(--doc-surface); stroke: #777; }
 :where(.document-theme #write) :where(.markdown-diagram :is(path, line, polyline)) { fill: none; stroke: #777; }
 :where(.document-theme #write) :where(.markdown-diagram marker path) { fill: #777; }
-:where(.document-theme #write) :where(.hljs-keyword, .hljs-selector-tag) { color: #8159a3; }
-:where(.document-theme #write) :where(.hljs-string, .hljs-title) { color: #337356; }
-:where(.document-theme #write) :where(.hljs-number, .hljs-literal) { color: #a45b34; }
+:where(.document-theme #write) :where(.hljs-keyword, .hljs-selector-tag) { color: var(--doc-syntax-keyword); }
+:where(.document-theme #write) :where(.hljs-string, .hljs-title) { color: var(--doc-syntax-string); }
+:where(.document-theme #write) :where(.hljs-number, .hljs-literal) { color: var(--doc-syntax-number); }
 :where(.document-theme #write) :where(.hljs-comment) { opacity: .68; font-style: italic; }

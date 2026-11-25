@@ -32,7 +32,7 @@ export interface Editor {
 export type Appearance = 'light' | 'dark'
 export type TitlebarMaterial = 'frosted' | 'liquid'
 export type TitlebarView = { material: TitlebarMaterial; liquidAvailable: boolean }
-export type Theme = { id: string; name: string; styles: string[] }
+export type Theme = { id: string; name: string; styles: string[]; swatch?: { paper: string; ink: string } }
 export type WorkspaceEntry = { path: string; name: string; children?: WorkspaceEntry[] }
 export type SearchResult = { path: string; name: string; line: number; preview: string }
 export type FindQuery = { text: string; replacement: string; regex: boolean; matchCase: boolean; wholeWord: boolean }
@@ -66,6 +66,7 @@ export type ShellAction =
   | { type: 'open-path'; path: string; line?: number }
   | { type: 'mode'; mode: EditorMode }
   | { type: 'theme'; id: string }
+  | { type: 'theme-import-typora' }
   | { type: 'export'; format: ExportFormat }
   | { type: 'outline'; from: number }
   | { type: 'search-workspace'; text: string; regex: boolean }

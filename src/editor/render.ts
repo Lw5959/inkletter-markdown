@@ -49,7 +49,7 @@ export async function renderMarkdown(markdown: string, options: RenderOptions = 
   const front = frontMatter(source)
   let metadata = ''
   if (front?.index === 0) {
-    metadata = '<pre class="yaml-frontmatter"><code>' + escape(front[1] ?? '') + '</code></pre>\n'
+    metadata = '<pre class="yaml-frontmatter md-meta-block"><code>' + escape(front[1] ?? '') + '</code></pre>\n'
     source = source.slice(front[0].length)
   }
   if (source.includes('$') || source.includes('\\') || /\x60{3,}math/.test(source)) {
@@ -64,6 +64,12 @@ export async function renderMarkdown(markdown: string, options: RenderOptions = 
   const jobs: Promise<void>[] = []
   const replacements = new Map<Token, string>()
   for (const [index, token] of tokens.entries()) {
+    if (token.type === 'list_item_open') {
+      const className = token.attrGet('class')
+      if (typeof className === 'string' && className.split(/\s+/).includes('task-list-item')) {
+        token.attrJoin('class', 'md-task-list-item')
+      }
+    }
     if (token.type === 'heading_open') {
       const next = tokens[index + 1]
       const title = next.children ? textFromTokens(next.children) : next.content
@@ -103,14 +109,15 @@ export async function renderMarkdown(markdown: string, options: RenderOptions = 
     }
   }
   const fence = md.renderer.rules.fence!
-  md.renderer.rules.fence = (items, index, ...args) => replacements.get(items[index]) ?? fence(items, index, ...args)
+  md.renderer.rules.fence = (items, index, ...args) =>
+    (replacements.get(items[index]) ?? fence(items, index, ...args)).replace(/^<pre>/, '<pre class="md-fences">')
   const paragraph = md.renderer.rules.paragraph_open
   md.renderer.rules.paragraph_open = (items, index, opts, env, self) => {
     if (items[index + 1]?.content.trim().toUpperCase() === '[TOC]') {
       items[index + 1].children = []
       items[index + 2].hidden = true
-      return '<nav class="markdown-toc"><ul>' + headings.map(({ id, title, tag }) =>
-        '<li class="toc-' + tag + '"><a href="#' + id + '">' + escape(title) + '</a></li>').join('') + '</ul></nav>'
+      return '<nav class="markdown-toc md-toc"><ul class="md-toc-content">' + headings.map(({ id, title, tag }) =>
+        `<li class="toc-${tag} md-toc-item md-toc-${tag}"><a class="md-toc-inner" href="#${id}">${escape(title)}</a></li>`).join('') + '</ul></nav>'
     }
     return paragraph ? paragraph(items, index, opts, env, self) : self.renderToken(items, index, opts)
   }
@@ -139,7 +146,9 @@ export async function renderMarkdown(markdown: string, options: RenderOptions = 
         const { src, ...rest } = attrs
         return { tagName, attribs: src && safeUrl(src, true) ? attrs : rest }
       },
-      input: (_tag, attrs) => ({ tagName: 'input', attribs: { type: 'checkbox', disabled: '', ...('checked' in attrs ? { checked: '' } : {}) } }),
+      input: (_tag, attrs) => ({
+        tagName: 'input', attribs: { type: 'checkbox', class: 'task-list-item-checkbox', disabled: '', ...('checked' in attrs ? { checked: '' } : {}) },
+      }),
       path: (name, attrs) => diagramShape(name, attrs, attrs.d ? 'none' : '#eef3ef'),
       line: (name, attrs) => diagramShape(name, attrs, 'none'),
       polyline: (name, attrs) => diagramShape(name, attrs, 'none'),

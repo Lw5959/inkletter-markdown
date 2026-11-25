@@ -122,6 +122,7 @@ fn main() {
             themes::theme_finish,
             themes::theme_abort,
             themes::theme_list,
+            themes::typora_theme_paths,
             assets::image_data,
             assets::image_insert,
             assets::image_copy,

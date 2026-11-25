@@ -27,14 +27,11 @@ export function createAppearance(paper: HTMLElement, updateNative?: (theme: Appe
     if (theme) {
       const colors = getComputedStyle(paper)
       const light = brightness(colors.backgroundColor)
-      if (colors.colorScheme === 'dark' || (light !== null && light < .48)) {
-        appearance = 'dark'
-        if (light !== null && light < .48) root.style.setProperty('--yy-theme-surface', colors.backgroundColor)
-        else root.style.removeProperty('--yy-theme-surface')
-      } else {
-        root.style.removeProperty('--yy-theme-surface')
-        appearance = light !== null || colors.colorScheme === 'light' ? 'light' : appearance
-      }
+      if (colors.colorScheme === 'dark') appearance = 'dark'
+      else if (light !== null) appearance = light < .48 ? 'dark' : 'light'
+      else if (colors.colorScheme === 'light') appearance = 'light'
+      if (light !== null && appearance === (light < .48 ? 'dark' : 'light')) root.style.setProperty('--yy-theme-surface', colors.backgroundColor)
+      else root.style.removeProperty('--yy-theme-surface')
     } else root.style.removeProperty('--yy-theme-surface')
 
     root.dataset.yeyuAppearance = appearance

@@ -15,8 +15,9 @@ describe('Markdown HTML 导出', () => {
     ].join('\r\n\n')
     const html = await renderMarkdown(source)
     for (const expected of [
-      'class="yaml-frontmatter"', 'href="#同名-2"', '<h1 id="同名">同名</h1>', '<table>',
-      'type="checkbox"', 'checked', 'class="footnotes"', 'hljs-keyword', '<msup>', '<mfrac>', '<u>下划线</u>',
+      'class="yaml-frontmatter md-meta-block"', 'class="md-toc-inner" href="#同名-2"', '<h1 id="同名">同名</h1>', '<table>',
+      'class="task-list-item md-task-list-item"', 'type="checkbox"', 'checked', 'class="footnotes"',
+      'class="md-fences"', 'hljs-keyword', '<msup>', '<mfrac>', '<u>下划线</u>',
     ]) expect(html).toContain(expected)
   })
 

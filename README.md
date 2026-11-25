@@ -6,7 +6,7 @@
 
 1. 在文件菜单打开 Markdown 文件，或选择文件夹来使用文件树、快速打开和跨文件检索。
 2. 用顶栏的「实时」「源码」切换视图。macOS 可用 `⌘/`，Windows、Linux 可用 `Ctrl+/`。
-3. 导入 Typora 主题时，选择主题 CSS 主文件。它旁边的字体、图片、子目录、`base.user.css` 和主题同名覆盖文件按引用导入。
+3. 从顶栏主题菜单选择默认、白纸、青瓷、石墨或松夜。白纸是纯白底的衬线主题。用「导入本机 Typora 主题」批量加入已安装的主题，也可以用「导入主题 CSS…」选择主文件。主题引用的相对字体、图片、子目录以及 `base.user.css` 和同名覆盖样式一并导入。
 4. 文件菜单可导出 HTML、PDF、PNG 和常见办公文档。PDF 与 PNG 使用本机的 Chrome、Chromium 或 Edge。DOCX、EPUB、ODT、LaTeX 等需要安装 Pandoc。
 
 PDF 与 PNG 导出可用 `YEYU_CHROME` 指定浏览器可执行文件。如果程序找不到 Pandoc，可用 `YEYU_PANDOC` 指定其可执行文件后重新启动页屿。两个环境变量均可省略。

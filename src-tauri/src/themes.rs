@@ -2,12 +2,12 @@ use crate::store::{Store, canonical, err, file_name};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     fs,
     path::{Component, Path, PathBuf},
     sync::Mutex,
 };
-use tauri::State;
+use tauri::{Manager, State};
 
 #[derive(Default)]
 pub struct ThemeImports(Mutex<HashMap<String, PathBuf>>);
@@ -24,6 +24,40 @@ pub struct Import {
     id: String,
     name: String,
     entry: String,
+}
+
+#[tauri::command]
+pub async fn typora_theme_paths(app: tauri::AppHandle) -> Result<Vec<PathBuf>, String> {
+    let config = app.path().config_dir().map_err(err)?;
+    #[cfg(target_os = "macos")]
+    let directories = [
+        config.join("abnerworks.Typora/themes"),
+        app.path()
+            .home_dir()
+            .map_err(err)?
+            .join("Applications/Typora.app/Contents/Resources/TypeMark/style/themes"),
+        PathBuf::from("/Applications/Typora.app/Contents/Resources/TypeMark/style/themes"),
+    ];
+    #[cfg(not(target_os = "macos"))]
+    let directories = [config.join("Typora/themes")];
+
+    // 用户目录优先，同名内置主题只在用户目录缺少时补入。
+    let mut paths = BTreeMap::new();
+    for directory in directories {
+        let entries = match fs::read_dir(&directory) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(err(error)),
+        };
+        for entry in entries {
+            let path = entry.map_err(err)?.path();
+            let name = file_name(&path).to_ascii_lowercase();
+            if name.ends_with(".css") && !name.ends_with(".user.css") && path.is_file() {
+                paths.entry(name).or_insert(path);
+            }
+        }
+    }
+    Ok(paths.into_values().collect())
 }
 
 fn relative(path: &Path) -> Result<&Path, String> {
