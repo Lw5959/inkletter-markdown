@@ -9,6 +9,7 @@
 - 自动化验收在临时工作区模拟磁盘外部更新和异常退出。原始文件带 BOM、混合行尾、中文、Emoji、相对图片和未识别标记。
 - 通过原生插件管理流程安装和启用示例 Wasm 模块，运行中替换版本，处理选区并审阅、应用与撤销，随后停用和卸载。
 - macOS 原生窗体验证插件市场的离线浏览、搜索和三款内置插件安装，并通过任务清单验证选区、差异、应用与撤销。用实际构建脚本生成目录并通过回环 HTTP 提供。首份更新包的字节与摘要不一致时原版本继续可用，重试更新成功并沿用启用状态。市场源保存和切回内置目录均通过。
+- 公网市场通过 GitHub Pages 发布。匿名请求目录和三个插件包均返回 HTTP 200，并通过 SHA-256 和包身份核对。macOS 0.2.1 原生 QA 首次打开即连接官方目录，完成下载和安装。在线目录请求挂起时仍可切换内置插件并完成安装。断网 Linux 桌面也通过主动切换与自动显示内置插件的安装测试，两次均保留官方源设置。[公网市场页面](https://lw5959.github.io/yeyu-plugin-market/) · [开源市场仓库](https://github.com/Lw5959/yeyu-plugin-market)
 - macOS 的标题栏为 44 pt。在毛玻璃和液态玻璃下，关闭、最小化和缩放按钮的中心均距窗口顶部 22 pt。
 - AI 输入框在 Chromium 中通过单行起步、多行展开、清空收回以及发送按钮状态验证。上下文选择和写作操作保留键盘导航。
 - 查找、快速打开、下拉、状态及实时列表使用 SVG。浏览器检查验证了 SVG 节点、主题色和原有交互。
@@ -88,15 +89,15 @@ Apple M1 Pro，32 GB 内存，macOS 27.2.1。本地 APFS 外置 SSD 上运行发
 
 ## 平台验收范围
 
-0.2.0 安装包和 SHA-256 校验文件位于 `release/0.2.0/`，构建源为 `5c67e00`。随附三个 MIT 插件及许可文本。可部署的静态市场目录位于 `release/plugin-market/`，目录及三个包的 SHA-256 一致。
+0.2.1 安装包和 SHA-256 校验文件位于 `release/0.2.1/`，构建源为 `501dbe0`。随附三个 MIT 插件及许可文本。公网目录由市场仓库的 `8a5f9a1` 提交发布，同一批插件也可从本地静态目录 `release/plugin-market/` 部署。[公网目录](https://lw5959.github.io/yeyu-plugin-market/index.json)
 
-0.1.4 和 0.1.3 的安装包仍在各版本目录，构建源分别为 `db9debd` 和 `ecb99ef`。
+0.2.0、0.1.4 和 0.1.3 的安装包仍在各版本目录，构建源分别为 `5c67e00`、`db9debd` 和 `ecb99ef`。
 
 | 安装包 | 验收 |
 |---|---|
-| macOS Universal DMG | Apple Silicon 原生 QA 窗口通过插件市场、导出、文档往返和草稿恢复。DMG 含 `arm64` 和 `x86_64`。只读挂载后校验应用临时签名，x86_64 在 Rosetta 下通过命令行启动检查。公证待完成。 |
+| macOS Universal DMG | Apple Silicon 原生 QA 窗口通过官方市场首次安装、在线请求挂起时的内置安装、导出、文档往返和草稿恢复。DMG 含 `arm64` 和 `x86_64`。只读挂载后校验应用临时签名，x86_64 在 Rosetta 下通过命令行启动检查。公证待完成。 |
 | Windows x64 NSIS | 交叉构建与安装档案校验通过。安装包未签名，Windows 原生窗口待验收。 |
-| Linux ARM64 DEB | Debian 13 容器中安装。在断网容器的 WebKitGTK 与 Xvfb 桌面窗口中搜索并安装任务清单。打开、编辑和保存 Markdown 通过，原文件 BOM 保留。 |
+| Linux ARM64 DEB | Debian 13 容器中安装。在断网容器的 WebKitGTK 与 Xvfb 桌面窗口中分别通过直接切换和自动回退安装任务清单。打开、编辑和保存 Markdown 通过，原文件 BOM 保留。 |
 
 Intel 物理 Mac、Linux x64 安装包和人工中文拼音候选操作待验收。三种 AI 协议均在本机真实模型上通过，远程账号鉴权待验收。Typora 功能差异及后续里程碑见[功能对照表](feature-matrix.md)。
 
@@ -121,3 +122,5 @@ node scripts/native-qa.mjs src-tauri/target/release/yeyu measure
 完整验收用 `full` 参数。可设置 `YEYU_PANDOC`、`YEYU_TEST_MODEL_URL`、`YEYU_TEST_MODEL`。`YEYU_TEST_THEMES` 接受 `[{ "path": "/path/to/theme.css", "name": "主题名" }]`，`YEYU_TEST_TYPORA` 接受期望从本机发现的主题名列表，例如 `["github", "night"]`。测试本机设置预览与迁移时可设置 `YEYU_TEST_TYPORA_CONFIG=1`。脚本会打印临时证据路径。
 
 可把 `YEYU_TEST_THEME_SNAPSHOTS` 指向验收目录下的 `app-data/themes`，再运行 `pnpm test` 将导入主题加入交互回归。设置 `YEYU_TEST_WEBKIT=1` 并安装 Playwright 的 WebKit 后，可以用同一批主题复测 WebKit。
+
+运行原生 `full` 验收时可设置 `YEYU_TEST_PUBLIC_MARKET=https://lw5959.github.io/yeyu-plugin-market/index.json`，验证首次打开时的官方目录连接、实际包下载，以及从自定义源恢复到官方市场。
