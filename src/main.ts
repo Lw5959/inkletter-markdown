@@ -7,10 +7,10 @@ import { mountShell } from './ui'
 import { detectMac } from './ui/shortcuts'
 import { ask, invoke, native, open, reason, save } from './native'
 import type { FileSnapshot, Preferences, Recovery } from './native'
-import { choose, readSetting } from './dialogs'
+import { choose, readSetting, reviewChanges } from './dialogs'
 import { find, interval, lineOffset } from './document-tools'
 import { exportHtml, formatExtensions, print, visual } from './export'
-import { assetPath, imageLinks, insertImages, localImage, resolveImage } from './images'
+import { assetPath, imageLinks, insertImages, localImage, planImageCollection, resolveImage } from './images'
 import type { Relocated } from './images'
 import { importTheme } from './themes'
 import { builtinThemes } from './builtin-themes'
@@ -62,6 +62,7 @@ let exits = false
 let outlineKey = ''
 let outline: OutlineEntry[] = []
 let plugins: PluginInfo[] = []
+let runningPluginTools = false
 let statsDoc = -1
 let statsBusy = false
 let statsPending = false
@@ -491,6 +492,99 @@ async function manageImages(mode: ImageMode) {
   update(mode === 'upload' ? '图片已上传，保存后写入新链接' : '图片路径已更新')
 }
 
+type PluginRunner = (input: string) => Promise<string>
+
+async function pluginIssues(title: string, detail: string, issues: string[]) {
+  await choose(title, [detail, ...issues].join('\n'), [{ value: 'ok', label: '关闭', primary: true, autofocus: true }])
+}
+
+async function formatFiles(paths: string[], run: PluginRunner) {
+  const changes: Array<FileSnapshot & { replacement: string }> = []
+  const issues: string[] = []
+  const parsed = new Set<string>()
+  let same = 0
+  update(`正在预览 ${paths.length} 份文档`)
+  for (const path of paths) {
+    try {
+      const value = await native.read(path)
+      if (parsed.has(value.path)) continue
+      parsed.add(value.path)
+      if (!markdownFilter.extensions.includes(value.name.split('.').at(-1)?.toLowerCase() ?? '')) {
+        throw new Error('请选择 Markdown 文档')
+      }
+      if (value.path === state.path && (state.dirty || saving)) throw new Error('请先保存当前文档')
+      const replacement = await run(value.text)
+      if (value.text === replacement) same++
+      else changes.push({ ...value, replacement })
+    } catch (error) {
+      issues.push(path + ' · ' + reason(error))
+    }
+  }
+  if (!changes.length) {
+    const detail = `没有需要写回的文档，${same} 份已符合格式`
+    update(detail)
+    if (issues.length) await pluginIssues('批量格式化结果', detail, issues)
+    return
+  }
+  const selected = await reviewChanges('批量格式化',
+    `${changes.length} 份有更改，${same} 份已符合格式。确认后将写回勾选的文件。`,
+    changes, '保存所选文件', true, issues)
+  if (!selected.size) { update('已取消批量格式化'); return }
+  let written = 0
+  const conflicts: string[] = []
+  for (const entry of changes) {
+    if (!selected.has(entry.path)) continue
+    try {
+      if (state.presentation.readonly) throw new Error('请先关闭只读模式')
+      const active = entry.path === state.path
+      if (active && (state.dirty || saving || file?.version !== entry.version)) throw new Error('当前文档已变化，请重新预览')
+      const id = documentId
+      const initial = revision
+      // 每份文档沿用普通保存的版本检查、BOM 和原子写入。
+      const saved = await native.write(entry.path, entry.replacement, entry.bom, entry.version)
+      written++
+      if (active && id === documentId && initial === revision) {
+        file = saved
+        editor.replace(0, entry.text.length, entry.replacement)
+        await afterSave(saved, id, entry.replacement)
+      }
+    } catch (error) {
+      conflicts.push(entry.path + ' · ' + reason(error))
+    }
+  }
+  const detail = `已保存 ${written} 份文档${conflicts.length ? `，${conflicts.length} 项需查看` : ''}`
+  update(detail)
+  if (conflicts.length) await pluginIssues('批量格式化结果', detail, conflicts)
+}
+
+async function organizeImages(run: PluginRunner) {
+  const current = file
+  if (!current) throw new Error('请先保存文档')
+  const id = documentId
+  const version = revision
+  const original = text()
+  const stillCurrent = () => id === documentId && version === revision && current.path === state.path
+  update('正在检查本文引用的本地图片')
+  const plan = await planImageCollection(current, original, run)
+  if (!stillCurrent()) throw new Error('文档已变化，请重新预览')
+  if (!plan.updatedLinks) {
+    const detail = '没有需要更新的本地图片链接'
+    update(detail)
+    if (plan.issues.length) await pluginIssues('图片整理结果', detail, plan.issues)
+    return
+  }
+  const selected = await reviewChanges('图片整理',
+    `将 ${plan.count} 张图片归集到 ${plan.folder}，并更新 ${plan.updatedLinks} 处链接。`,
+    [{ ...current, text: original, replacement: plan.replacement }], '复制并更新链接', false, plan.issues)
+  if (!selected.size) { update('已取消图片整理'); return }
+  if (!stillCurrent() || state.presentation.readonly) throw new Error('文档已变化或处于只读模式，请重新预览')
+  await invoke('image_collect', { document: current.path, copies: plan.copies })
+  if (!stillCurrent() || state.presentation.readonly) throw new Error('图片已归集，文档已变化，请重新生成链接')
+  editor.replace(0, original.length, plan.replacement)
+  editor.focus()
+  update(`已更新 ${plan.updatedLinks} 处图片链接，可撤销`)
+}
+
 async function performExport(format: ExportFormat) {
   const extension = formatExtensions[format]
   const path = await save({ defaultPath: state.title.replace(/\.[^.]+$/, '') + '.' + extension, filters: [{ name: format, extensions: [extension] }] })
@@ -842,15 +936,30 @@ async function dispatch(action: ShellAction) {
     case 'plugin-run': {
       if (state.presentation.readonly) throw new Error('请先关闭只读模式')
       if (writing.pending || writing.view.pending) throw new Error('请先处理当前修改建议或等待生成结束')
+      if (runningPluginTools) throw new Error('已有插件命令正在运行')
+      const command = plugins.find(item => item.id === action.id && item.enabled)?.commands.find(item => item.id === action.command)
+      if (!command) throw new Error('插件已停用、卸载或更新')
+      const run = (input: string) => invoke<string>('plugin_run', { id: action.id, command: command.id, text: input })
+      if (command.workflow) {
+        runningPluginTools = true
+        try {
+          if (command.workflow === 'files') {
+            const paths = await open({ multiple: true, filters: [markdownFilter], defaultPath: state.workspace ?? undefined })
+            if (paths?.length) await formatFiles(paths, run)
+          } else await organizeImages(run)
+        } finally {
+          runningPluginTools = false
+        }
+        break
+      }
       const source = text()
       const range = action.scope === 'selection' ? interval(editor.getSelection()) : { from: 0, to: source.length }
       if (range.from === range.to) throw new Error('请先选中文字，或把处理范围切换为当前全文')
-      const title = plugins.find(item => item.id === action.id)?.commands.find(item => item.id === action.command)?.label
       const target = bind(documentId, revision, source, range)
-      const replacement = await invoke<string>('plugin_run', { id: action.id, command: action.command, text: target.text })
+      const replacement = await run(target.text)
       if (writing.pending || writing.view.pending) throw new Error('请先处理当前修改建议，再运行插件')
       if (!relocate(target, documentId, revision, text())) throw new Error('原文位置已变化，请重新运行插件')
-      const item = suggestion('plugin', title ?? '插件修改', target, replacement)
+      const item = suggestion('plugin', command.label, target, replacement)
       if (item.view.hunks) writing.review(item)
       else update('插件处理结果与原文一致')
       break
@@ -1124,7 +1233,7 @@ async function startup() {
   }
   if (__YEYU_QA__) {
     void import('./qa').then(({ runNativeQa }) => runNativeQa({
-      editor, state, action: dispatch, openPath, setWorkspace, addTheme: path => addThemes([path]), installPlugin, exportTo,
+      editor, state, action: dispatch, openPath, setWorkspace, addTheme: path => addThemes([path]), installPlugin, formatFiles, exportTo,
       saveFile, checkpoint, text, writing, protocol, monitor, shareSelection, setDocument,
     }))
   }

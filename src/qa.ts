@@ -26,6 +26,8 @@ type Case = {
   publicMarket?: string
   plugin: string
   updatedPlugin: string
+  gallery: string
+  batchPaths: string[]
 }
 type Ports = {
   editor: Editor; state: ShellState; writing: Writing; protocol: Protocol;
@@ -33,6 +35,7 @@ type Ports = {
   openPath: (path: string, line?: number, checkUnsaved?: boolean) => Promise<boolean>;
   setWorkspace: (path: string | null) => Promise<void>; addTheme: (path: string) => Promise<void>;
   installPlugin: (path: string) => Promise<PluginInfo[]>;
+  formatFiles: (paths: string[], run: (input: string) => Promise<string>) => Promise<void>;
   exportTo: (path: string, format: ExportFormat) => Promise<void>;
   saveFile: () => Promise<boolean>; checkpoint: () => Promise<unknown>; text: () => string;
   monitor: () => Promise<void>; shareSelection: () => Promise<void>; setDocument: (value: null) => void;
@@ -493,7 +496,7 @@ async function verifyFull(ports: Ports, scenario: Case) {
   check((await invoke<PluginInfo[]>('plugin_list')).length === 0, '卸载后清除插件登记')
   pluginPage.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click()
   result.plugins = { install: true, hotUpdate: true, reviewAndUndo: true, disableAndRemove: true }
-  if (scenario.market) result.pluginMarket = await verifyPluginMarket(ports, scenario.market, scenario.publicMarket)
+  if (scenario.market) result.pluginMarket = await verifyPluginMarket(ports, scenario)
 
   await ports.action({ type: 'mcp-authorize', allow: true })
   ports.editor.select({ anchor: offset, head: offset + 4 })
@@ -551,7 +554,9 @@ async function verifyFull(ports: Ports, scenario: Case) {
   await mark('crash-ready', { ...result, recoveryText: ports.text() })
 }
 
-async function verifyPluginMarket(ports: Ports, source: string, publicMarket?: string) {
+async function verifyPluginMarket(ports: Ports, scenario: Case) {
+  const { market: source, publicMarket } = scenario
+  check(source, '验收配置提供本机市场地址')
   document.querySelector<HTMLButtonElement>('[data-menu="edit"]')!.click()
   button(document.querySelector('.yy-menu-popover')!, '插件市场…').click()
   const dialog = document.querySelector<HTMLElement>('.yy-plugin-manager')!
@@ -568,17 +573,16 @@ async function verifyPluginMarket(ports: Ports, source: string, publicMarket?: s
     settings.click()
     check(panel.querySelector<HTMLInputElement>('input[type="url"]')?.value === publicMarket, '首次打开自动连接公网目录')
     settings.click()
-    find('yeyu.heading-levels')!.click()
-    await until(() => find('yeyu.heading-levels')?.textContent === '已安装')
-    await ports.action({ type: 'plugin-remove', id: 'yeyu.heading-levels' })
-    find('yeyu.spreadsheet-tools')!.click()
-    await until(() => find('yeyu.spreadsheet-tools')?.textContent === '已安装')
-    await ports.action({ type: 'plugin-remove', id: 'yeyu.spreadsheet-tools' })
+    for (const id of ['yeyu.heading-levels', 'yeyu.spreadsheet-tools', 'yeyu.batch-format', 'yeyu.image-organizer', 'yeyu.table-layout']) {
+      find(id)!.click()
+      await until(() => find(id)?.textContent === '已安装')
+      await ports.action({ type: 'plugin-remove', id })
+    }
   }
   button(panel, '内置插件').click()
   await until(() => !!find('yeyu.heading-levels'))
   const bundledCount = panel.querySelectorAll('.yy-market-card').length
-  check(bundledCount === 6, '内置市场提供六款插件')
+  check(bundledCount === 9, '内置市场提供九款插件')
   query.value = '任务'
   query.dispatchEvent(new Event('input'))
   check(panel.querySelectorAll('.yy-market-card').length === 1 && !!find('yeyu.task-list'), '按关键词搜索市场')
@@ -587,6 +591,7 @@ async function verifyPluginMarket(ports: Ports, source: string, publicMarket?: s
   for (const id of [
     'yeyu.task-list', 'yeyu.trim-lines', 'yeyu.heading-levels',
     'yeyu.spreadsheet-tools', 'yeyu.chinese-typography', 'yeyu.document-toc',
+    'yeyu.batch-format', 'yeyu.image-organizer', 'yeyu.table-layout',
   ]) {
     find(id)!.click()
     await until(() => find(id)?.textContent === '已安装' && !find(id)?.disabled)
@@ -617,6 +622,9 @@ async function verifyPluginMarket(ports: Ports, source: string, publicMarket?: s
     ['yeyu.spreadsheet-tools', '表格转换'],
     ['yeyu.chinese-typography', '中文排版'],
     ['yeyu.document-toc', '文档目录'],
+    ['yeyu.batch-format', '批量格式化'],
+    ['yeyu.image-organizer', '图片整理'],
+    ['yeyu.table-layout', '表格排版'],
   ]) {
     button(management.querySelector(`[aria-label="${name}"]`)!, '启用').click()
     await until(() => !!management.querySelector(`[data-plugin="${id}"][data-operation="run"]`))
@@ -656,9 +664,10 @@ async function verifyPluginMarket(ports: Ports, source: string, publicMarket?: s
   }
   management.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click()
   const workflows = await verifyPluginWorkflows(ports)
+  const newWorkflows = await verifyDocumentPlugins(ports, scenario)
   return {
     bundled: bundledCount, search: true, installed: true, reviewAndUndo: true, checksum: true,
-    hotUpdate: true, bundledDuringOnlineLoad: true, publicMarket: publicMarket ?? null, workflows,
+    hotUpdate: true, bundledDuringOnlineLoad: true, publicMarket: publicMarket ?? null, workflows, newWorkflows,
   }
 }
 
@@ -719,6 +728,81 @@ async function verifyPluginWorkflows(ports: Ports) {
   ports.editor.undo()
   check(ports.text() === original, 'Rust 目录操作可撤销')
   return { javascript: '表格转换', rust: ['中文排版', '文档目录'], reviewAndUndo: true, anchorJump: true }
+}
+
+async function verifyDocumentPlugins(ports: Ports, scenario: Case) {
+  function runMenu(label: string) {
+    document.querySelector<HTMLButtonElement>('[data-menu="edit"]')!.click()
+    button(document.querySelector('.yy-menu-popover')!, '运行插件').click()
+    button(document.querySelector('.yy-submenu-panel')!, label).click()
+  }
+  await ports.openPath(scenario.gallery, 1, false)
+  const gallery = ports.text()
+  const formatter = (text: string) => invoke<string>('plugin_run', { id: 'yeyu.batch-format', command: 'format_files', text })
+  const before = await Promise.all(scenario.batchPaths.map(path => native.read(path)))
+  await ports.openPath(before[0].path, 1, false)
+  const formatting = ports.formatFiles(scenario.batchPaths, formatter)
+  const review = (name: string) => document.querySelector<HTMLDialogElement>(`.app-review-dialog[open][aria-label="${name}"]`)
+  await until(() => !!review('批量格式化'))
+  const batch = review('批量格式化')!
+  check(batch.querySelectorAll('input[type="checkbox"]').length === 3, '批量预览三个文件')
+  check(!!batch.querySelector('.app-review-add') && (await native.read(before[0].path)).version === before[0].version, '预览期间不写入')
+  button(batch, before[1].name).click()
+  check(batch.querySelector('.app-review-preview')?.textContent?.includes('第 2 章'), '逐篇显示差异')
+  batch.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')[1].click()
+  const external = await native.write(before[2].path, '外部改动\n', true, before[2].version)
+  button(batch, '保存所选文件').click()
+  await until(() => document.querySelector('.app-dialog[open] h2')?.textContent === '批量格式化结果')
+  check(document.querySelector('.app-dialog[open] p')?.textContent?.includes('磁盘上的文件已变化'), '批量格式化报告外部冲突')
+  button(document.querySelector('.app-dialog[open]')!, '关闭').click()
+  await formatting
+  const after = await Promise.all(before.map(item => native.read(item.path)))
+  check(after[0].bom && after[0].text === before[0].text.replace('章\r\n', '章\r\n\r\n') && ports.text() === after[0].text,
+    '保存所选文件且当前编辑器同步，保留 BOM 和混合行尾')
+  check(after[1].version === before[1].version && after[2].version === external.version, '未勾选文件和外部修改得到保留')
+
+  await ports.openPath(scenario.gallery, 1, false)
+  const scans = await invoke<Array<{ Ok: { digest: string } }>>('image_fingerprints', { document: scenario.gallery, images: ['源 图.png'] })
+  const relative = '图库.assets/image-' + scans[0].Ok.digest.slice(0, 20) + '.png'
+  runMenu('收拢本文本地图片…')
+  await until(() => !!review('图片整理'))
+  const picture = review('图片整理')!
+  check(picture.textContent?.includes('1 张图片') && picture.textContent.includes('2 处链接') &&
+    picture.textContent.includes('missing.png'), '图片去重计划和缺失提示')
+  const targetBefore = await invoke<Array<{ Err?: string }>>('image_fingerprints', { document: scenario.gallery, images: [relative] })
+  check(!!targetBefore[0].Err && ports.text() === gallery, '图片预览未复制文件或更改文档')
+  button(picture, '取消').click()
+  await until(() => ports.state.detail === '已取消图片整理')
+  runMenu('收拢本文本地图片…')
+  await until(() => !!review('图片整理'))
+  button(review('图片整理')!, '复制并更新链接').click()
+  await until(() => ports.state.detail.includes('已更新 2 处图片链接'))
+  const name = '%E5%9B%BE%E5%BA%93.assets/image-' + scans[0].Ok.digest.slice(0, 20) + '.png'
+  check(ports.text() === gallery.replace('<源 图.png>', name).replace('![重复](copy.png)', '![重复](' + name + ')'),
+    '图片整理保留标题、远程链接、代码和原有行尾')
+  const organized = ports.text()
+  ports.editor.undo()
+  check(ports.text() === gallery, '图片链接更新可以撤销')
+  ports.editor.redo()
+  check(ports.text() === organized && await ports.saveFile(), '图片链接可以重做和保存')
+  runMenu('收拢本文本地图片…')
+  await until(() => document.querySelector('.app-dialog[open] h2')?.textContent === '图片整理结果')
+  check(document.querySelector('.app-dialog[open] p')?.textContent?.startsWith('没有需要更新的本地图片链接'), '再次整理不重复复制')
+  button(document.querySelector('.app-dialog[open]')!, '关闭').click()
+  await until(() => !document.querySelector('.app-dialog[open]'))
+  await frame()
+
+  const sample = '\r\n\r\n|名称|状态|\r\n|:-|--:|\r\n|长的标题|a\\|b|\r\n'
+  ports.editor.replace(organized.length, organized.length, sample)
+  runMenu('对齐 Markdown 表格')
+  await until(() => ports.writing.pending?.view.title === '对齐 Markdown 表格')
+  document.querySelector<HTMLButtonElement>('[data-suggestion-action="apply-all"]')!.click()
+  await until(() => ports.text().includes('| 长的标题 | a\\|b  |'))
+  ports.editor.undo()
+  ports.editor.undo()
+  check(ports.text() === organized, '表格排版可撤销')
+  await ports.openPath(scenario.guide, 1, false)
+  return { batchFormat: true, bom: true, diskConflict: true, imageDeduplication: true, cancel: true, tableLayout: true }
 }
 
 export async function runNativeQa(ports: Ports) {

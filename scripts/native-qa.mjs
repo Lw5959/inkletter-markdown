@@ -52,8 +52,15 @@ const themes = process.env.YEYU_TEST_THEMES ? JSON.parse(process.env.YEYU_TEST_T
 const plugin = resolve('examples/plugins/trim-lines.yeyu-plugin.json')
 const updatedPlugin = join(folder, 'trim-lines-update.yeyu-plugin.json')
 writeFileSync(updatedPlugin, JSON.stringify({ ...JSON.parse(readFileSync(plugin, 'utf8')), version: '1.0.1' }))
+const batchPaths = ['格式一.md', '格式二.md', '格式三.md'].map(name => join(folder, name))
+for (const [index, path] of batchPaths.entries()) writeFileSync(path, '\uFEFF# 第 ' + (index + 1) + ' 章\r\n原段落  \n下一行\r\n')
+const gallery = join(folder, '图库.md')
+const galleryText = '# 图库\r\n\r\n![首图](<源 图.png> "图片说明")\r![重复](copy.png)\n![缺失](missing.png)\r\n![外链](https://example.test/a.png)\r\n\r\n```md\n![代码中的链接](copy.png)\n```\n'
+writeFileSync(gallery, galleryText)
+copyFileSync('assets/app-icon.png', join(folder, '源 图.png'))
+copyFileSync('assets/app-icon.png', join(folder, 'copy.png'))
 const setup = {
-  phase: kind, root, guide, mb1, mb10, exports, plugin, updatedPlugin,
+  phase: kind, root, guide, mb1, mb10, exports, plugin, updatedPlugin, batchPaths, gallery,
   themes: [...themes, { path: customTheme, name: '相对资源与级联夹具' }],
   typora: process.env.YEYU_TEST_TYPORA ? JSON.parse(process.env.YEYU_TEST_TYPORA) : undefined,
   typoraConfig: process.env.YEYU_TEST_TYPORA_CONFIG === '1',
@@ -208,6 +215,12 @@ try {
     await result('conflict-ready')
     writeFileSync(guide, readFileSync(guide, 'utf8') + '\r\n外部冲突内容\r\n')
     const partial = await result('crash-ready')
+    const organized = readFileSync(gallery, 'utf8')
+    const picture = /\(([^) ]+\/image-[a-f0-9]{20}\.png)/.exec(organized)?.[1]
+    assert.ok(picture)
+    assert.deepEqual(readFileSync(join(folder, decodeURIComponent(picture))), readFileSync(join(folder, '源 图.png')))
+    assert.deepEqual(readFileSync(join(folder, 'copy.png')), readFileSync(join(folder, '源 图.png')))
+    assert.ok(readFileSync(batchPaths[0]).subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf])))
     await terminate('SIGKILL')
     boot('recover', { recoveryText: partial.recoveryText })
     const recovery = await result('recovery')

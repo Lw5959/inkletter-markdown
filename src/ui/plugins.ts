@@ -102,6 +102,11 @@ export class PluginManager {
       if (pluginButton.dataset.operation === 'run') {
         const command = this.installed.find(plugin => plugin.id === id)?.commands.find(item => item.id === pluginButton.value)
         if (!command) return
+        if (command.workflow) {
+          this.modals.close()
+          void this.dispatch({ type: 'plugin-run', id, command: command.id, scope: 'document' })
+          return
+        }
         const range = scope.value === 'command' ? command.scope ?? 'selection' : scope.value === 'document' ? 'document' : 'selection'
         void run({ type: 'plugin-run', id, command: command.id, scope: range })
       } else if (pluginButton.dataset.operation === 'remove') {

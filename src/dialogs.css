@@ -22,3 +22,18 @@
 .app-dialog-actions .app-dialog-primary { background: var(--yy-accent); color: var(--yy-on-accent); border-color: var(--yy-accent); }
 .app-dialog-actions .app-dialog-primary:hover { background: var(--yy-accent-hover); border-color: var(--yy-accent-hover); }
 .app-dialog-actions .app-dialog-primary:active { background: var(--yy-accent-pressed); border-color: var(--yy-accent-pressed); }
+.app-dialog-actions button:disabled { opacity: .55; cursor: default; }
+.app-review-dialog { box-sizing: border-box; width: min(800px, calc(100vw - 36px)); max-height: calc(100vh - 32px); }
+.app-review-grid { display: grid; grid-template-columns: minmax(120px, 28%) minmax(0, 1fr); }
+.app-review-grid, .app-review-single { border: 1px solid var(--yy-border-strong); border-radius: 8px; overflow: hidden; margin-bottom: 16px; }
+.app-review-files { overflow: auto; max-height: 46vh; border-right: 1px solid var(--yy-border-strong); padding: 5px; }
+.app-review-file { display: flex; align-items: center; gap: 6px; }
+.app-review-file input { width: 14px; height: 14px; margin: 0 0 0 4px; accent-color: var(--yy-accent); }
+.app-review-file button { flex: 1; min-width: 0; background: transparent; color: inherit; border: 0; border-radius: 5px; padding: 6px; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-review-file button:is(:hover, [aria-pressed='true']) { background: var(--yy-accent-soft); }
+.app-review-preview { max-height: 46vh; overflow: auto; background: var(--yy-chrome-bg); }
+.app-review-preview pre { margin: 0; padding: 2px 10px; font: 12px/1.55 var(--yy-font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.app-review-add { background: var(--yy-accent-soft); color: var(--yy-ink); }
+.app-review-remove { background: var(--yy-danger-bg); color: var(--yy-danger); }
+.app-review-issues { margin: 0 0 14px; }
+.app-review-issues p { max-height: 18vh; overflow: auto; overflow-wrap: anywhere; margin: 6px 0; }

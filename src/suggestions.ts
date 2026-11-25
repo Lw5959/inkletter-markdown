@@ -25,13 +25,17 @@ export function relocate(binding: Binding, doc: number, revision: number, markdo
   return { from, to: from + binding.text.length }
 }
 
-export function suggestion(source: Suggestion['source'], title: string, target: Binding, response: string, mcpId?: string): PendingSuggestion {
+export function markdownDiff(original: string, response: string) {
   // 用固定上限避免极端改写长文档时让差异计算阻塞界面。
-  const diff = diffLines(target.text, response, { maxEditLength: 4_000, timeout: 80 })
-  const changes = diff ?? [
-    { removed: true, added: false, value: target.text },
+  const diff = diffLines(original, response, { maxEditLength: 4_000, timeout: 80 })
+  return diff ?? [
+    { removed: true, added: false, value: original },
     { removed: false, added: true, value: response },
   ].filter(change => change.value)
+}
+
+export function suggestion(source: Suggestion['source'], title: string, target: Binding, response: string, mcpId?: string): PendingSuggestion {
+  const changes = markdownDiff(target.text, response)
   let hunks = 0
   let inHunk = false
   const parts: DiffPart[] = changes.map(change => {

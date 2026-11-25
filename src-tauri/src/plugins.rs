@@ -20,6 +20,7 @@ use wasmi::{
 const FILE: &str = "plugins.json";
 const WASM_API_VERSION: u32 = 1;
 const JS_API_VERSION: u32 = 2;
+const DOCUMENT_TOOLS_API_VERSION: u32 = 3;
 const MAX_PACKAGE: usize = 2 * 1024 * 1024;
 const MAX_TEXT: usize = 4 * 1024 * 1024;
 
@@ -46,6 +47,8 @@ struct Command {
     label: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     scope: Option<CommandScope>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    workflow: Option<CommandWorkflow>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -53,6 +56,13 @@ struct Command {
 enum CommandScope {
     Selection,
     Document,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum CommandWorkflow {
+    Files,
+    Images,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -110,7 +120,10 @@ enum Program<'a> {
 }
 
 fn supports_api(version: u32) -> bool {
-    matches!(version, WASM_API_VERSION | JS_API_VERSION)
+    matches!(
+        version,
+        WASM_API_VERSION | JS_API_VERSION | DOCUMENT_TOOLS_API_VERSION
+    )
 }
 
 fn program(package: &Package) -> Result<Program<'_>, String> {
@@ -128,16 +141,28 @@ fn program(package: &Package) -> Result<Program<'_>, String> {
     {
         return Err("插件清单包含无效的身份或命令".into());
     }
+    if package.api_version != DOCUMENT_TOOLS_API_VERSION
+        && package
+            .commands
+            .iter()
+            .any(|command| command.workflow.is_some())
+    {
+        return Err("多文档和图片命令需要插件接口 3".into());
+    }
     match (
         package.api_version,
         package.wasm.as_deref(),
         package.javascript.as_deref(),
     ) {
-        (WASM_API_VERSION, Some(wasm), None) if !wasm.is_empty() => Ok(Program::Wasm(wasm)),
-        (JS_API_VERSION, None, Some(script)) if !script.trim().is_empty() => {
+        (WASM_API_VERSION | DOCUMENT_TOOLS_API_VERSION, Some(wasm), None) if !wasm.is_empty() => {
+            Ok(Program::Wasm(wasm))
+        }
+        (JS_API_VERSION | DOCUMENT_TOOLS_API_VERSION, None, Some(script))
+            if !script.trim().is_empty() =>
+        {
             Ok(Program::JavaScript(script))
         }
-        _ => Err("插件清单须使用版本 1 的 wasm 或版本 2 的 javascript".into()),
+        _ => Err("插件清单须提供与接口版本匹配的单个 wasm 或 javascript 模块".into()),
     }
 }
 

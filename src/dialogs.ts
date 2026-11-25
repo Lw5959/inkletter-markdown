@@ -1,4 +1,6 @@
 import './dialogs.css'
+import { markdownDiff } from './suggestions'
+import { el } from './ui/helpers'
 
 type Choice = { label: string; value: string; primary?: boolean; autofocus?: boolean }
 
@@ -59,4 +61,65 @@ export async function readSetting(title: string, detail: string, current: string
   addButton(controls, '确认', 'ok', true)
   form.append(input, controls)
   return await present(element) === 'ok' ? input.value.trim() : null
+}
+
+type ReviewDocument = { path: string; name: string; text: string; replacement: string }
+
+export async function reviewChanges(
+  title: string, description: string, entries: ReviewDocument[],
+  apply: string, selectFiles: boolean, issues: string[] = [],
+): Promise<Set<string>> {
+  const { element, form, controls } = dialog(title, description)
+  element.classList.add('app-review-dialog')
+  element.setAttribute('aria-label', title)
+  const selected = new Set(entries.map(entry => entry.path))
+  const list = el('div', { className: 'app-review-files', attrs: { 'aria-label': '待修改文件' } })
+  const preview = el('div', { className: 'app-review-preview', attrs: { 'aria-label': '修改预览', tabindex: '0' } })
+  const cancel = addButton(controls, '取消', 'cancel')
+  cancel.autofocus = true
+  const confirm = addButton(controls, apply, 'apply', true)
+  let active: HTMLButtonElement | undefined
+  function show(entry: ReviewDocument, button?: HTMLButtonElement) {
+    active?.setAttribute('aria-pressed', 'false')
+    active = button
+    active?.setAttribute('aria-pressed', 'true')
+    preview.replaceChildren(...markdownDiff(entry.text, entry.replacement).map(part => {
+      const kind = part.added ? 'add' : part.removed ? 'remove' : 'context'
+      const prefix = part.added ? '+ ' : part.removed ? '− ' : '  '
+      return el('pre', {
+        className: 'app-review-' + kind,
+        text: part.value.replace(/\r\n?/g, '\n').replace(/^(?=[\s\S])/gm, prefix),
+      })
+    }))
+    preview.scrollTop = 0
+    preview.querySelector<HTMLElement>('.app-review-add, .app-review-remove')?.scrollIntoView({ block: 'nearest' })
+  }
+  const content = el('div', { className: selectFiles ? 'app-review-grid' : 'app-review-single' })
+  if (selectFiles) {
+    for (const entry of entries) {
+      const check = el('input', { type: 'checkbox', attrs: { 'aria-label': '写回 ' + entry.path } })
+      check.checked = true
+      check.addEventListener('change', () => {
+        if (check.checked) selected.add(entry.path)
+        else selected.delete(entry.path)
+        confirm.disabled = selected.size === 0
+      })
+      const button = el('button', { type: 'button', text: entry.name, attrs: { title: entry.path, 'aria-pressed': 'false' } })
+      button.addEventListener('click', () => show(entry, button))
+      list.append(el('div', { className: 'app-review-file' }, check, button))
+      if (!active) show(entry, button)
+    }
+    content.append(list)
+  } else {
+    show(entries[0])
+  }
+  content.append(preview)
+  form.append(content)
+  if (issues.length) {
+    const details = el('details', { className: 'app-review-issues' })
+    details.append(el('summary', { text: `${issues.length} 项跳过` }), el('p', { text: issues.join('\n') }))
+    form.append(details)
+  }
+  form.append(controls)
+  return await present(element) === 'apply' ? selected : new Set()
 }

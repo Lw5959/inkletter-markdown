@@ -129,6 +129,8 @@ fn main() {
             assets::image_data,
             assets::image_insert,
             assets::image_copy,
+            assets::image_fingerprints,
+            assets::image_collect,
             assets::image_remove,
             assets::image_upload,
             export::export_document,
