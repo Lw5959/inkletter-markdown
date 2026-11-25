@@ -46,6 +46,7 @@ let cachedText = ''
 let themes: Theme[] = [...builtinThemes]
 let typoraThemePaths: string[] = []
 let lastExport: ExportFormat | null = null
+let exporting = false
 let diskConflict: string | null | undefined
 let saving: Promise<boolean> | null = null
 let switching = false
@@ -599,16 +600,20 @@ async function performExport(format: ExportFormat) {
 }
 
 async function exportTo(path: string, format: ExportFormat) {
+  if (exporting) throw new Error('已有文档正在导出')
+  exporting = true
   update('正在导出 ' + format.toUpperCase())
-  const source = state.path
-  const content = text()
-  if (visual.has(format)) {
-    const active = themes.find(theme => theme.id === settings.theme)
-    const html = await exportHtml(content, state.title, { resolveImage: url => resolveImage(source, url, false) }, active, format === 'plain-html', shell.getAppearance())
-    await invoke('export_document', { path, html, format })
-  } else await invoke('pandoc_export', { path, text: content, format, source })
-  lastExport = format
-  update('已导出 ' + format.toUpperCase())
+  try {
+    const source = state.path
+    const content = text()
+    if (visual.has(format)) {
+      const active = themes.find(theme => theme.id === settings.theme)
+      const html = await exportHtml(content, state.title, { resolveImage: url => resolveImage(source, url, false) }, active, format === 'plain-html', shell.getAppearance())
+      await invoke('export_document', { path, html, format })
+    } else await invoke('pandoc_export', { path, text: content, format, source })
+    lastExport = format
+    update('已导出 ' + format.toUpperCase())
+  } finally { exporting = false }
 }
 
 async function reviewMcp() {
