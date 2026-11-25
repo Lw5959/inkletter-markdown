@@ -1,0 +1,74 @@
+.app-dialog.yy-update-dialog {
+  box-sizing: border-box;
+  width: min(480px, calc(100% - 24px));
+  max-height: calc(100% - 24px);
+  padding: clamp(16px, 4vw, 24px);
+  overflow-y: auto;
+}
+
+.yy-update-dialog .yy-update-version {
+  color: var(--yy-ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.yy-update-status {
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--yy-chrome-subtle);
+}
+
+.yy-update-dialog h3 {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.yy-update-dialog .yy-update-detail {
+  margin: 4px 0 0;
+  color: var(--yy-ink-muted);
+}
+
+.yy-update-notes,
+.yy-update-download,
+.yy-update-dialog .app-dialog-actions {
+  margin-top: 16px;
+}
+
+.yy-update-notes-body {
+  max-height: min(240px, 30vh);
+  overflow: auto;
+  overscroll-behavior: contain;
+  margin-top: 6px;
+  padding: 9px 12px;
+  border: 1px solid var(--yy-border);
+  border-radius: 8px;
+  background: var(--yy-chrome-bg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.yy-update-notes-body:focus-visible {
+  outline: 2px solid var(--yy-accent);
+  outline-offset: 1px;
+}
+
+.yy-update-download progress {
+  display: block;
+  width: 100%;
+  height: 8px;
+  accent-color: var(--yy-accent);
+}
+
+.yy-update-bytes {
+  margin-top: 6px;
+  color: var(--yy-ink-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.yy-update-dialog .app-dialog-actions button { font: inherit; }
+
+@media (pointer: coarse) {
+  .yy-update-dialog .app-dialog-actions button { min-height: 44px; }
+}

@@ -12,10 +12,9 @@ function versionParts(value: string) {
   return parts.slice(1).map(Number)
 }
 
-export async function checkPublishedPackage(suffix: string): Promise<ReleaseInfo | null> {
-  const installed = await getVersion()
+export async function checkPublishedPackage(suffix: string, installedVersion?: string): Promise<ReleaseInfo | null> {
+  const installed = installedVersion ?? await getVersion()
   const response = await fetch(api, { headers: { Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(15_000) })
-  if (response.status === 404) return null
   if (!response.ok) throw new Error('GitHub Releases 暂不可用，请稍后重试')
   const release = await response.json() as { tag_name: string; body?: string; assets: { name: string; browser_download_url: string }[] }
   const next = versionParts(release.tag_name)

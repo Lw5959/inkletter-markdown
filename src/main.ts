@@ -6,7 +6,7 @@ import type { Editor, ExportFormat, ImageMode, MarketPlugin, OutlineEntry, Plugi
 import { createEditor, renderMarkdown } from './editor'
 import { mountShell } from './ui'
 import { detectMac } from './ui/shortcuts'
-import { ask, invoke, native, open, reason, save } from './native'
+import { ask, Channel, invoke, native, open, reason, save } from './native'
 import type { FileSnapshot, Preferences, Recovery } from './native'
 import { choose, readSetting, reviewChanges } from './dialogs'
 import { find, interval, lineOffset } from './document-tools'
@@ -20,7 +20,8 @@ import { Writing } from './ai'
 import { normalizePrompts } from './ai-prompts'
 import { Protocol } from './mcp'
 import { bind, chooseHunks, relocate, suggestion } from './suggestions'
-import { checkPublishedPackage, offerUpdate, type ReleaseInfo } from './release-updates'
+import { checkPublishedPackage, type ReleaseInfo } from './release-updates'
+import { showUpdateDialog, type UpdateProgress } from './ui/update-dialog'
 
 const markdownFilter = { name: 'Markdown', extensions: ['md', 'markdown', 'mdown', 'mkd', 'mkdn', 'mdwn', 'mdtxt', 'mdtext', 'text', 'txt', 'rmd', 'qmd', 'mdx'] }
 const imageFilter = { name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif', 'tiff', 'heic', 'ico'] }
@@ -60,7 +61,6 @@ let workspaceSearch = 0
 let recoveryQueue = Promise.resolve()
 let preferenceQueue = Promise.resolve()
 let checking = false
-let checkingUpdate = false
 let exits = false
 let outlineKey = ''
 let outline: OutlineEntry[] = []
@@ -691,32 +691,25 @@ async function applyTitlebar(material: TitlebarMaterial) {
   shell.setTitlebar(view)
 }
 
-async function checkAppUpdate() {
-  if (checkingUpdate) return
-  checkingUpdate = true
-  try {
-    update('正在检查 GitHub Releases')
+function checkAppUpdate() {
+  showUpdateDialog(async installedVersion => {
     const standalone = await invoke<string | null>('update_package')
     if (standalone) {
-      const release = await checkPublishedPackage(standalone)
-      if (release && await offerUpdate(release, '下载更新') === 'apply') await invoke('visit_link', { url: release.url })
-      update(release ? '' : '已是最新版本')
-      return
+      const release = await checkPublishedPackage(standalone, installedVersion)
+      return release && { ...release, kind: 'external', apply: () => invoke<void>('visit_link', { url: release.url }) }
     }
     const release = await invoke<Pick<ReleaseInfo, 'version' | 'notes'> | null>('update_check')
-    if (!release) { update('已是最新版本'); return }
-    if (await offerUpdate(release, '安装更新') !== 'apply' || !await canLeave()) { update(); return }
-    await checkpoint()
-    const progress = document.createElement('dialog')
-    progress.className = 'app-dialog'
-    progress.setAttribute('aria-label', '正在安装更新')
-    progress.textContent = '正在下载、校验并安装更新…'
-    progress.addEventListener('cancel', event => event.preventDefault())
-    document.body.append(progress)
-    progress.showModal()
-    try { await invoke('update_install', { version: release.version }) }
-    finally { progress.close(); progress.remove() }
-  } finally { checkingUpdate = false }
+    return release && {
+      ...release,
+      kind: 'install',
+      async apply(report) {
+        // 原生更新会退出或重启应用，必须先处理未保存的文档和恢复草稿。
+        if (!await canLeave()) return false
+        await checkpoint()
+        await invoke('update_install', { version: release.version, progress: new Channel<UpdateProgress>(report) })
+      },
+    }
+  })
 }
 
 async function dispatch(action: ShellAction) {
@@ -730,7 +723,7 @@ async function dispatch(action: ShellAction) {
       break
     }
     case 'open-path': await openPath(action.path, action.line); break
-    case 'check-update': await checkAppUpdate(); break
+    case 'check-update': checkAppUpdate(); break
     case 'markdown-default': {
       const result = await invoke<'applied' | 'systemSettings' | 'finder'>('markdown_default')
       if (result === 'applied') update('页屿已是 Markdown 的默认打开方式')

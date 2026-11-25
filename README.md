@@ -21,7 +21,7 @@ PDF 与 PNG 导出可用 `YEYU_CHROME` 指定浏览器可执行文件。如果�
 
 ## 更新
 
-桌面端从「文件 → 检查更新…」检查 GitHub Releases。macOS、Windows 和 AppImage 在安装前核对发布签名。Android 和 DEB 从应用检查对应架构的安装包，下载后交给系统安装。初次从 0.2.4 升级需要手动下载安装包。[发布说明](docs/releases.md)
+桌面端从「帮助 → 检查更新…」查看当前版本、检查结果和发布说明。macOS、Windows 和 AppImage 在窗口中显示下载进度，并在安装前核对发布签名。Android 和 DEB 在应用中检查相应的安装包，下载进度可在浏览器或系统下载界面查看。初次从 0.2.4 升级需要手动下载安装包。[发布说明](docs/releases.md)
 
 ## 从 Typora 迁移
 

@@ -931,6 +931,120 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     expect(actions).toContainEqual({ type: 'suggestion-dismiss', id: 'sug-1' })
   })
 
+  it('软件更新从帮助菜单进入，忽略已关闭的检查并区分原生进度与系统下载', async () => {
+    const api = 'https://api.github.com/repos/Lw5959/yeyu/releases/latest'
+    const url = 'https://github.com/Lw5959/yeyu/releases/download/v9.0.1/Yeyu_9.0.1_linux-x64.deb'
+    await page.route(api, route => route.fulfill({ json: {
+      tag_name: 'v9.0.1', body: 'DEB 发布说明', assets: [{ name: 'Yeyu_9.0.1_linux-x64.deb', browser_download_url: url }],
+    } }))
+    try {
+      await page.goto(baseUrl + '/__ui_harness__')
+      await page.evaluate(`(async () => {
+        const { mockIPC, mockWindows } = await import('/node_modules/@tauri-apps/api/mocks.js')
+        const test = window.__updates = { checks: [], writes: [], operations: [], package: null, ready: false }
+        test.release = { version: '9.0.1', notes: '<b>桌面发布说明</b>' }
+        mockWindows('main')
+        mockIPC((cmd, args) => {
+          switch (cmd) {
+            case 'plugin:app|version': return '0.2.5'
+            case 'plugin:dialog|save': return '/tmp/页屿更新测试.md'
+            case 'theme_list': case 'plugin_list': case 'typora_theme_paths': return []
+            case 'ai_settings': return { providers: [], active: null }
+            case 'launch_paths': test.ready = true; return []
+            case 'document_version': return test.writes.length ? '1' : null
+            case 'save_document':
+              test.operations.push('save')
+              test.writes.push(args.text)
+              return { ...args, version: '1', name: '页屿更新测试.md' }
+            case 'save_recovery': if (!args.recovery) test.operations.push('checkpoint'); return
+            case 'update_package': return test.package
+            case 'update_check': return new Promise((resolve, reject) => test.checks.push({ resolve, reject }))
+            case 'update_install': {
+              test.operations.push('install')
+              test.installedVersion = args.version
+              let index = 0
+              const send = data => window.__TAURI_INTERNALS__.runCallback(args.progress.id, { index: index++, ...data })
+              test.progress = message => send({ message })
+              return new Promise((_, reject) => {
+                test.failInstall = () => { send({ end: true }); reject('https://example.invalid/?token=fixture-secret') }
+              })
+            }
+            case 'visit_link': test.visited = args.url; return
+            default: return null
+          }
+        }, { shouldMockEvents: true })
+        await import('/src/main.ts')
+      })()`)
+      await expect.poll(() => page.evaluate('window.__updates.ready')).toBe(true)
+      const dialog = page.getByRole('dialog', { name: '软件更新' })
+      const openUpdate = async (count: number) => {
+        await page.getByRole('menuitem', { name: '帮助', exact: true }).click()
+        await page.getByRole('menuitem', { name: '检查更新…', exact: true }).click()
+        await expect.poll(() => page.evaluate('window.__updates.checks.length')).toBe(count)
+      }
+      await openUpdate(1)
+      await dialog.getByText('当前版本 0.2.5').waitFor()
+      await dialog.getByText('正在检查更新…').waitFor()
+      await dialog.getByRole('button', { name: '关闭' }).click()
+      expect(await page.getByRole('menuitem', { name: '帮助', exact: true }).evaluate(el => document.activeElement === el)).toBe(true)
+      await openUpdate(2)
+      await page.evaluate('window.__updates.checks[0].resolve({ version: "8.0.0", notes: "旧结果" })')
+      await dialog.getByText('正在检查更新…').waitFor()
+      expect(await dialog.getByText('旧结果').count()).toBe(0)
+      await page.evaluate('window.__updates.checks[1].resolve(null)')
+      await dialog.getByText('已是最新版本').waitFor()
+      await dialog.getByRole('button', { name: '关闭' }).click()
+
+      await page.locator('.cm-content').click()
+      await page.keyboard.insertText('更新前保存的笔记')
+      await openUpdate(3)
+      await page.evaluate('window.__updates.checks[2].reject("网络错误")')
+      await dialog.getByText('检查更新失败').waitFor()
+      await dialog.getByRole('button', { name: '重试' }).click()
+      await expect.poll(() => page.evaluate('window.__updates.checks.length')).toBe(4)
+      await page.evaluate('window.__updates.checks[3].resolve(window.__updates.release)')
+      await dialog.getByText('<b>桌面发布说明</b>', { exact: true }).waitFor()
+      const install = dialog.getByRole('button', { name: '安装更新' })
+      const guard = page.locator('.app-dialog').filter({ has: page.getByRole('heading', { name: '未保存的编辑' }) })
+      await install.click()
+      await guard.getByRole('button', { name: '继续编辑' }).click()
+      await dialog.waitFor({ state: 'hidden' })
+      expect(await page.evaluate('window.__updates.installedVersion')).toBeUndefined()
+
+      await openUpdate(5)
+      await page.evaluate('window.__updates.checks[4].resolve(window.__updates.release)')
+      await install.click()
+      await guard.getByRole('button', { name: '保存', exact: true }).click()
+      await expect.poll(() => page.evaluate('window.__updates.installedVersion')).toBe('9.0.1')
+      expect(await page.evaluate('window.__updates.writes')).toEqual(['更新前保存的笔记'])
+      expect(await page.evaluate('window.__updates.operations.slice(-2)')).toEqual(['checkpoint', 'install'])
+      expect(await dialog.getByRole('button', { name: '关闭' }).isEnabled()).toBe(false)
+
+      const progress = dialog.getByRole('progressbar', { name: '下载进度' })
+      await page.evaluate('window.__updates.progress({ kind: "download", downloaded: 16, total: null })')
+      await dialog.getByText('已下载 16 B').waitFor()
+      expect(await progress.getAttribute('value')).toBeNull()
+      await page.evaluate('window.__updates.progress({ kind: "download", downloaded: 524288, total: 1048576 })')
+      await dialog.getByText('512.0 KiB / 1.0 MiB · 50%').waitFor()
+      expect(await progress.getAttribute('value')).toBe('524288')
+      await page.evaluate('window.__updates.progress({ kind: "install" })')
+      await dialog.getByText('正在校验签名并安装…').waitFor()
+      await page.evaluate('window.__updates.failInstall()')
+      await dialog.getByText('更新未完成').waitFor()
+      expect(await dialog.innerText()).not.toContain('fixture-secret')
+
+      await page.evaluate('window.__updates.package = "linux-x64.deb"')
+      await dialog.getByRole('button', { name: '重试' }).click()
+      await dialog.getByRole('button', { name: '下载更新' }).click()
+      await dialog.getByText('已将下载链接交给系统').waitFor()
+      expect(await page.evaluate('window.__updates.visited')).toBe(url)
+      expect(await progress.count()).toBe(0)
+      await dialog.getByRole('button', { name: '关闭' }).click()
+    } finally {
+      await page.unroute(api)
+    }
+  }, 15000)
+
   it('Android 窄屏可打开和保存、切换源码，宽屏菜单留在视口内', async () => {
     await page.setViewportSize({ width: 390, height: 736 })
     try {

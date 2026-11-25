@@ -77,13 +77,14 @@ export interface MenuBarContext {
   restoreEditorFocus: () => void
 }
 
-type TopMenuKey = 'file' | 'edit' | 'format' | 'view'
+type TopMenuKey = 'file' | 'edit' | 'format' | 'view' | 'help'
 
 const TOP_MENUS: readonly { key: TopMenuKey; label: string }[] = [
   { key: 'file', label: '文件' },
   { key: 'edit', label: '编辑' },
   { key: 'format', label: '格式' },
   { key: 'view', label: '视图' },
+  { key: 'help', label: '帮助' },
 ]
 const menuMargin = 8
 
@@ -220,6 +221,17 @@ export class MenuBar {
       this.ctx.dispatch({ type: 'presentation', value: next })
     }
 
+    if (key === 'help') {
+      return [{
+        kind: 'item', label: '检查更新…', icon: icons.refresh,
+        onSelect: () => {
+          // 菜单项已移除，先把焦点放回入口，让对话框关闭后能恢复焦点。
+          this.triggers.get('help')?.focus()
+          this.ctx.dispatch({ type: 'check-update' })
+        },
+      }]
+    }
+
     if (key === 'file') {
       return [
         { kind: 'item', label: '新建文档', shortcutId: 'file.new', onSelect: () => this.ctx.dispatch({ type: 'new' }) },
@@ -228,7 +240,6 @@ export class MenuBar {
         { kind: 'item', label: '快速打开…', shortcutId: 'nav.quickOpen', onSelect: () => this.ctx.onOpenQuickOpen() },
         { kind: 'item', label: '重新打开最近关闭', onSelect: () => this.ctx.dispatch({ type: 'reopen' }) },
         { kind: 'item', label: '设为 Markdown 默认打开方式…', onSelect: () => this.ctx.dispatch({ type: 'markdown-default' }) },
-        { kind: 'item', label: '检查更新…', onSelect: () => this.ctx.dispatch({ type: 'check-update' }) },
         { kind: 'separator' },
         { kind: 'item', label: '保存', shortcutId: 'file.save', onSelect: () => this.ctx.dispatch({ type: 'save' }) },
         { kind: 'item', label: '另存为…', shortcutId: 'file.saveAs', onSelect: () => this.ctx.dispatch({ type: 'save-as' }) },
