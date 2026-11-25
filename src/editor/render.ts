@@ -152,9 +152,10 @@ export async function renderMarkdownWith(markdown: string, { resolveImage, rende
       a: ['href', 'title'], img: ['src', 'alt', 'title'], ol: ['start'], input: [{ name: 'type', values: ['checkbox'] }, 'checked', 'disabled'],
       math: ['xmlns', 'display'], annotation: ['encoding'],
       mi: ['mathvariant'], mo: ['stretchy', 'fence', 'separator'], mspace: ['width', 'height', 'depth'], mpadded: ['width', 'height', 'depth', 'lspace', 'voffset'],
-      svg: ['xmlns', 'viewBox', 'width', 'height', 'preserveAspectRatio'], g: ['transform'],
+      svg: ['xmlns', 'viewBox', 'width', 'height', 'preserveAspectRatio', 'font-family', 'font-size'], g: ['transform'],
       marker: ['viewBox', 'refX', 'refY', 'markerWidth', 'markerHeight', 'orient', 'markerUnits'],
-      path: ['d', 'transform', 'marker-start', 'marker-end'], rect: ['x', 'y', 'width', 'height', 'rx', 'ry', 'transform'],
+      path: ['d', 'transform', 'marker-start', 'marker-end', 'stroke-width', 'stroke-linecap', 'stroke-dasharray'],
+      rect: ['x', 'y', 'width', 'height', 'rx', 'ry', 'transform'],
       line: ['x1', 'x2', 'y1', 'y2', 'marker-start', 'marker-end'], polyline: ['points'], polygon: ['points'],
       circle: ['cx', 'cy', 'r'], ellipse: ['cx', 'cy', 'rx', 'ry'], text: ['x', 'y', 'dx', 'dy', 'transform', 'text-anchor'], tspan: ['x', 'y', 'dx', 'dy'],
     },
@@ -184,5 +185,7 @@ function diagramShape(tagName: string, attribs: Record<string, string>, fill: st
   for (const name of ['marker-start', 'marker-end']) {
     if (!/^url\(["']?#[\w-]+["']?\)$/.test(attribs[name] ?? '')) delete attribs[name]
   }
-  return { tagName, attribs: { ...attribs, fill, stroke: '#5a7065' } }
+  // 仅保留由渲染器标注的箭头前景色，其余形状沿用安全的默认颜色。
+  const arrow = attribs.fill === 'currentColor' && attribs.stroke === 'none'
+  return { tagName, attribs: { ...attribs, fill: arrow ? 'currentColor' : fill, stroke: arrow ? 'none' : '#5a7065' } }
 }

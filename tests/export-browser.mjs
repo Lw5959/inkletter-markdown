@@ -142,7 +142,11 @@ try {
         const canvas = Object.assign(document.createElement('canvas'), { width, height })
         return [`image-${index}.png`, canvas.toDataURL()]
       }))
-      const markdown = [...images.keys()].map(name => `![图片](${name})`).join('\n\n')
+      const markdown = [
+        '```mermaid\nflowchart LR\n  A[开始] --> B[完成]\n```',
+        '```mermaid\nflowchart TD\n  A[检查] --> B{同意发布？}\n  B -->|通过| C[发布]\n  B -. 重试 .-> A\n  A ==> D[审计]\n```',
+        ...[...images.keys()].map(name => `![图片](${name})`),
+      ].join('\n\n')
       return exportHtml(markdown, '图片尺寸', { resolveImage: async name => images.get(name) ?? name }, undefined, false, 'light')
     })
     await page.setContent(imagePage)
@@ -160,11 +164,38 @@ try {
       assert.deepEqual(square, [320, 320])
       assert.ok(wide[0] > 320 && Math.abs(wide[0] / wide[1] - 5) < 0.01)
       assert.deepEqual(small, [96, 48])
+      const [flowchart, branches] = await page.locator('#write svg.flowchart').evaluateAll(graphs => graphs.map(svg => {
+        const arrow = svg.querySelector('marker[id$="-pointEnd-margin"]')
+        return {
+          width: svg.getBoundingClientRect().width,
+          arrow: [arrow.getAttribute('markerWidth'), arrow.getAttribute('markerHeight')],
+          radius: svg.querySelector('.node rect.label-container').getAttribute('rx'),
+          alignment: svg.querySelector('.node text').getAttribute('text-anchor'),
+          dashed: svg.querySelector('.edge-pattern-dotted')?.getAttribute('stroke-dasharray'),
+          thick: svg.querySelector('.edge-thickness-thick')?.getAttribute('stroke-width'),
+          label: svg.querySelector('.edgeLabel text')?.textContent.trim(),
+        }
+      }))
+      assert.ok(flowchart.width >= 180 && flowchart.width < 300, JSON.stringify(flowchart))
+      assert.deepEqual(flowchart.arrow, ['7', '8'])
+      assert.equal(flowchart.radius, '6')
+      assert.equal(flowchart.alignment, 'middle')
+      assert.equal(branches.dashed, '2 3')
+      assert.equal(branches.thick, '2.5')
+      assert.equal(branches.label, '通过')
     }
     await page.emulateMedia({ media: 'screen' })
     await page.setViewportSize({ width: 360, height: 700 })
     const [narrowSquare] = await imageSizes()
     assert.ok(narrowSquare[0] < 320 && narrowSquare[0] === narrowSquare[1])
+    const fitsPage = await page.locator('#write svg.flowchart').evaluateAll(graphs => graphs.every(svg =>
+      svg.getBoundingClientRect().width <= svg.parentElement.getBoundingClientRect().width))
+    assert.ok(fitsPage)
+    const darkLabel = await page.locator('#write svg.flowchart .node text').first().evaluate(label => {
+      label.closest('.document-theme').dataset.appearance = 'dark'
+      return getComputedStyle(label).fill
+    })
+    assert.equal(darkLabel, 'rgb(230, 230, 230)')
   }
 } finally {
   await browser?.close()

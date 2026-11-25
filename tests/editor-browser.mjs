@@ -149,6 +149,24 @@ try {
   assert.match(html, /language-mermaid/)
   assert.doesNotMatch(html, /foreignObject|<script/)
 
+  await page.evaluate(() => {
+    window.editor.setMarkdown('# 流程\n\n```mermaid\nflowchart LR\n  A[开始] --> B[完成]\n```\n\n流程结束')
+    const end = window.editor.getMarkdown().length
+    window.editor.select({ anchor: end, head: end })
+  })
+  const graph = page.locator('#write .markdown-diagram > svg.flowchart')
+  await graph.waitFor()
+  const diagram = await graph.evaluate(svg => {
+    const box = svg.getBoundingClientRect()
+    const figure = svg.parentElement.getBoundingClientRect()
+    const rect = svg.querySelector('.node rect.label-container').getBoundingClientRect()
+    const label = svg.querySelector('.node text').getBoundingClientRect()
+    const center = ({ left, width }) => left + width / 2
+    return { width: box.width, graphOffset: center(box) - center(figure), labelOffset: center(label) - center(rect) }
+  })
+  assert.ok(diagram.width >= 180 && diagram.width < 300, JSON.stringify(diagram))
+  assert.ok(Math.abs(diagram.graphOffset) < 1 && Math.abs(diagram.labelOffset) < 1, JSON.stringify(diagram))
+
   if (!isWebKit) {
     await page.evaluate(() => {
       window.editor.setMarkdown('# 标题\r\n\n')

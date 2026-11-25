@@ -97,10 +97,26 @@
   color: var(--select-text-font-color, inherit);
 }
 
-:where(.document-theme #write) :where(.markdown-diagram svg) { width: 100%; height: auto; }
+:where(.document-theme #write) :where(.markdown-diagram > svg:not(.flowchart)) { width: 100%; height: auto; }
 :where(.document-theme #write) :where(.markdown-diagram :is(rect, polygon, circle, ellipse)) { fill: var(--doc-surface); stroke: #777; }
 :where(.document-theme #write) :where(.markdown-diagram :is(path, line, polyline)) { fill: none; stroke: #777; }
 :where(.document-theme #write) :where(.markdown-diagram marker path) { fill: #777; }
+/* 短流程图按 SVG 原始尺寸居中，宽流程图沿用正文的最大宽度。 */
+:where(.document-theme #write .markdown-diagram > svg.flowchart) {
+  display: block;
+  margin-inline: auto;
+  --flowchart-fill: color-mix(in srgb, currentColor 4%, transparent);
+  --flowchart-border: color-mix(in srgb, currentColor 53%, transparent);
+  --flowchart-edge: color-mix(in srgb, currentColor 69%, transparent);
+}
+:where(.document-theme #write .flowchart :is(.node > .label-container, .cluster > rect)) {
+  fill: var(--flowchart-fill);
+  stroke: var(--flowchart-border);
+  stroke-linejoin: round;
+}
+:where(.document-theme #write .flowchart .edgePaths path) { stroke: var(--flowchart-edge); }
+:where(.document-theme #write .flowchart text) { fill: currentColor; }
+:where(.document-theme #write .flowchart marker [fill="currentColor"]) { fill: var(--flowchart-edge); stroke: none; }
 :where(.document-theme #write) :where(.hljs-keyword, .hljs-selector-tag) { color: var(--doc-syntax-keyword); }
 :where(.document-theme #write) :where(.hljs-string, .hljs-title) { color: var(--doc-syntax-string); }
 :where(.document-theme #write) :where(.hljs-number, .hljs-literal) { color: var(--doc-syntax-number); }
