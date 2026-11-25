@@ -17,7 +17,7 @@ dbus-run-session -- xvfb-run -a -s '-screen 0 1280x900x24' sh -eu -c '
   trap "kill $app 2>/dev/null || true" EXIT
   window=
   for attempt in 1 2 3 4 5 6 7 8 9 10; do
-    window=$(xdotool search --onlyvisible --name . | tail -1)
+    window=$(xdotool search --onlyvisible --pid "$app" | tail -1)
     if [ -n "$window" ] && test -f "$XDG_DATA_HOME/io.yeyu.markdown/settings.json"; then break; fi
     sleep 1
   done

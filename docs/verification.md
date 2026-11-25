@@ -89,7 +89,23 @@ Apple M1 Pro，32 GB 内存，macOS 27.2.1。本地 APFS 外置 SSD 上运行发
 
 ## 平台验收范围
 
-0.2.1 安装包和 SHA-256 校验文件位于 `release/0.2.1/`，构建源为 `501dbe0`。随附三个 MIT 插件及许可文本。公网目录由市场仓库的 `8a5f9a1` 提交发布，同一批插件也可从本地静态目录 `release/plugin-market/` 部署。[公网目录](https://lw5959.github.io/yeyu-plugin-market/index.json)
+### 0.2.2
+
+安装包和 SHA-256 校验文件位于 `release/0.2.2/`，构建源为 `64ddbed`。六款插件随包提供，公网市场由 `792f84a` 发布。已匿名下载全部六个包，核对 SHA-256、身份、版本和接口。[公网目录](https://lw5959.github.io/yeyu-plugin-market/index.json) · [市场发布提交](https://github.com/Lw5959/yeyu-plugin-market/commit/792f84a)
+
+| 安装包 | 验收 |
+|---|---|
+| macOS Universal DMG | Apple Silicon 上用原生 QA 窗口从官方市场实际下载 JavaScript 包，并验证三款插件的安装、运行、差异应用和撤销。测试了 CSV 往返、中文排版保留代码、重复标题跳转及目录移除。八套本机 Typora 主题、协作子菜单、导出、文档往返和恢复通过。DMG 校验和临时签名验证通过，`arm64` 与 `x86_64` 均通过命令行启动检查，后者使用 Rosetta。 |
+| Windows x64 NSIS | 交叉构建和安装档案校验通过。安装包未签名，Windows 原生窗口待验收。 |
+| Linux ARM64 DEB | Debian 13 断网容器安装成功。通过 Xvfb 桌面打开、编辑、保存并保留 BOM。市场主动切换到内置目录安装 JavaScript 表格转换，自动回退到内置目录后安装 Rust 中文排版。 |
+
+macOS 公证和 Intel 物理设备验收、Linux x64 安装包仍待完成。
+
+0.2.2 的两次独立性能复测均在等待首帧结果时超时。性能表保留此前发布配置的实测数据。
+
+### 历史版本
+
+0.2.1 安装包和 SHA-256 校验文件位于 `release/0.2.1/`，构建源为 `501dbe0`。该版本的三个插件由市场提交 `8a5f9a1` 发布。
 
 0.2.0、0.1.4 和 0.1.3 的安装包仍在各版本目录，构建源分别为 `5c67e00`、`db9debd` 和 `ecb99ef`。
 
@@ -106,6 +122,7 @@ Intel 物理 Mac、Linux x64 安装包和人工中文拼音候选操作待验收
 ```sh
 pnpm test
 cargo test --locked --manifest-path src-tauri/Cargo.toml
+cargo test --locked --manifest-path examples/plugins/workflows/Cargo.toml
 node tests/editor-browser.mjs
 ```
 
