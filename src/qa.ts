@@ -43,7 +43,8 @@ const frame = () => new Promise<void>(resolve => requestAnimationFrame(() => res
 const mark = (name: string, data: unknown) => invoke('qa_report', { name, data })
 const config = () => invoke<Case>('qa_config')
 const button = (scope: ParentNode, text: string) =>
-  [...scope.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent === text)!
+  [...scope.querySelectorAll<HTMLButtonElement>('button')].find(item =>
+    (item.querySelector('.yy-menu-label') ?? item).textContent === text)!
 function check(value: unknown, name: string): asserts value {
   if (!value) throw new Error('验收失败：' + name)
 }
@@ -159,20 +160,25 @@ async function measure(ports: Ports, scenario: Case) {
   await mark('measurement', result)
 }
 
+function openViewSubmenu(name: '文档主题' | '协作侧栏') {
+  document.querySelector<HTMLButtonElement>('[data-menu="view"]')!.click()
+  const trigger = button(document.querySelector('.yy-menu-popover')!, name)
+  trigger.scrollIntoView({ block: 'nearest' })
+  trigger.click()
+  return document.querySelector('.yy-submenu-panel')!
+}
+
 async function verifyThemeImport(ports: Ports, expected: string[]) {
-  const themeMenu = document.querySelector<HTMLButtonElement>('[data-toggle="theme-popover"]')!
-  const popover = document.querySelector('.yy-popover-panel')!
   const paper = document.querySelector<HTMLElement>('.document-theme')!
   const themeList = () => invoke<Theme[]>('theme_list')
-  const choose = (name: string) => { themeMenu.click(); button(popover, name).click() }
-  themeMenu.click()
-  await until(() => expected.every(name => Boolean(button(popover, name))))
+  const choose = (name: string) => button(openViewSubmenu('文档主题'), name).click()
+  const themes = openViewSubmenu('文档主题')
+  await until(() => expected.every(name => Boolean(button(themes, name))))
   const local = expected.includes('night') ? 'night' : expected[0]
-  button(popover, local).click()
-  await until(() => themeMenu.textContent === local && ports.state.detail.startsWith('已使用主题 ' + local))
-  themeMenu.click()
-  check(button(popover, local).getAttribute('aria-checked') === 'true', '本机主题首次点击即可使用并显示选中态')
-  themeMenu.click()
+  button(themes, local).click()
+  await until(() => ports.state.detail.startsWith('已使用主题 ' + local))
+  check(button(openViewSubmenu('文档主题'), local).getAttribute('aria-checked') === 'true', '本机主题首次点击即可使用并显示选中态')
+  document.querySelector<HTMLButtonElement>('[data-menu="view"]')!.click()
   choose('白纸')
   await until(() => paper.dataset.theme === 'builtin-paper')
   check(getComputedStyle(paper).backgroundColor === 'rgb(255, 255, 255)', '白纸主题的正文背景为纯白')
@@ -287,6 +293,18 @@ async function verifyFull(ports: Ports, scenario: Case) {
   check(flyoutBox.left >= parentBox.right - 2 || flyoutBox.right <= parentBox.left + 2, '导出菜单在一级菜单侧边')
   file.click()
   result.menuFlyout = true
+  const toolbar = [...document.querySelectorAll<HTMLButtonElement>('.yy-topbar-right .yy-tool-btn')]
+  check(toolbar.length === 1 && toolbar[0].dataset.toggle === 'ai', '顶栏保留 AI 快捷入口')
+  toolbar[0].click()
+  check(toolbar[0].getAttribute('aria-pressed') === 'true', '顶栏可直接打开 AI')
+  button(openViewSubmenu('协作侧栏'), 'MCP 工具与连接').click()
+  const mcpTab = document.querySelector('[data-right-tab="mcp"]')!
+  check(mcpTab.getAttribute('aria-selected') === 'true' && document.activeElement === mcpTab,
+    '协作子菜单打开并聚焦 MCP 面板')
+  const mcpMenu = button(openViewSubmenu('协作侧栏'), 'MCP 工具与连接')
+  check(mcpMenu.getAttribute('aria-checked') === 'true', '菜单勾选当前协作面板')
+  mcpMenu.click()
+  result.collaborationMenu = true
   const filtered = await invoke<WorkspaceEntry[]>('workspace_tree', { root: scenario.root, hidden: false, all: false, filter: '**/*.png' })
   check(filtered.length === 1 && filtered[0].children?.some(child => child.name === 'icon.png'), '文件树路径规则')
   const original = await native.read(scenario.guide)

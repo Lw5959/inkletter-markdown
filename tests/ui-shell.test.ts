@@ -71,6 +71,17 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     })()`)
   }
 
+  async function openViewSubmenu(name: '文档主题' | '协作侧栏') {
+    await page.locator('[data-menu="view"]').click()
+    await page.locator('.yy-menu-popover').getByRole('menuitem', { name, exact: true }).click()
+    return page.locator('.yy-submenu-panel')
+  }
+
+  async function toggleMcp() {
+    const submenu = await openViewSubmenu('协作侧栏')
+    await submenu.getByRole('menuitemcheckbox', { name: /^MCP 工具与连接/ }).click()
+  }
+
   async function controlColors(control: Locator) {
     return control.evaluate(element => {
       const context = (window as unknown as Record<string, any>).__test.contrastPixel as CanvasRenderingContext2D
@@ -192,12 +203,11 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       await page.getByRole('button', { name: '默认提示词', exact: true }).click()
       await inspect(page.locator('.yy-ai-task-choice[aria-pressed="true"]'), '选中的提示词')
       await page.keyboard.press('Escape')
-      const mcp = page.locator('[data-toggle="mcp"]')
-      await mcp.click()
+      await toggleMcp()
       await page.locator('[data-mcp-action="toggle-form"]').click()
       await inspect(page.locator('.yy-seg-mini-btn.is-active'), '选中的 MCP 连接方式')
       await page.locator('[data-mcp-action="toggle-form"]').click()
-      await mcp.click()
+      await toggleMcp()
     }
     await page.emulateMedia({ colorScheme: 'light' })
     if (directory) {
@@ -297,8 +307,8 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       expect(background).not.toContain('255, 255, 255')
       expect(scheme).toBe('dark')
     }
-    await page.locator('[data-toggle="theme-popover"]').click()
-    await page.getByRole('menuitemradio', { name: '默认', exact: true }).click()
+    const themes = await openViewSubmenu('文档主题')
+    await themes.getByRole('menuitemradio', { name: '默认', exact: true }).click()
     expect(await page.evaluate(() => (window as unknown as Record<string, any>).__test.actions.at(-1))).toEqual({ type: 'theme', id: 'default' })
     await page.evaluate(() => (window as unknown as Record<string, any>).__test.shell.setThemes([], 'default'))
     const lightBar = await scrollbar()
@@ -378,12 +388,12 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       await tint('.yy-ai-template')
       await page.keyboard.press('Escape')
 
-      await page.locator('[data-toggle="mcp"]').click()
+      await toggleMcp()
       await tint('.yy-mcp-bridge')
       await page.locator('[data-mcp-action="toggle-form"]').click()
       await tint('.yy-mcp-pane .yy-config-card input')
       await page.locator('[data-mcp-action="toggle-form"]').click()
-      await page.locator('[data-toggle="mcp"]').click()
+      await toggleMcp()
 
       await page.locator('.yy-doc-title-btn').click()
       await tint('.yy-modal-quickopen')
@@ -501,12 +511,30 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     expect(result.dirtyVisible).toBe(true)
     expect(result.statusText).toBe('已同步')
 
-    // Switch theme via theme popover
-    await page.click('[data-toggle="theme-popover"]')
-    await page.click('[data-theme-id="night-pine"]')
+    const themes = await openViewSubmenu('文档主题')
+    const night = themes.getByRole('menuitemradio', { name: '夜松' })
+    await night.focus()
+    await page.evaluate(() => {
+      const { shell, builtinThemes } = (window as unknown as Record<string, any>).__test
+      shell.setThemes([...builtinThemes, { id: 'night-pine', name: '夜松', styles: [] }], 'night-pine', [
+        { id: 'typora-local', name: '本机新发现主题', styles: [] },
+      ])
+    })
+    expect(await themes.getByRole('menuitemradio', { name: '本机新发现主题' }).isVisible()).toBe(true)
+    expect(await night.getAttribute('aria-checked')).toBe('true')
+    expect(await night.evaluate(element => element === document.activeElement)).toBe(true)
+    expect(await themes.locator('.yy-theme-sample svg').count()).toBeGreaterThan(0)
+    await page.keyboard.press('Enter')
+
+    const imports = await openViewSubmenu('文档主题')
+    await imports.getByRole('menuitem', { name: '导入本机 Typora 主题', exact: true }).click()
+    const cssImport = await openViewSubmenu('文档主题')
+    await cssImport.getByRole('menuitem', { name: '导入主题 CSS…', exact: true }).click()
 
     const dispatched = await page.evaluate(() => (window as unknown as Record<string, any>).__test.actions)
     expect(dispatched).toContainEqual({ type: 'theme', id: 'night-pine' })
+    expect(dispatched).toContainEqual({ type: 'theme-import-typora' })
+    expect(dispatched).toContainEqual({ type: 'theme-import' })
   })
 
   it('文件树增删改、快速打开、大纲、跨文件检索与文内查找替换', async () => {
@@ -793,7 +821,17 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
   it('MCP 侧栏 stdio/HTTP 配置、调用前参数预览与显式许可、授权与待审建议', async () => {
     await mountTestHarness()
 
-    await page.click('[data-toggle="mcp"]')
+    expect(await page.locator('.yy-topbar-right .yy-tool-btn').allTextContents()).toEqual(['AI'])
+    const view = page.locator('[data-menu="view"]')
+    await view.focus()
+    await page.keyboard.press('ArrowDown')
+    await page.locator('.yy-menu-popover').getByRole('menuitem', { name: '协作侧栏', exact: true }).focus()
+    await page.keyboard.press('ArrowRight')
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('Enter')
+    const mcpTab = page.locator('[data-right-tab="mcp"]')
+    expect(await mcpTab.getAttribute('aria-selected')).toBe('true')
+    expect(await mcpTab.evaluate(element => element === document.activeElement)).toBe(true)
 
     // Add stdio server
     await page.click('[data-mcp-action="toggle-form"]')
@@ -839,6 +877,14 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
         ],
       })
     })
+
+    const collaboration = await openViewSubmenu('协作侧栏')
+    const mcp = collaboration.getByRole('menuitemcheckbox', { name: /^MCP 工具与连接/ })
+    expect(await mcp.getAttribute('aria-checked')).toBe('true')
+    expect(await mcp.locator('.yy-count-badge').textContent()).toBe('2')
+    expect(await collaboration.getByRole('menuitemcheckbox', { name: /^AI 写作助手/ }).getAttribute('aria-checked')).toBe('false')
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('Escape')
 
     // Authorize workspace & open pending proposals
     await page.click('[data-mcp-action="authorize"]')

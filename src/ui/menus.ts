@@ -44,16 +44,20 @@ type MenuCommand =
       shortcutId?: ShortcutCommandId
       checked?: boolean
       disabled?: boolean
+      icon?: string
+      count?: number
+      theme?: Pick<Theme, 'id' | 'swatch'>
       onSelect: () => void
     }
 
-type MenuEntry = MenuCommand | { kind: 'submenu'; label: string; items: MenuCommand[] }
+type MenuItems = MenuCommand[] | (() => MenuCommand[])
+type MenuEntry = MenuCommand | { kind: 'submenu'; label: string; items: MenuItems }
 
 export interface MenuBarContext {
   dispatch: (action: ShellAction) => void
   shortcuts: ShortcutRegistry
   getState: () => ShellState
-  getThemes: () => { themes: Theme[]; active: string }
+  getThemes: () => { themes: Theme[]; local: Theme[]; active: string }
   getImageMode: () => ImageMode
   setImageMode: (mode: ImageMode) => void
   onOpenQuickOpen: () => void
@@ -64,9 +68,10 @@ export interface MenuBarContext {
   onOpenPluginMarket?: () => void
   getTitlebar: () => TitlebarView | null
   onToggleLeftSidebar: (tab?: 'files' | 'outline' | 'search') => void
-  onToggleRightPanel: (tab?: 'ai' | 'mcp') => void
+  onToggleRightPanel: (tab: 'ai' | 'mcp') => void
   isLeftOpen: () => boolean
-  isRightOpen: () => boolean
+  isRightOpen: (tab: 'ai' | 'mcp') => boolean
+  getMcpProposals: () => number
   restoreEditorFocus: () => void
 }
 
@@ -86,6 +91,7 @@ export class MenuBar {
   private dropdown: HTMLElement
   private submenu: HTMLElement
   private submenuTrigger: HTMLButtonElement | null = null
+  private liveSubmenuItems: (() => MenuCommand[]) | null = null
   private submenuCloseTimer = 0
   private openMenu: TopMenuKey | null = null
   private docPointerDown: (event: MouseEvent) => void
@@ -205,7 +211,6 @@ export class MenuBar {
 
   private buildEntries(key: TopMenuKey): MenuEntry[] {
     const state = this.ctx.getState()
-    const { themes, active } = this.ctx.getThemes()
     const imageMode = this.ctx.getImageMode()
     const dispatchFormat = (format: EditorFormat) => this.ctx.dispatch({ type: 'format', format })
     const togglePres = (field: keyof ShellState['presentation']) => {
@@ -324,19 +329,6 @@ export class MenuBar {
 
     // view menu
     const titlebar = this.ctx.getTitlebar()
-    const themeItems: MenuCommand[] = [{ id: 'default', name: '默认' }, ...themes].map(theme => ({
-      kind: 'item',
-      label: theme.name,
-      checked: theme.id === active,
-      onSelect: () => this.ctx.dispatch({ type: 'theme', id: theme.id }),
-    }))
-
-    themeItems.push(
-      { kind: 'separator' },
-      { kind: 'item', label: '导入本机 Typora 主题', onSelect: () => this.ctx.dispatch({ type: 'theme-import-typora' }) },
-      { kind: 'item', label: '导入主题 CSS…', onSelect: () => this.ctx.dispatch({ type: 'theme-import' }) },
-    )
-
     return [
       {
         kind: 'item',
@@ -351,6 +343,7 @@ export class MenuBar {
         checked: state.mode === 'source',
         onSelect: () => this.ctx.dispatch({ type: 'mode', mode: 'source' }),
       },
+      { kind: 'submenu', label: '文档主题', items: () => this.buildThemeItems() },
       { kind: 'separator' },
       {
         kind: 'item',
@@ -366,17 +359,23 @@ export class MenuBar {
         onSelect: () => this.ctx.onToggleLeftSidebar('outline'),
       },
       {
-        kind: 'item',
-        label: 'AI 写作助手侧栏',
-        checked: this.ctx.isRightOpen(),
-        shortcutId: 'view.toggleAI',
-        onSelect: () => this.ctx.onToggleRightPanel('ai'),
-      },
-      {
-        kind: 'item',
-        label: 'MCP 工具与连接侧栏',
-        shortcutId: 'view.toggleMcp',
-        onSelect: () => this.ctx.onToggleRightPanel('mcp'),
+        kind: 'submenu', label: '协作侧栏', items: [
+          {
+            kind: 'item',
+            label: 'AI 写作助手',
+            checked: this.ctx.isRightOpen('ai'),
+            shortcutId: 'view.toggleAI',
+            onSelect: () => this.ctx.onToggleRightPanel('ai'),
+          },
+          {
+            kind: 'item',
+            label: 'MCP 工具与连接',
+            checked: this.ctx.isRightOpen('mcp'),
+            shortcutId: 'view.toggleMcp',
+            count: this.ctx.getMcpProposals(),
+            onSelect: () => this.ctx.onToggleRightPanel('mcp'),
+          },
+        ],
       },
       { kind: 'separator' },
       {
@@ -429,9 +428,36 @@ export class MenuBar {
           { kind: 'item' as const, label: '液态玻璃', checked: titlebar.material === 'liquid', disabled: !titlebar.liquidAvailable, onSelect: () => this.ctx.dispatch({ type: 'titlebar-material', material: 'liquid' }) },
         ],
       }] : []),
-      { kind: 'submenu', label: '文档主题', items: themeItems },
-      { kind: 'item', label: '导入主题 CSS…', onSelect: () => this.ctx.dispatch({ type: 'theme-import' }) },
     ]
+  }
+
+  private buildThemeItems(): MenuCommand[] {
+    const { themes, local, active } = this.ctx.getThemes()
+    const groups = [
+      { label: '内置主题', themes: [{ id: 'default', name: '默认' }, ...themes.filter(theme => theme.swatch)] },
+      { label: '本机 Typora', themes: local },
+      { label: '已导入', themes: themes.filter(theme => !theme.swatch) },
+    ]
+    const items: MenuCommand[] = []
+    for (const group of groups) {
+      if (!group.themes.length) continue
+      items.push({ kind: 'heading', label: group.label })
+      for (const theme of group.themes) {
+        items.push({
+          kind: 'item',
+          label: theme.name,
+          theme,
+          checked: theme.id === active,
+          onSelect: () => this.ctx.dispatch({ type: 'theme', id: theme.id }),
+        })
+      }
+    }
+    items.push(
+      { kind: 'separator' },
+      { kind: 'item', label: '导入本机 Typora 主题', icon: icons.plus, onSelect: () => this.ctx.dispatch({ type: 'theme-import-typora' }) },
+      { kind: 'item', label: '导入主题 CSS…', icon: icons.plus, onSelect: () => this.ctx.dispatch({ type: 'theme-import' }) },
+    )
+    return items
   }
 
   private renderEntries(container: HTMLElement, entries: MenuEntry[]) {
@@ -476,17 +502,34 @@ export class MenuBar {
         className: 'yy-menu-item',
         type: 'button',
         attrs: {
-          role: entry.checked !== undefined ? 'menuitemcheckbox' : 'menuitem',
+          role: entry.theme ? 'menuitemradio' : entry.checked !== undefined ? 'menuitemcheckbox' : 'menuitem',
           ...(entry.checked !== undefined ? { 'aria-checked': String(entry.checked) } : {}),
+          ...(entry.theme ? { 'data-theme-id': entry.theme.id } : {}),
         },
       })
       if (entry.disabled) btn.disabled = true
       const checkSlot = el('span', {
         className: 'yy-menu-check',
-        html: entry.checked ? icons.check : '',
+        html: entry.checked ? icons.check : entry.icon ?? '',
       })
       const labelEl = el('span', { className: 'yy-menu-label', text: entry.label })
       btn.append(checkSlot, labelEl)
+      if (entry.theme?.swatch) {
+        const sample = el('span', {
+          className: 'yy-theme-sample',
+          html: '<svg viewBox="0 0 18 12" width="18" height="12" aria-hidden="true"><path d="M3 4h12M3 8h8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>',
+        })
+        sample.style.backgroundColor = entry.theme.swatch.paper
+        sample.style.color = entry.theme.swatch.ink
+        btn.append(sample)
+      }
+      if (entry.count) {
+        btn.append(el('span', {
+          className: 'yy-count-badge',
+          text: String(entry.count),
+          attrs: { 'aria-label': `${entry.count} 条待审建议` },
+        }))
+      }
       if (entry.shortcutId) {
         const kbdText = this.ctx.shortcuts.getLabel(entry.shortcutId, this.isMac)
         if (kbdText) {
@@ -528,16 +571,36 @@ export class MenuBar {
     }
   }
 
-  private openSubmenu(trigger: HTMLButtonElement, entries: MenuCommand[]) {
+  private openSubmenu(trigger: HTMLButtonElement, entries: MenuItems) {
     this.cancelSubmenuClose()
     if (this.submenuTrigger === trigger) return
     this.closeSubmenu()
     this.submenuTrigger = trigger
-    this.renderEntries(this.submenu, entries)
+    this.liveSubmenuItems = typeof entries === 'function' ? entries : null
+    this.renderEntries(this.submenu, typeof entries === 'function' ? entries() : entries)
     trigger.setAttribute('aria-expanded', 'true')
     this.submenu.setAttribute('aria-label', trigger.textContent ?? '')
     this.submenu.hidden = false
     this.submenu.scrollTop = 0
+    this.positionSubmenu()
+  }
+
+  refreshThemeMenu() {
+    if (!this.liveSubmenuItems) return
+    // Typora 主题可能在菜单已打开时才扫描完成，更新后把焦点留在同一项。
+    const active = document.activeElement
+    const previous = active instanceof HTMLButtonElement && this.submenu.contains(active) ? active : null
+    const scroll = this.submenu.scrollTop
+    this.renderEntries(this.submenu, this.liveSubmenuItems())
+    this.submenu.scrollTop = scroll
+    if (previous) {
+      const options = [...this.submenu.querySelectorAll<HTMLButtonElement>('button:not([disabled])')]
+      const match = options.find(option => previous.dataset.themeId
+        ? option.dataset.themeId === previous.dataset.themeId
+        : option.textContent === previous.textContent)
+      const next = match ?? options[0]
+      next?.focus()
+    }
     this.positionSubmenu()
   }
 
@@ -559,6 +622,7 @@ export class MenuBar {
     const trigger = this.submenuTrigger
     if (!trigger) return
     this.submenuTrigger = null
+    this.liveSubmenuItems = null
     trigger.setAttribute('aria-expanded', 'false')
     this.submenu.hidden = true
     this.submenu.replaceChildren()

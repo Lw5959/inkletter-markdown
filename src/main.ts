@@ -952,7 +952,7 @@ async function addThemes(paths: string[]) {
   if (linked.length) settings.typoraThemes = { ...settings.typoraThemes, ...Object.fromEntries(linked) }
   syncThemeMenu()
   if (single || linked.length) await persist()
-  const success = single ? '已使用主题 ' + single.name : `已有 ${available.size} 套主题可用，可从主题菜单切换`
+  const success = single ? '已使用主题 ' + single.name : `已有 ${available.size} 套主题可用，可从「视图 → 文档主题」切换`
   update(success + (missing.size ? '，缺少资源 ' + [...missing].join('、') : '')
     + (failures.length ? '，导入失败 ' + failures.join('、') : ''))
 }
@@ -974,7 +974,7 @@ async function migrateTyporaPreferences() {
     const notes: string[] = []
     if (changes?.theme) {
       if (theme || themePath) rows.push('主题 · ' + changes.theme)
-      else notes.push('找不到主题 ' + changes.theme + ' 的样式，可从主题菜单导入 CSS。')
+      else notes.push('找不到主题 ' + changes.theme + ' 的样式，可从「视图 → 文档主题」导入 CSS。')
     }
     if (changes?.upload) rows.push('图床 · ' + (changes.upload.service === 'picgo' ? 'PicGo / PicList' : new URL(changes.upload.endpoint).host))
     if (changes?.unsupportedUpload) notes.push('原图床工具需要单独配置。支持 PicGo、PicList 和 HTTP 上传接口。')

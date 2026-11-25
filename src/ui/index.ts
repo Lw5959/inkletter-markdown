@@ -174,19 +174,13 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
     syncLayout()
   }
 
-  const toggleRightPanel = (tab?: RightTab) => {
-    if (tab) {
-      if (rightOpen && rightTab === tab) {
-        rightOpen = false
-      } else {
-        rightOpen = true
-        rightTab = tab
-      }
-    } else {
-      rightOpen = !rightOpen
-    }
+  const toggleRightPanel = (tab: RightTab) => {
+    rightOpen = !rightOpen || rightTab !== tab
+    rightTab = tab
     syncLayout()
-    if (rightOpen && rightTab === 'ai') aiPanel.focusInput()
+    if (rightOpen && tab === 'ai') aiPanel.focusInput()
+    if (rightOpen && tab === 'mcp') rightMcpTabBtn.focus({ preventScroll: true })
+    if (!rightOpen && tab === 'mcp') focusEditor()
   }
 
   const openRightTab = (tab: RightTab) => {
@@ -200,7 +194,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
     dispatch,
     shortcuts,
     getState: () => state,
-    getThemes: () => ({ themes: [...themes, ...localThemes], active: activeThemeId }),
+    getThemes: () => ({ themes, local: localThemes, active: activeThemeId }),
     getImageMode: () => imageMode,
     setImageMode: mode => {
       imageMode = mode
@@ -219,7 +213,8 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
     onToggleLeftSidebar: toggleLeftSidebar,
     onToggleRightPanel: toggleRightPanel,
     isLeftOpen: () => leftOpen,
-    isRightOpen: () => rightOpen,
+    isRightOpen: tab => rightOpen && rightTab === tab,
+    getMcpProposals: () => mcpProposals,
     restoreEditorFocus: focusEditor,
   })
 
@@ -278,95 +273,6 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   sourceModeBtn.addEventListener('click', () => dispatch({ type: 'mode', mode: 'source' }))
   modeGroup.append(liveModeBtn, sourceModeBtn)
 
-  // Quick theme popover
-  const themeWrap = el('div', { className: 'yy-popover-wrap' })
-  const themeBtn = el('button', {
-    className: 'yy-tool-btn',
-    type: 'button',
-    title: '切换或导入文档主题',
-    attrs: { 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'data-toggle': 'theme-popover' },
-  })
-  const themeBtnLabel = el('span', { text: '主题' })
-  themeBtn.append(el('span', { className: 'yy-icon', html: icons.palette }), themeBtnLabel)
-
-  const themePopover = el('div', {
-    className: 'yy-popover-panel',
-    attrs: { role: 'menu', hidden: '' },
-  })
-  let themePopoverOpen = false
-  const closeThemePopover = () => {
-    if (!themePopoverOpen) return
-    themePopoverOpen = false
-    themePopover.setAttribute('hidden', '')
-    themeBtn.setAttribute('aria-expanded', 'false')
-  }
-  const renderThemePopover = () => {
-    themePopover.replaceChildren()
-    const themeItem = (theme: Theme) => {
-      const active = theme.id === activeThemeId
-      const item = el('button', {
-        className: `yy-menu-item${active ? ' is-selected' : ''}`,
-        type: 'button',
-        attrs: { role: 'menuitemradio', 'aria-checked': String(active), 'data-theme-id': theme.id },
-      })
-      item.append(
-        el('span', { className: 'yy-menu-check', html: active ? icons.check : '' }),
-        el('span', { className: 'yy-menu-label', text: theme.name }),
-      )
-      if (theme.swatch) {
-        const sample = el('span', {
-          className: 'yy-theme-sample',
-          html: '<svg viewBox="0 0 18 12" width="18" height="12" aria-hidden="true"><path d="M3 4h12M3 8h8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>',
-        })
-        sample.style.backgroundColor = theme.swatch.paper
-        sample.style.color = theme.swatch.ink
-        item.append(sample)
-      }
-      item.addEventListener('click', () => {
-        closeThemePopover()
-        dispatch({ type: 'theme', id: theme.id })
-      })
-      return item
-    }
-    const builtins = themes.filter(theme => theme.swatch)
-    const imported = themes.filter(theme => !theme.swatch)
-    themePopover.append(el('div', { className: 'yy-menu-heading', text: '内置主题' }),
-      themeItem({ id: 'default', name: '默认', styles: [] }), ...builtins.map(themeItem))
-    if (localThemes.length) {
-      themePopover.append(el('div', { className: 'yy-menu-heading', text: '本机 Typora' }), ...localThemes.map(themeItem))
-    }
-    if (imported.length) {
-      themePopover.append(el('div', { className: 'yy-menu-heading', text: '已导入' }), ...imported.map(themeItem))
-    }
-    themePopover.append(el('div', { className: 'yy-menu-sep', attrs: { role: 'separator' } }))
-    for (const [type, label] of [
-      ['theme-import-typora', '导入本机 Typora 主题'],
-      ['theme-import', '导入主题 CSS…'],
-    ] as const) {
-      const item = el('button', { className: 'yy-menu-item', type: 'button', attrs: { role: 'menuitem' } })
-      item.append(el('span', { className: 'yy-menu-check', html: icons.plus }),
-        el('span', { className: 'yy-menu-label', text: label }))
-      item.addEventListener('click', () => {
-        closeThemePopover()
-        dispatch({ type })
-      })
-      themePopover.append(item)
-    }
-  }
-  themeBtn.addEventListener('click', event => {
-    event.stopPropagation()
-    if (themePopoverOpen) {
-      closeThemePopover()
-    } else {
-      themePopoverOpen = true
-      renderThemePopover()
-      themePopover.removeAttribute('hidden')
-      themeBtn.setAttribute('aria-expanded', 'true')
-    }
-  })
-  themeWrap.append(themeBtn, themePopover)
-
-  // Right workbench triggers
   const aiToggleBtn = el('button', {
     className: 'yy-tool-btn',
     type: 'button',
@@ -377,17 +283,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   aiToggleBtn.append(el('span', { className: 'yy-icon', html: icons.sparkles }), el('span', { text: 'AI' }), aiBadgeEl)
   aiToggleBtn.addEventListener('click', () => toggleRightPanel('ai'))
 
-  const mcpToggleBtn = el('button', {
-    className: 'yy-tool-btn',
-    type: 'button',
-    title: '打开 / 关闭 MCP 连接与工具',
-    attrs: { 'aria-pressed': 'false', 'data-toggle': 'mcp' },
-  })
-  const mcpCountEl = el('span', { className: 'yy-count-badge', attrs: { hidden: '' } })
-  mcpToggleBtn.append(el('span', { className: 'yy-icon', html: icons.plug }), el('span', { text: 'MCP' }), mcpCountEl)
-  mcpToggleBtn.addEventListener('click', () => toggleRightPanel('mcp'))
-
-  topRight.append(modeGroup, themeWrap, aiToggleBtn, mcpToggleBtn)
+  topRight.append(modeGroup, aiToggleBtn)
   topbar.append(topLeft, topCenter, topRight)
 
   // Body 3-column layout
@@ -577,12 +473,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
 
     aiToggleBtn.classList.toggle('is-active', rightOpen && rightTab === 'ai')
     aiToggleBtn.setAttribute('aria-pressed', String(rightOpen && rightTab === 'ai'))
-    mcpToggleBtn.classList.toggle('is-active', rightOpen && rightTab === 'mcp')
-    mcpToggleBtn.setAttribute('aria-pressed', String(rightOpen && rightTab === 'mcp'))
-
     aiBadgeEl.toggleAttribute('hidden', !aiHasPending && !aiSuggestionSource)
-    mcpCountEl.textContent = String(mcpProposals)
-    mcpCountEl.toggleAttribute('hidden', mcpProposals <= 0)
     rightMcpBadge.textContent = String(mcpProposals)
     rightMcpBadge.toggleAttribute('hidden', mcpProposals <= 0)
 
@@ -706,18 +597,10 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
     if (!matched) return
     event.preventDefault()
     menuBar.close(false)
-    closeThemePopover()
     executeCommand(matched.id)
   }
 
-  const onDocMouseDown = (event: MouseEvent) => {
-    if (!themePopoverOpen) return
-    if (event.target instanceof Node && themeWrap.contains(event.target)) return
-    closeThemePopover()
-  }
-
   window.addEventListener('keydown', onWindowKeyDown)
-  document.addEventListener('mousedown', onDocMouseDown)
 
   syncLayout()
   applyState(state)
@@ -753,9 +636,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
       if (themeStyle.textContent !== css) themeStyle.textContent = css
       paperEl.dataset.theme = current?.id ?? 'default'
       appearance.select(current)
-      themeBtnLabel.textContent = current?.name ?? '主题'
-      themeBtn.title = '当前主题：' + (current?.name ?? '默认')
-      if (themePopoverOpen) renderThemePopover()
+      menuBar.refreshThemeMenu()
     },
 
     getAppearance: appearance.get,
@@ -794,7 +675,6 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
     destroy() {
       if (noticeTimer) clearTimeout(noticeTimer)
       window.removeEventListener('keydown', onWindowKeyDown)
-      document.removeEventListener('mousedown', onDocMouseDown)
       appearance.destroy()
       menuBar.destroy()
       leftPanel.destroy()

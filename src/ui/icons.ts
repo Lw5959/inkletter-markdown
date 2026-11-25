@@ -11,7 +11,6 @@ export const icons = {
   search: `<svg ${SVG_ATTR}><circle cx="7" cy="7" r="4.3"/><path d="m10.4 10.4 3.1 3.1"/></svg>`,
   sparkles: `<svg ${SVG_ATTR}><path d="M8 2.2 9.4 6l3.8 1.4-3.8 1.4L8 12.6 6.6 8.8 2.8 7.4 6.6 6 8 2.2z"/><path d="M12.6 2.5v2M11.6 3.5h2"/></svg>`,
   plug: `<svg ${SVG_ATTR}><path d="M6 2.5v3M10 2.5v3M4.2 5.5h7.6v2.2a3.8 3.8 0 0 1-7.6 0V5.5zM8 11.5v2.5"/></svg>`,
-  palette: `<svg ${SVG_ATTR}><path d="M8 2.2a5.8 5.8 0 1 0 0 11.6c1 0 1.4-.6 1.4-1.2 0-.6-.4-1-.4-1.4 0-.6.5-1 1.1-1h1.3a2.4 2.4 0 0 0 2.4-2.4A5.7 5.7 0 0 0 8 2.2z"/><circle cx="5.4" cy="7" r=".6" fill="currentColor"/><circle cx="7.4" cy="5.2" r=".6" fill="currentColor"/><circle cx="10.2" cy="5.7" r=".6" fill="currentColor"/></svg>`,
   keyboard: `<svg ${SVG_ATTR}><rect x="1.8" y="3.8" width="12.4" height="8.4" rx="1.6"/><path d="M4.2 6.5h1M7 6.5h1M9.8 6.5h2M4.2 9.4h7.6"/></svg>`,
   chevronRight: `<svg ${SVG_ATTR}><path d="m6 4 4 4-4 4"/></svg>`,
   chevronDown: `<svg ${SVG_ATTR}><path d="m4 6 4 4 4-4"/></svg>`,

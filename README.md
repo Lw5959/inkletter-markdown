@@ -6,7 +6,7 @@
 
 1. 在文件菜单打开 Markdown 文件，或选择文件夹来使用文件树、快速打开和跨文件检索。
 2. 用顶栏的「实时」「源码」切换视图。macOS 可用 `⌘/`，Windows、Linux 可用 `Ctrl+/`。
-3. 从顶栏主题菜单选择默认、白纸、青瓷、石墨、松夜或本机 Typora 的主题。白纸是纯白底的衬线主题。本机款式首次选择时保存一份可离线使用的副本，也可以用「导入本机 Typora 主题」一次导入，或用「导入主题 CSS…」选择主文件。相对字体、图片、子目录以及 `base.user.css` 和同名覆盖样式一并导入。
+3. 从「视图 → 文档主题」选择默认、白纸、青瓷、石墨、松夜或本机 Typora 的主题。白纸是纯白底的衬线主题。本机款式首次选择时保存一份可离线使用的副本，也可以用「导入本机 Typora 主题」一次导入，或用「导入主题 CSS…」选择主文件。相对字体、图片、子目录以及 `base.user.css` 和同名覆盖样式一并导入。
 4. 文件菜单可导出 HTML、PDF、PNG 和常见办公文档。PDF 与 PNG 使用本机的 Chrome、Chromium 或 Edge。DOCX、EPUB、ODT、LaTeX 等需要安装 Pandoc。
 
 PDF 与 PNG 导出可用 `YEYU_CHROME` 指定浏览器可执行文件。如果程序找不到 Pandoc，可用 `YEYU_PANDOC` 指定其可执行文件后重新启动页屿。两个环境变量均可省略。
@@ -35,7 +35,7 @@ PDF 与 PNG 导出可用 `YEYU_CHROME` 指定浏览器可执行文件。如果�
 
 ## 双向 MCP
 
-在 MCP 侧栏添加 stdio 命令及参数，或添加 Streamable HTTP 地址。连接成功后可以浏览服务提供的工具、资源和提示词，并在调用前确认发送的参数。
+从「视图 → 协作侧栏 → MCP 工具与连接」打开 MCP 侧栏，添加 stdio 命令及参数，或添加 Streamable HTTP 地址。连接成功后可以浏览服务提供的工具、资源和提示词，并在调用前确认发送的参数。
 
 如果要让其他客户端访问当前工作区，在 MCP 侧栏授权该文件夹并复制生成的 stdio 配置。服务提供 `search_documents`、`read_document`、`current_selection` 和 `suggest_edit`。提交的建议会进入审阅队列，点击应用后可使用普通保存写入文件。[MCP 使用说明](docs/mcp.md)
 
