@@ -89,6 +89,11 @@ Apple M1 Pro，32 GB 内存，macOS 27.2.1。本地 APFS 外置 SSD 上运行发
 
 ## 平台验收范围
 
+### Android 原生服务
+
+- NDK r28c 下，`aarch64-linux-android` 目标的 `cargo check --lib` 和 `cargo build --lib` 通过，输出 AArch64 ELF 动态库。Android 的 rmcp 特性仅启用客户端及 Streamable HTTP。
+- Keystore 凭据类通过 Android SDK 37.0、Tauri Android 2.12.7 和 Kotlin 2.3.21 的独立编译。Gradle 项目编译在下载 Kotlin Gradle 依赖时遇到 Maven TLS 握手失败。手机上的凭据读写、Android 面板和 APK 流程待验。
+
 ### 0.2.4
 
 安装包与 SHA-256 校验文件位于 `release/0.2.4/`。应用源码为 `829fb56`，macOS 独立打包配置为 `81e69ea`。两个 DMG 分别装入单一架构的应用。

@@ -1,7 +1,7 @@
 use crate::{
     ai,
     document_bytes::{decode, encode, hash},
-    plugins,
+    mcp, plugins,
     store::{Store, err},
 };
 use serde::{Deserialize, Serialize};
@@ -273,13 +273,13 @@ pub fn run() {
                 .iter()
                 .map(|cert| reqwest::Certificate::from_der(cert.as_ref()))
                 .collect::<Result<Vec<_>, _>>()?;
-            app.manage(
-                reqwest::Client::builder()
-                    .tls_certs_only(roots)
-                    .connect_timeout(Duration::from_secs(12))
-                    .redirect(reqwest::redirect::Policy::none())
-                    .build()?,
-            );
+            let http = reqwest::Client::builder()
+                .tls_certs_only(roots)
+                .connect_timeout(Duration::from_secs(12))
+                .redirect(reqwest::redirect::Policy::none())
+                .build()?;
+            app.manage(mcp::Sessions::new(http.clone()));
+            app.manage(http);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -308,6 +308,10 @@ pub fn run() {
             plugins::plugin_run,
             plugins::market::plugin_market_list,
             plugins::market::plugin_market_install,
+            mcp::mcp_connect,
+            mcp::mcp_disconnect,
+            mcp::mcp_connected,
+            mcp::mcp_call,
         ])
         .run(tauri::generate_context!())
         .expect("无法启动页屿 Android");

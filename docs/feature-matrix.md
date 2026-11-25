@@ -103,6 +103,7 @@
 | AI 流式写作 | `ai_stream({ id, selection, messages, event })`、`ai_cancel({ id })` | 支持 `chat`、`anthropic`、`responses`。`id` 每次生成使用新 UUID。`messages` 的元素为 `{ role, text }`。Tauri Channel 发送 `delta`、`done` 或 `cancelled`，出错时 invoke 拒绝。等 `done` 后进入差异审阅 |
 | 插件安装和运行 | `plugin_list`、`plugin_install_content({ text })`、`plugin_set_enabled({ id, enabled })`、`plugin_remove({ id })`、`plugin_run({ id, command, text })` | `text` 为 SAF 读出的 UTF-8 JSON，最多 2 MiB。支持 JavaScript 与 Rust 编译的 Wasm。安装后先启用，运行仅返回文本结果。接口 3 的多文档和图片命令需要前端提供对应的文件或图片工作流 |
 | 插件市场 | `plugin_market_list({ source, refresh })`、`plugin_market_install({ source, id, sha256 })` | `source: null` 使用内置离线目录。在线安装传入列表返回的源地址、插件 ID 和摘要。安装返回 `{ installed, catalog }` |
+| MCP 客户端 | `mcp_connect({ server })`、`mcp_connected`、`mcp_call({ id, item, args })`、`mcp_disconnect({ id })` | `server` 为 `{ id, name, transport: 'http', url }`。连接后返回服务端发布的工具、资源和提示词。调用参数只在本次调用传给服务。stdio 客户端、stdio 服务及工作区授权仅限桌面 |
 
 Android 的服务设置地址支持公开 CA 签发证书的 HTTPS，以及设备回环 HTTP。填写可直接访问的端点，避免重定向。地址禁用用户名、密码、查询参数及片段。密钥只在保存供应商时临时传入 `key`，会话和偏好文件只保存普通配置。
 

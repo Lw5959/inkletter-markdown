@@ -73,7 +73,7 @@ pub fn configured_endpoint(value: &str) -> Result<Url, String> {
     // Android 会保存这些地址，查询参数可能包含密钥或访问令牌。
     #[cfg(target_os = "android")]
     if url.query().is_some() {
-        return Err("请移除服务器地址的查询参数，凭据须单独填写".into());
+        return Err("请填写不带查询参数的服务器直达地址".into());
     }
     Ok(url)
 }

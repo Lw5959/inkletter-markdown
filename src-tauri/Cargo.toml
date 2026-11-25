@@ -25,6 +25,7 @@ reqwest = { version = "0.13", default-features = false, features = ["json", "str
 tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
 futures-util = "0.3"
 eventsource-stream = "0.2"
+rmcp = { version = "3.11", default-features = false, features = ["client", "transport-streamable-http-client-reqwest"] }
 url = "2"
 wasmi = { version = "2.0.2", default-features = false, features = ["std", "validate"] }
 semver = "1"
@@ -47,7 +48,7 @@ tauri-plugin-opener = "2"
 reqwest = { version = "0.13", default-features = false, features = ["multipart"] }
 tokio = { version = "1", features = ["process", "fs"] }
 keyring = "4.2"
-rmcp = { version = "3.11", features = ["client", "transport-io", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest"] }
+rmcp = { version = "3.11", default-features = false, features = ["macros", "server", "transport-io", "transport-child-process", "reqwest"] }
 tungstenite = "0.29"
 rquickjs = "0.14"
 tauri-plugin-updater = "2.13"
