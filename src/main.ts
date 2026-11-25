@@ -1,5 +1,6 @@
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { dirname, join } from '@tauri-apps/api/path'
 import type { Editor, ExportFormat, ImageMode, MarketPlugin, OutlineEntry, PluginCatalog, PluginInfo, ShellAction, ShellState, Theme, TitlebarMaterial, TitlebarView, WorkspaceEntry } from './contracts'
 import { createEditor, renderMarkdown } from './editor'
@@ -1319,4 +1320,12 @@ async function startup() {
 }
 
 if (__YEYU_QA__) void import('./qa').then(({ prepareRecovery }) => prepareRecovery())
+if (macTitlebar) {
+  void getCurrentWebviewWindow().listen<string>('yeyu:menu-action', ({ payload }) => {
+    switch (payload) {
+      case 'check-update': case 'new': case 'open': case 'open-folder': case 'save': case 'save-as': case 'print':
+        void act({ type: payload })
+    }
+  }).catch(error => update(reason(error)))
+}
 void startup()
