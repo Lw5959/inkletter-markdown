@@ -422,6 +422,24 @@ mod tests {
     }
 
     #[test]
+    fn rust_plugin_formats_a_document_on_a_worker_stack() {
+        let result = std::thread::Builder::new()
+            .stack_size(1024 * 1024)
+            .spawn(|| {
+                let package = read_package(include_bytes!(
+                    "../../examples/plugins/trim-lines.yeyu-plugin.json"
+                ))?;
+                let text = "段落保留原有换行  \r\n".repeat(128);
+                execute(&package, "trim_lines", text)
+            })
+            .unwrap()
+            .join()
+            .unwrap()
+            .unwrap();
+        assert_eq!(result, "段落保留原有换行\r\n".repeat(128));
+    }
+
+    #[test]
     fn spreadsheet_cells_round_trip_through_the_bundled_javascript_module() {
         let package = read_package(include_bytes!(
             "../../examples/plugins/spreadsheet-tools.yeyu-plugin.json"

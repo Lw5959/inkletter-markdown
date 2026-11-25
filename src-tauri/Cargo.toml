@@ -27,7 +27,8 @@ futures-util = "0.3"
 eventsource-stream = "0.2"
 rmcp = { version = "3.11", default-features = false, features = ["client", "transport-streamable-http-client-reqwest"] }
 url = "2"
-wasmi = { version = "2.0.2", default-features = false, features = ["std", "validate"] }
+# 循环调度不依赖编译器将解释器指令调用优化为尾调用，避免插件运行时耗尽宿主线程栈。
+wasmi = { version = "2.0.2", default-features = false, features = ["std", "validate", "portable-dispatch"] }
 semver = "1"
 sha2 = "0.10"
 
