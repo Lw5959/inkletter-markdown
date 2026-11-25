@@ -1,11 +1,6 @@
 const SVG_ATTR = 'viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"'
 
 export const icons = {
-  brand: `<svg viewBox="0 0 20 20" width="18" height="18" fill="none" aria-hidden="true">
-    <rect x="1.5" y="1.5" width="17" height="17" rx="4.5" fill="currentColor"/>
-    <path d="M5.5 4.5h6.2l2.8 2.8v8.2h-9v-11z" fill="#f7f4ea"/>
-    <path d="M7.4 8.2h3.8M7.4 10.6h5.2M7.4 13h3.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
-  </svg>`,
   sidebar: `<svg ${SVG_ATTR}><rect x="2" y="2.5" width="12" height="11" rx="1.8"/><path d="M6 2.5v11"/></svg>`,
   folder: `<svg ${SVG_ATTR}><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3H6l1.4 1.6h5.1A1.5 1.5 0 0 1 14 6.1v5.4a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5v-7z"/></svg>`,
   folderOpen: `<svg ${SVG_ATTR}><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3H6l1.4 1.6h4.6a1.5 1.5 0 0 1 1.5 1.5v.9H4.1L2.4 12A1.5 1.5 0 0 1 2 11V4.5z"/><path d="M2.4 12.2 4 7h10l-1.5 5.2a1 1 0 0 1-1 .8H3.3a.9.9 0 0 1-.9-.8z"/></svg>`,
