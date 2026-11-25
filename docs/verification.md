@@ -89,6 +89,15 @@ Apple M1 Pro，32 GB 内存，macOS 27.2.1。本地 APFS 外置 SSD 上运行发
 
 ## 平台验收范围
 
+### 0.2.3
+
+安装包和 SHA-256 校验文件位于 `release/0.2.3/`，构建源为 `de3ef2b`。市场提交 `5e2f897` 包含九款插件。匿名下载核对了所有包的摘要、接口和版本，前一版六款的包和地址均保留。[公网目录](https://lw5959.github.io/yeyu-plugin-market/index.json) · [市场发布提交](https://github.com/Lw5959/yeyu-plugin-market/commit/5e2f897)
+
+- macOS 原生 QA 从公网安装了三款新插件，并验证内置安装。批量格式化预览三份文件后只保存勾选且版本仍匹配的文件。打开中的文件同步，BOM 和混合行尾保留。
+- 图片整理在确认前未复制资源，三类操作均通过，包括取消、应用和再次运行。两条相同内容的引用共用一个副本，检查了实际副本与两份原图字节。链接更新可撤销、重做和保存。表格排版保留了中文、转义竖线和列对齐。
+- Linux ARM64 在 Debian 13 断网容器中安装三款新插件，并用原生文件选择器选择两份文档，预览后实际写回。通过「文件」菜单设置默认应用，再用系统默认打开带中文和空格的 `.md` 文件，完成编辑和保存。确认 `.desktop` 声明 `text/markdown` 并传入文件参数。
+- macOS Universal DMG 通过镜像、签名、文档类型和两种架构的命令行启动检查，Intel 使用 Rosetta。Windows x64 NSIS 通过构建和安装档案校验，生成的安装脚本包含默认应用登记。macOS 系统确认和 Windows 设置切换待实机验证。macOS 公证与 Windows 签名待完成。
+
 ### 0.2.2
 
 安装包和 SHA-256 校验文件位于 `release/0.2.2/`，构建源为 `64ddbed`。六款插件随包提供，公网市场由 `792f84a` 发布。已匿名下载全部六个包，核对 SHA-256、身份、版本和接口。[公网目录](https://lw5959.github.io/yeyu-plugin-market/index.json) · [市场发布提交](https://github.com/Lw5959/yeyu-plugin-market/commit/792f84a)
