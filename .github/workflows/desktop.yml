@@ -14,8 +14,12 @@ jobs:
         include:
           - os: macos-15
             bundle: dmg
-            target: universal-apple-darwin
-            name: macos-universal
+            target: aarch64-apple-darwin
+            name: macos-arm64
+          - os: macos-15
+            bundle: dmg
+            target: x86_64-apple-darwin
+            name: macos-x64
           - os: windows-2025
             bundle: nsis
             target: x86_64-pc-windows-msvc
@@ -48,11 +52,7 @@ jobs:
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
-          if [[ "${{ matrix.target }}" == "universal-apple-darwin" ]]; then
-            rustup target add aarch64-apple-darwin x86_64-apple-darwin
-          else
-            rustup target add "${{ matrix.target }}"
-          fi
+          rustup target add "${{ matrix.target }}"
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml

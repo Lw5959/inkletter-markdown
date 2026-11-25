@@ -39,7 +39,7 @@ PDF 与 PNG 导出可用 `YEYU_CHROME` 指定浏览器可执行文件。如果�
 
 ## macOS 标题栏
 
-原生窗口按钮与页屿工具共用一行。在「视图 → 标题栏材质」切换毛玻璃和液态玻璃。液态玻璃需要 macOS 26 或更新，旧系统使用毛玻璃。Universal 安装包包含 Apple Silicon 和 Intel。Windows 和 Linux 使用平台原生标题栏。
+原生窗口按钮与页屿工具共用一行。在「视图 → 标题栏材质」切换毛玻璃和液态玻璃。液态玻璃需要 macOS 26 或更新，旧系统使用毛玻璃。Apple Silicon 下载 `arm64.dmg`，Intel Mac 下载 `x64.dmg`。Windows 和 Linux 使用平台原生标题栏。
 
 ## 双向 MCP
 
@@ -53,7 +53,8 @@ PDF 与 PNG 导出可用 `YEYU_CHROME` 指定浏览器可执行文件。如果�
 
 | 平台 | 开发依赖 | 打包 |
 |---|---|---|
-| macOS | Xcode Command Line Tools，Rust 的 `aarch64-apple-darwin` 和 `x86_64-apple-darwin` 目标 | `pnpm tauri build --target universal-apple-darwin --bundles dmg` |
+| macOS（Apple Silicon） | Xcode Command Line Tools，Rust 的 `aarch64-apple-darwin` 目标 | `pnpm tauri build --target aarch64-apple-darwin --bundles dmg` |
+| macOS（Intel） | Xcode Command Line Tools，Rust 的 `x86_64-apple-darwin` 目标 | `pnpm tauri build --target x86_64-apple-darwin --bundles dmg` |
 | Windows | MSVC C++ 构建工具、WebView2 Runtime | `pnpm tauri build --bundles nsis` |
 | Linux | GTK 3、WebKitGTK 4.1 开发包、CMake、pkg-config | `pnpm tauri build --bundles deb,appimage` |
 
