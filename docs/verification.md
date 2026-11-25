@@ -97,14 +97,35 @@ Chrome 158 使用 `node tests/export-browser.mjs` 的固定样本，比较导出
 | 1 MiB 热渲染耗时中位数 | 328 ms | 376 ms |
 | 同一张本地图片在文档引用 8 次 | 读取 8 次，最长任务 136 ms | 读取 1 次，0 个长任务 |
 
-两组样本的 HTML 与原实现逐字节一致。macOS 通过相对图片、主题 CSS、MathML 和 Mermaid 的 HTML、A4 PDF、PNG 导出检查。
+比较 Worker 改动前后，两组基准样本的 HTML 逐字节一致。macOS 通过相对图片、主题 CSS、MathML 和 Mermaid 的 HTML、A4 PDF、PNG 导出检查。
+
+带样式的导出按比例将普通插图限制在正文宽度和 20 rem 高度内。验收样稿中 1254 × 1254 的方图，从占用 692 × 692 px 缩到 320 × 320 px。横向长图仍可使用正文宽度，小图保留原尺寸。Chrome 用相同样稿生成并核对 PNG 和 PDF。
+
+两节点 Mermaid 流程图在 692 px 的正文中按原始 256 px 居中显示。Chrome 与 WebKit 核对实时节点居中，Chrome 核对浅色、深色、窄幅和打印布局。分支样稿核对菱形位置、文字与入边对齐，以及虚线和粗实线的区别，并生成 PNG 与 PDF。
 
 ## 平台验收范围
 
-### Android 原生服务
+### 0.2.7
 
-- NDK r28c 下，`aarch64-linux-android` 目标的 `cargo check --lib` 和 `cargo build --lib` 通过，输出 AArch64 ELF 动态库。Android 的 rmcp 特性仅启用客户端及 Streamable HTTP。
-- Keystore 凭据类通过 Android SDK 37.0、Tauri Android 2.12.7 和 Kotlin 2.3.21 的独立编译。Gradle 项目编译在下载 Kotlin Gradle 依赖时遇到 Maven TLS 握手失败。手机上的凭据读写、Android 面板和 APK 流程待验。
+Android 浏览器回归使用 280、320、393 和 820 CSS px 四种宽度，模拟 2 到 3.5 的设备像素比、大字号以及横屏两侧安全区。Chromium 和 WebKit 均通过长文件名、宽表格、查找替换、顶部及底部按钮的几何与交互检查。280 px 样本中，修复前被撑到约 2520 px 的工具栏恢复到 280 px。窄屏下工具栏可换行，按钮保留 44 × 44 px 触控区域，长表格在自身区域滚动。此版本的手机端验收使用上述浏览器环境。
+
+### 0.2.6
+
+本地安装包和 SHA-256 校验文件位于 `release/0.2.6/`，构建源为 `70abfd7`。从本版起，安装包在本地生成。GitHub Releases 更新入口和桌面更新签名仍可用于手动发布。
+
+- macOS 的原生 QA 构建通过 Cocoa 中文输入、混合换行与 BOM 往返、外部改动冲突和强制退出后的草稿恢复。HTML、PDF、PNG 导出均包含样稿中的 Mermaid 流程图。实时编辑和导出也覆盖常见的旧式 `flowchart` 与 `sequence` 语法。
+- macOS 原生 QA 通过三种 AI 流式接口的本地测试服务、MCP stdio 与 Streamable HTTP 调用、内置和市场插件的安装与运行。已复测此前导致退出的 Rust 插件，覆盖运行、禁用、热更新与差异撤销。
+- WebKit 通过 34 项测试。另用本机八套 Typora 主题和四套内置主题复测区块排版、悬停和按下。Chromium 通过导出响应复测，Rust 通过 16 项测试。
+- Android 0.2.6 在 Android SDK 37、NDK r28c 下完成 Kotlin 和 AArch64 Rust 发布构建。签名 APK 安装到 ARM64 小米手机，冷启动直接打开文件选择器，打开含中文、BOM 和混合换行的样稿。系统键盘弹出时，正文滚动到输入位置，底栏位于键盘上方。实机检查了浅色和深色界面。最终交付 APK 通过 v2/v3 签名验证，手机安装文件与交付包的 SHA-256 一致。Android Keystore 凭据流程及 AI、MCP 的手机端真实服务往返待验。
+
+| 安装包 | 验收 |
+|---|---|
+| macOS Apple Silicon DMG | 镜像、应用签名和更新签名校验通过。镜像内应用显示名为「页屿」，只含 arm64，从挂载后的应用启动 MCP 并读取临时工作区文档。 |
+| macOS Intel DMG | 独立 x86_64 镜像与签名校验通过，在 Rosetta 下从挂载后的应用启动 MCP 并读取文档。Intel 物理设备上的编辑器窗口待验。 |
+| Windows x64 NSIS | 本机交叉构建、安装档案和更新签名校验通过。包内应用为 x86-64，安装脚本含目录选择页。Windows 原生安装与窗口操作待验。 |
+| Linux ARM64 DEB / AppImage | 在 Debian 13 断网容器中安装 DEB、解包 AppImage。两种产物均通过真实 WebKitGTK 窗口打开、编辑、保存和 BOM 校验。AppImage 更新签名通过。 |
+
+macOS 的应用签名为临时签名，DMG 待公证。Windows 平台的 Authenticode 签名待补。
 
 ### 0.2.4
 
