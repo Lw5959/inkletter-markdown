@@ -13,12 +13,14 @@ class MainActivity : TauriActivity() {
     super.onWebViewCreate(webView)
     // 由系统在实际重绘时选择高刷新档位，空闲时仍可由设备降频。
     if (Build.VERSION.SDK_INT >= 35) {
-      val display = webView.display
-      val current = display?.mode
-      val fastest = display?.supportedModes?.asSequence()?.filter {
-        current != null && it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight
-      }?.maxOfOrNull { it.refreshRate }
-      webView.requestedFrameRate = fastest?.takeIf { it > 60f } ?: View.REQUESTED_FRAME_RATE_CATEGORY_HIGH
+      webView.post {
+        val display = webView.display
+        val current = display?.mode
+        val fastest = display?.supportedModes?.asSequence()?.filter {
+          current != null && it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight
+        }?.maxOfOrNull { it.refreshRate }
+        webView.requestedFrameRate = fastest?.takeIf { it > 60f } ?: View.REQUESTED_FRAME_RATE_CATEGORY_HIGH
+      }
     }
   }
 
