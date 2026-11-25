@@ -1,5 +1,6 @@
 import type { Appearance, ExportFormat, RenderOptions, Theme } from './contracts'
-import { renderMarkdown } from './editor'
+import { renderMarkdown } from './editor/render'
+import type { ExportAsset, ExportWorkerInput, ExportWorkerOutput } from './export-worker'
 import { invoke } from './native'
 import baseStyles from './editor/document.css?raw'
 import './print.css'
@@ -26,8 +27,56 @@ function escaped(value: string) {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
+let idleWorker: { worker: Worker; timer: number } | undefined
+
+async function resolveAsset(asset: ExportAsset, { resolveImage }: RenderOptions) {
+  if (asset.type === 'image') {
+    try {
+      return await resolveImage?.(asset.url) ?? null
+    } catch {
+      return null
+    }
+  }
+  const { renderDiagram } = await import('./editor/diagrams')
+  return renderDiagram(asset.kind, asset.source)
+}
+
+async function renderExport(markdown: string, options: RenderOptions) {
+  if (typeof Worker === 'undefined') return renderMarkdown(markdown, options)
+
+  const idle = idleWorker
+  idleWorker = undefined
+  if (idle) window.clearTimeout(idle.timer)
+  const worker = idle?.worker ?? new Worker(new URL('./export-worker.ts', import.meta.url), { type: 'module' })
+  try {
+    const html = await new Promise<string>((resolve, reject) => {
+      const send = (message: ExportWorkerInput) => worker.postMessage(message)
+      worker.onmessage = ({ data }: MessageEvent<ExportWorkerOutput>) => {
+        if (data.type === 'rendered') resolve(data.html)
+        else if (data.type === 'failed') reject(new Error(data.message))
+        else void resolveAsset(data.asset, options)
+          .then(value => send({ type: 'resolved', id: data.id, value })).catch(reject)
+      }
+      worker.onerror = event => reject(new Error(event.message || '无法启动导出渲染'))
+      worker.onmessageerror = () => reject(new Error('无法读取导出渲染结果'))
+      send({ type: 'render', markdown, images: !!options.resolveImage })
+    })
+    worker.onmessage = worker.onerror = worker.onmessageerror = null
+    // 同一 Worker 一次处理一份文档。短暂保留空闲实例，供连续导出复用已加载的依赖。
+    if (idleWorker) worker.terminate()
+    else idleWorker = { worker, timer: window.setTimeout(() => {
+      idleWorker = undefined
+      worker.terminate()
+    }, 5_000) }
+    return html
+  } catch (error) {
+    worker.terminate()
+    throw error
+  }
+}
+
 export async function exportHtml(markdown: string, title: string, options: RenderOptions, theme: Theme | undefined, plain: boolean, appearance: Appearance) {
-  const content = await renderMarkdown(markdown, options)
+  const content = await renderExport(markdown, options)
   const css = plain ? '' : '<style>' + safeStyle(documentStyles + (theme?.styles ?? []).join('\n')) + '</style>'
   return `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8">
@@ -47,7 +96,7 @@ export async function print(markdown: string, options: RenderOptions, theme: The
   style.textContent = '@media print {\n' + documentStyles + (theme?.styles ?? []).join('\n') + '\n}'
   const body = document.createElement('article')
   body.id = 'write'
-  body.innerHTML = await renderMarkdown(markdown, options)
+  body.innerHTML = await renderExport(markdown, options)
   stage.append(style, body)
   document.body.append(stage)
   try {

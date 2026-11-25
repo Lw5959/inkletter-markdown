@@ -35,7 +35,20 @@ export function safeUrl(url: string, image = false) {
   return !scheme || (image ? ['http', 'https', 'asset', 'blob'] : ['http', 'https', 'mailto']).includes(scheme)
 }
 
-export async function renderMarkdown(markdown: string, options: RenderOptions = {}): Promise<string> {
+type RenderHooks = RenderOptions & { renderDiagram?: (kind: string, source: string) => Promise<string | null> }
+
+export function renderMarkdown(markdown: string, options: RenderOptions = {}): Promise<string> {
+  return renderMarkdownWith(markdown, {
+    ...options,
+    renderDiagram: typeof document === 'undefined' ? undefined : async (kind, source) => {
+      const { renderDiagram } = await import('./diagrams')
+      return renderDiagram(kind, source)
+    },
+  })
+}
+
+// Worker 与编辑器共用解析、高亮和净化。图表由有 DOM 的调用方绘制，再经过同一白名单。
+export async function renderMarkdownWith(markdown: string, { resolveImage, renderDiagram }: RenderHooks): Promise<string> {
   const clean = (await import('sanitize-html')).default
   const md = parser()
   const escape = md.utils.escapeHtml
@@ -63,6 +76,7 @@ export async function renderMarkdown(markdown: string, options: RenderOptions = 
   const used = new Set<string>()
   const jobs: Promise<void>[] = []
   const replacements = new Map<Token, string>()
+  const images = new Map<string, Promise<string | undefined>>()
   for (const [index, token] of tokens.entries()) {
     if (token.type === 'list_item_open') {
       const className = token.attrGet('class')
@@ -77,21 +91,27 @@ export async function renderMarkdown(markdown: string, options: RenderOptions = 
       token.attrSet('id', id)
       headings.push({ id, title, tag: token.tag })
     }
-    if (options.resolveImage) {
+    if (resolveImage) {
       for (const child of token.children ?? []) {
         const src = child.type === 'image' ? child.attrGet('src') : null
         if (typeof src === 'string' && src && safeUrl(src, true)) {
-          jobs.push(Promise.resolve().then(() => options.resolveImage!(src)).then(result => {
-            if (safeUrl(result, true)) child.attrSet('src', result)
-          }).catch(() => { /* 解析失败时仍保留原来的图片地址。 */ }))
+          // 在本次渲染内复用图片读取和编码，解析失败时保留原地址。
+          let image = images.get(src)
+          if (!image) {
+            image = Promise.resolve().then(() => resolveImage(src))
+              .then(result => safeUrl(result, true) ? result : undefined).catch(() => undefined)
+            images.set(src, image)
+          }
+          jobs.push(image.then(result => {
+            if (result !== undefined) child.attrSet('src', result)
+          }))
         }
       }
     }
     if (token.type === 'fence') {
       const kind = token.info.trim().split(/\s+/)[0].toLowerCase()
-      if (['mermaid', 'flowchart', 'sequence'].includes(kind) && typeof document !== 'undefined') {
-        jobs.push(import('./diagrams').then(async ({ renderDiagram }) => {
-          const svg = await renderDiagram(kind, token.content)
+      if (['mermaid', 'flowchart', 'sequence'].includes(kind) && renderDiagram) {
+        jobs.push(renderDiagram(kind, token.content).then(svg => {
           if (svg) replacements.set(token, '<figure class="markdown-diagram">' + svg + '</figure>')
         }))
       } else if (kind === 'math' || kind === 'latex') {
