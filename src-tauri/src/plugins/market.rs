@@ -2,7 +2,10 @@ use super::{
     MAX_PACKAGE, Package, PluginView, Plugins, install, label, list, newer_than, read_package,
     supports_api,
 };
-use crate::{ai::safe_endpoint, store::Store};
+use crate::{
+    ai::{configured_endpoint, safe_endpoint},
+    store::Store,
+};
 use reqwest::{Client, Url};
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -307,7 +310,7 @@ pub async fn plugin_market_list(
     let Some(source) = source else {
         return Ok(Catalog::bundled()?.view(&list(&store, &plugins)?));
     };
-    let source = safe_endpoint(&source)?;
+    let source = configured_endpoint(&source)?;
     let cache = market.cache(&source).await;
     let mut catalog = cache.lock().await;
     if refresh || catalog.is_none() {
@@ -337,7 +340,7 @@ pub async fn plugin_market_install(
             &bundled
         }
         Some(source) => {
-            let source = safe_endpoint(&source)?;
+            let source = configured_endpoint(&source)?;
             cache = market.cache(&source).await;
             snapshot = cache.lock().await;
             snapshot.as_ref().ok_or("市场目录已变动，请刷新后重试")?

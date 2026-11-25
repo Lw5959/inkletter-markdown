@@ -7,10 +7,10 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs::File,
-    io::Read,
     sync::Mutex,
 };
+#[cfg(not(target_os = "android"))]
+use std::{fs::File, io::Read};
 use tauri::State;
 use wasmi::{
     Config, Engine, ExternType, Linker, Module, Store as VmStore, StoreLimits, StoreLimitsBuilder,
@@ -306,6 +306,7 @@ fn install(
     Ok(registry.view())
 }
 
+#[cfg(not(target_os = "android"))]
 #[tauri::command]
 pub async fn plugin_install(
     path: String,
@@ -319,6 +320,17 @@ pub async fn plugin_install(
         .read_to_end(&mut bytes)
         .map_err(err)?;
     install(&store, &plugins, read_package(&bytes)?, None)
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn plugin_install_content(
+    text: String,
+    store: State<'_, Store>,
+    plugins: State<'_, Plugins>,
+) -> Result<Vec<PluginView>, String> {
+    // 前端从 SAF 读出内容，原生层复用插件包校验和安装流程。
+    install(&store, &plugins, read_package(text.as_bytes())?, None)
 }
 
 #[tauri::command]

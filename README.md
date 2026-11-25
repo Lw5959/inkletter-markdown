@@ -67,7 +67,13 @@ PDF 与 PNG 导出可用 `YEYU_CHROME` 指定浏览器可执行文件。如果�
 | macOS（Intel） | Xcode Command Line Tools，Rust 的 `x86_64-apple-darwin` 目标 | `pnpm tauri build --target x86_64-apple-darwin --bundles dmg` |
 | Windows | MSVC C++ 构建工具、WebView2 Runtime | `pnpm tauri build --bundles nsis` |
 | Linux | GTK 3、WebKitGTK 4.1 开发包、CMake、pkg-config | `pnpm tauri build --bundles deb,appimage` |
-| Android ARM64 | JDK 21，Android SDK 37，NDK r28c，Rust 的 `aarch64-linux-android` 目标 | `pnpm tauri android build --apk --target aarch64 --debug` |
+| Android ARM64 | JDK 21，Android SDK 37，NDK r28c，libclang，Rust 的 `aarch64-linux-android` 目标 | `pnpm tauri android build --apk --target aarch64 --debug` |
+
+QuickJS 在 Android 构建时用 libclang 生成绑定。先将 `NDK_HOME` 指向 NDK r28c，再设置下列参数。Linux 使用 `linux-x86_64`，Windows 使用 `windows-x86_64`。
+
+```sh
+export BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android="--sysroot=$NDK_HOME/toolchains/llvm/prebuilt/darwin-x86_64/sysroot"
+```
 
 ```sh
 pnpm install --frozen-lockfile

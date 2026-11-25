@@ -1,4 +1,5 @@
 pub mod config;
+mod credentials;
 
 use crate::store::{Store, err};
 use config::{Models, Selection, Target};
@@ -67,8 +68,18 @@ pub fn safe_endpoint(value: &str) -> Result<Url, String> {
     Ok(url)
 }
 
+pub fn configured_endpoint(value: &str) -> Result<Url, String> {
+    let url = safe_endpoint(value)?;
+    // Android 会保存这些地址，查询参数可能包含密钥或访问令牌。
+    #[cfg(target_os = "android")]
+    if url.query().is_some() {
+        return Err("请移除服务器地址的查询参数，凭据须单独填写".into());
+    }
+    Ok(url)
+}
+
 fn model_endpoint(endpoint: &str, protocol: Protocol) -> Result<Url, String> {
-    let mut url = safe_endpoint(endpoint)?;
+    let mut url = configured_endpoint(endpoint)?;
     let path = url.path().trim_end_matches('/');
     if path.ends_with(protocol.path()) {
         return Ok(url);
@@ -214,16 +225,12 @@ fn model_event<'a>(
 
 async fn stream(
     http: &Client,
+    endpoint: Url,
     settings: Target,
+    key: Option<String>,
     messages: Vec<Message>,
     event: &Channel<Event>,
 ) -> Result<(), String> {
-    let endpoint = model_endpoint(&settings.endpoint, settings.protocol)?;
-    let key = match config::password(settings.credential.as_deref()) {
-        // 沿用旧版行为，本机服务在系统凭据存储不可用时仍可无密钥连接。
-        Err(_) if endpoint.scheme() == "http" => None,
-        result => result?,
-    };
     let request = model_request(http, endpoint, &settings, &messages, key)?;
     let response = request
         .send()
@@ -283,7 +290,7 @@ pub async fn ai_stream(
     models: State<'_, Models>,
     http: State<'_, Client>,
 ) -> Result<(), String> {
-    let settings = config::target(&store, &models, selection)?;
+    let (settings, endpoint, key) = config::target(&store, &models, selection)?;
     let (cancel, stop) = oneshot::channel();
     {
         let mut active = jobs.0.lock().map_err(err)?;
@@ -293,7 +300,7 @@ pub async fn ai_stream(
         active.insert(id.clone(), cancel);
     }
     let result = tokio::select! {
-        result = stream(&http, settings, messages, &event) => result,
+        result = stream(&http, endpoint, settings, key, messages, &event) => result,
         _ = stop => event.send(Event::Cancelled).map_err(err)
     };
     jobs.0.lock().map_err(err)?.remove(&id);

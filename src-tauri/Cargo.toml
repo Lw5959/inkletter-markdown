@@ -19,6 +19,20 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tempfile = "3"
 blake3 = "1"
+base64 = "0.22"
+uuid = { version = "1", features = ["v4"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls"] }
+tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
+futures-util = "0.3"
+eventsource-stream = "0.2"
+url = "2"
+wasmi = { version = "2.0.2", default-features = false, features = ["std", "validate"] }
+semver = "1"
+sha2 = "0.10"
+
+[target.'cfg(target_os = "android")'.dependencies]
+rquickjs = { version = "0.14", features = ["bindgen"] }
+webpki-root-certs = "1"
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
 tauri-plugin-dialog = "2"
@@ -27,23 +41,15 @@ walkdir = "2"
 glob = "0.3"
 trash = "5"
 regex = "1"
-base64 = "0.22"
 mime_guess = "2"
 plist = "1"
-uuid = { version = "1", features = ["v4"] }
 tauri-plugin-opener = "2"
-reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "multipart", "rustls"] }
-tokio = { version = "1", features = ["rt", "sync", "time", "process", "fs", "macros"] }
-futures-util = "0.3"
-eventsource-stream = "0.2"
+reqwest = { version = "0.13", default-features = false, features = ["multipart"] }
+tokio = { version = "1", features = ["process", "fs"] }
 keyring = "4.2"
 rmcp = { version = "3.11", features = ["client", "transport-io", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest"] }
 tungstenite = "0.29"
-url = "2"
-wasmi = { version = "2.0.2", default-features = false, features = ["std", "validate"] }
 rquickjs = "0.14"
-semver = "1"
-sha2 = "0.10"
 tauri-plugin-updater = "2.13"
 
 [features]

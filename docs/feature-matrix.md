@@ -95,6 +95,17 @@
 | MCP 远端 Streamable HTTP 客户端 | MCP 侧栏 → HTTP | 发现并分别调用工具、读取资源和提示词 | macOS 通过真实 HTTP 传输的本机端点，远程鉴权待做 |
 | MCP stdio 服务 | MCP 侧栏开启工作区访问 | SDK 客户端发现、检索、读取选区、提交建议、编辑器批准并保存 | macOS 验收 |
 
+### Android 原生服务
+
+| 功能 | Android 原生命令 | 接入约束 |
+|---|---|---|
+| 模型配置 | `ai_settings`、`ai_provider_save({ provider, key })`、`ai_provider_remove({ id })`、`ai_model_select({ selection })` | 使用桌面供应商和模型类型。新增供应商 ID 须为 UUID。省略 `key` 时，同地址同协议保留旧密钥。传空串清除。更换地址或协议时重新填写密钥。Android Keystore 保护凭据，前端仅接收 `hasKey` |
+| AI 流式写作 | `ai_stream({ id, selection, messages, event })`、`ai_cancel({ id })` | 支持 `chat`、`anthropic`、`responses`。`id` 每次生成使用新 UUID。`messages` 的元素为 `{ role, text }`。Tauri Channel 发送 `delta`、`done` 或 `cancelled`，出错时 invoke 拒绝。等 `done` 后进入差异审阅 |
+| 插件安装和运行 | `plugin_list`、`plugin_install_content({ text })`、`plugin_set_enabled({ id, enabled })`、`plugin_remove({ id })`、`plugin_run({ id, command, text })` | `text` 为 SAF 读出的 UTF-8 JSON，最多 2 MiB。支持 JavaScript 与 Rust 编译的 Wasm。安装后先启用，运行仅返回文本结果。接口 3 的多文档和图片命令需要前端提供对应的文件或图片工作流 |
+| 插件市场 | `plugin_market_list({ source, refresh })`、`plugin_market_install({ source, id, sha256 })` | `source: null` 使用内置离线目录。在线安装传入列表返回的源地址、插件 ID 和摘要。安装返回 `{ installed, catalog }` |
+
+Android 的服务设置地址支持公开 CA 签发证书的 HTTPS，以及设备回环 HTTP。填写可直接访问的端点，避免重定向。地址禁用用户名、密码、查询参数及片段。密钥只在保存供应商时临时传入 `key`，会话和偏好文件只保存普通配置。
+
 ## Typora 2 beta 后续里程碑
 
 | 里程碑 | 内容 | 验收条件 |

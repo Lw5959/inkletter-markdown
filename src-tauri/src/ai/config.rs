@@ -1,4 +1,4 @@
-use super::{Protocol, model_endpoint};
+use super::{Protocol, credentials::Credentials, model_endpoint};
 use crate::store::{Store, err};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
@@ -8,8 +8,26 @@ use uuid::Uuid;
 
 const SETTINGS_FILE: &str = "ai.json";
 
-#[derive(Default)]
-pub struct Models(Mutex<()>);
+#[cfg_attr(not(target_os = "android"), derive(Default))]
+pub struct Models {
+    lock: Mutex<()>,
+    credentials: Credentials,
+}
+
+#[cfg(target_os = "android")]
+pub(crate) fn android_credentials() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    use tauri::Manager;
+    tauri::plugin::Builder::new("android-ai-credentials")
+        .setup(|app, api| {
+            let plugin = api.register_android_plugin("io.yeyu.markdown", "AiCredentials")?;
+            app.manage(Models {
+                lock: Mutex::new(()),
+                credentials: Credentials(plugin),
+            });
+            Ok(())
+        })
+        .build()
+}
 
 #[derive(Clone, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -137,23 +155,7 @@ impl Catalog {
     }
 }
 
-fn entry(account: &str) -> Result<keyring::Entry, String> {
-    keyring::Entry::new("io.yeyu.markdown.ai", account)
-        .map_err(|error| format!("系统凭据存储不可用：{error}"))
-}
-
-pub(super) fn password(account: Option<&str>) -> Result<Option<String>, String> {
-    let Some(account) = account else {
-        return Ok(None);
-    };
-    match entry(account)?.get_password() {
-        Ok(secret) => Ok(Some(secret)),
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(error) => Err(format!("系统凭据存储不可用：{error}")),
-    }
-}
-
-fn read_catalog(store: &Store) -> Result<Catalog, String> {
+fn read_catalog(store: &Store, credentials: &Credentials) -> Result<Catalog, String> {
     let mut catalog = match store.read::<Option<Existing>>(SETTINGS_FILE)? {
         Some(Existing::Catalog(catalog)) => catalog,
         Some(Existing::Single {
@@ -163,7 +165,7 @@ fn read_catalog(store: &Store) -> Result<Catalog, String> {
         }) if !endpoint.is_empty() && !model.is_empty() => {
             // 旧版以地址摘要定位凭据。保留这个引用，迁移时无需读取并重新保存密钥。
             let account = blake3::hash(endpoint.as_bytes()).to_hex().to_string();
-            let credential = (!matches!(password(Some(&account)), Ok(None))).then_some(account);
+            let credential = (!matches!(credentials.get(&account), Ok(None))).then_some(account);
             let name = Url::parse(&endpoint)
                 .ok()
                 .and_then(|url| url.host_str().map(str::to_owned))
@@ -188,17 +190,15 @@ fn read_catalog(store: &Store) -> Result<Catalog, String> {
     Ok(catalog)
 }
 
-fn retire_credential(account: &str) -> Result<(), String> {
-    match entry(account)?.delete_credential() {
-        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-        Err(error) => Err(err(error)),
-    }
-}
-
-fn save_catalog(store: &Store, catalog: Catalog, retired: Option<String>) -> Result<View, String> {
+fn save_catalog(
+    store: &Store,
+    credentials: &Credentials,
+    catalog: Catalog,
+    retired: Option<String>,
+) -> Result<View, String> {
     store.write(SETTINGS_FILE, &catalog)?;
     let notice = retired
-        .and_then(|account| retire_credential(&account).err())
+        .and_then(|account| credentials.remove(&account).err())
         .map(|error| format!("配置已保存，旧系统凭据清理失败：{error}"));
     Ok(catalog.view(notice))
 }
@@ -230,8 +230,8 @@ pub async fn ai_settings(
     store: State<'_, Store>,
     models: State<'_, Models>,
 ) -> Result<View, String> {
-    let _guard = models.0.lock().map_err(err)?;
-    Ok(read_catalog(&store)?.view(None))
+    let _guard = models.lock.lock().map_err(err)?;
+    Ok(read_catalog(&store, &models.credentials)?.view(None))
 }
 
 #[tauri::command]
@@ -241,8 +241,8 @@ pub async fn ai_provider_save(
     store: State<'_, Store>,
     models: State<'_, Models>,
 ) -> Result<View, String> {
-    let _guard = models.0.lock().map_err(err)?;
-    let mut catalog = read_catalog(&store)?;
+    let _guard = models.lock.lock().map_err(err)?;
+    let mut catalog = read_catalog(&store, &models.credentials)?;
     normalize(&mut provider)?;
     let index = catalog
         .providers
@@ -259,9 +259,7 @@ pub async fn ai_provider_save(
             reqwest::header::HeaderValue::from_str(secret)
                 .map_err(|_| "API 密钥含有无法发送的字符")?;
             let account = Uuid::new_v4().to_string();
-            entry(&account)?
-                .set_password(secret)
-                .map_err(|error| format!("写入系统凭据失败：{error}"))?;
+            models.credentials.set(&account, secret)?;
             created = Some(account.clone());
             Some(account)
         }
@@ -285,19 +283,21 @@ pub async fn ai_provider_save(
         catalog.providers.push(next)
     }
     catalog.pick_available();
-    match save_catalog(&store, catalog, retired) {
+    match save_catalog(&store, &models.credentials, catalog, retired) {
         Ok(view) => Ok(view),
         Err(error) => {
             // 若元数据未写入，回收这次创建的凭据。已提交的新引用需要保留。
             if let Some(account) = created
-                && read_catalog(&store).is_ok_and(|catalog| {
+                && read_catalog(&store, &models.credentials).is_ok_and(|catalog| {
                     catalog
                         .providers
                         .iter()
                         .all(|item| item.credential.as_ref() != Some(&account))
                 })
             {
-                retire_credential(&account)
+                models
+                    .credentials
+                    .remove(&account)
                     .map_err(|cleanup| format!("{error}。回收新系统凭据失败：{cleanup}"))?;
             }
             Err(error)
@@ -311,8 +311,8 @@ pub async fn ai_provider_remove(
     store: State<'_, Store>,
     models: State<'_, Models>,
 ) -> Result<View, String> {
-    let _guard = models.0.lock().map_err(err)?;
-    let mut catalog = read_catalog(&store)?;
+    let _guard = models.lock.lock().map_err(err)?;
+    let mut catalog = read_catalog(&store, &models.credentials)?;
     let index = catalog
         .providers
         .iter()
@@ -320,7 +320,7 @@ pub async fn ai_provider_remove(
         .ok_or("该供应商已删除")?;
     let retired = catalog.providers.remove(index).credential;
     catalog.pick_available();
-    save_catalog(&store, catalog, retired)
+    save_catalog(&store, &models.credentials, catalog, retired)
 }
 
 #[tauri::command]
@@ -329,8 +329,8 @@ pub async fn ai_model_select(
     store: State<'_, Store>,
     models: State<'_, Models>,
 ) -> Result<View, String> {
-    let _guard = models.0.lock().map_err(err)?;
-    let mut catalog = read_catalog(&store)?;
+    let _guard = models.lock.lock().map_err(err)?;
+    let mut catalog = read_catalog(&store, &models.credentials)?;
     catalog.target(selection.clone())?;
     if catalog.active.as_ref() != Some(&selection) {
         catalog.active = Some(selection);
@@ -343,9 +343,22 @@ pub(super) fn target(
     store: &Store,
     models: &Models,
     selection: Selection,
-) -> Result<Target, String> {
-    let _guard = models.0.lock().map_err(err)?;
-    read_catalog(store)?.target(selection)
+) -> Result<(Target, Url, Option<String>), String> {
+    let _guard = models.lock.lock().map_err(err)?;
+    let settings = read_catalog(store, &models.credentials)?.target(selection)?;
+    let endpoint = model_endpoint(&settings.endpoint, settings.protocol)?;
+    // 在同一把锁内读取配置和凭据，避免开始请求时引用已被并发保存删除。
+    let key = match settings.credential.as_deref() {
+        None => None,
+        Some(account) => match models.credentials.get(account) {
+            #[cfg(not(target_os = "android"))]
+            Err(_) if endpoint.scheme() == "http" => None,
+            #[cfg(target_os = "android")]
+            Ok(None) => return Err("系统中已找不到此 API 密钥，请重新填写".into()),
+            result => result?,
+        },
+    };
+    Ok((settings, endpoint, key))
 }
 
 #[cfg(test)]

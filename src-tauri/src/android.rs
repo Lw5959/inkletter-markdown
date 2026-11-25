@@ -1,5 +1,7 @@
 use crate::{
+    ai,
     document_bytes::{decode, encode, hash},
+    plugins,
     store::{Store, err},
 };
 use serde::{Deserialize, Serialize};
@@ -9,6 +11,7 @@ use std::{
     io::{Read, Seek, SeekFrom, Write},
     os::fd::FromRawFd,
     sync::Mutex,
+    time::Duration,
 };
 use tauri::{Manager, State, Wry, plugin::PluginHandle};
 
@@ -259,8 +262,24 @@ pub fn run() {
         .build();
     tauri::Builder::default()
         .plugin(documents)
+        .plugin(ai::config::android_credentials())
+        .manage(ai::Jobs::default())
+        .manage(plugins::Plugins::default())
+        .manage(plugins::market::Market::default())
         .setup(|app| {
             app.manage(Store(app.path().app_data_dir()?));
+            // reqwest 的默认 Android 验证器需要额外 JVM 组件。显式启用公开 CA 根证书。
+            let roots = webpki_root_certs::TLS_SERVER_ROOT_CERTS
+                .iter()
+                .map(|cert| reqwest::Certificate::from_der(cert.as_ref()))
+                .collect::<Result<Vec<_>, _>>()?;
+            app.manage(
+                reqwest::Client::builder()
+                    .tls_certs_only(roots)
+                    .connect_timeout(Duration::from_secs(12))
+                    .redirect(reqwest::redirect::Policy::none())
+                    .build()?,
+            );
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -275,7 +294,20 @@ pub fn run() {
             android_save_session,
             android_insets,
             android_appearance,
-            android_open_update
+            android_open_update,
+            ai::config::ai_settings,
+            ai::config::ai_provider_save,
+            ai::config::ai_provider_remove,
+            ai::config::ai_model_select,
+            ai::ai_stream,
+            ai::ai_cancel,
+            plugins::plugin_list,
+            plugins::plugin_install_content,
+            plugins::plugin_set_enabled,
+            plugins::plugin_remove,
+            plugins::plugin_run,
+            plugins::market::plugin_market_list,
+            plugins::market::plugin_market_install,
         ])
         .run(tauri::generate_context!())
         .expect("无法启动页屿 Android");
