@@ -84,6 +84,6 @@ pnpm test
 cargo test --locked --manifest-path src-tauri/Cargo.toml
 ```
 
-[功能对照表](docs/feature-matrix.md) · [架构与文件归属](docs/architecture.md) · [性能和验收](docs/verification.md) · [三平台打包配置](.github/workflows/desktop.yml)
+[功能对照表](docs/feature-matrix.md) · [架构与文件归属](docs/architecture.md) · [性能和验收](docs/verification.md) · [本地打包与更新](docs/releases.md)
 
 源码采用 [MIT 许可证](LICENSE)，第三方组件仍适用各自的许可条款。
