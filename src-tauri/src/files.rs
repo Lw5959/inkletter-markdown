@@ -1,3 +1,5 @@
+pub use crate::document_bytes::hash;
+use crate::document_bytes::{decode, encode};
 use crate::store::{Store, atomic_write, canonical, err, file_name};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -53,17 +55,9 @@ pub struct Recovery {
     pub mode: String,
 }
 
-pub fn hash(bytes: &[u8]) -> String {
-    blake3::hash(bytes).to_hex().to_string()
-}
-
-fn snapshot(path: PathBuf, mut bytes: Vec<u8>) -> Result<FileSnapshot, String> {
-    let bom = bytes.starts_with(&[0xef, 0xbb, 0xbf]);
+fn snapshot(path: PathBuf, bytes: Vec<u8>) -> Result<FileSnapshot, String> {
     let version = hash(&bytes);
-    if bom {
-        bytes.drain(..3);
-    }
-    let text = String::from_utf8(bytes).map_err(|_| "文档需要使用 UTF-8 编码".to_owned())?;
+    let (text, bom) = decode(bytes)?;
     let name = file_name(&path);
     Ok(FileSnapshot {
         path,
@@ -113,11 +107,7 @@ fn write(
     if current.as_deref().map(hash).as_deref() != expected {
         return Err(SaveError::conflict());
     }
-    let mut bytes = Vec::with_capacity(text.len() + 3);
-    if bom {
-        bytes.extend_from_slice(&[0xef, 0xbb, 0xbf]);
-    }
-    bytes.extend_from_slice(text.as_bytes());
+    let bytes = encode(text, bom);
     // 无变化时保留文件本身。首次保存用不覆盖的原子重命名处理同名竞争。
     if current.as_ref() != Some(&bytes) {
         if current.is_none() {

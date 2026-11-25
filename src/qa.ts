@@ -161,6 +161,31 @@ async function measure(ports: Ports, scenario: Case) {
   check(ports.text().includes('测'.repeat(34)), '原生文本输入抵达编辑缓冲区')
   result.inputP95Ms = Math.round(inputMs.sort((a, b) => a - b)[Math.ceil(inputMs.length * .95) - 1] * 10) / 10
   result.inputSamples = inputMs.length
+  const frameIntervals: number[] = []
+  const paper = document.querySelector('.yy-paper')!
+  for (const [side, button] of [['left', 'left'], ['right', 'ai']] as const) {
+    const trigger = document.querySelector<HTMLButtonElement>(`[data-toggle="${button}"]`)!
+    const panel = document.querySelector(`.yy-sidebar-slot-${side} aside`)!
+    for (let repeat = 0; repeat < 4; repeat++) {
+      trigger.click()
+      const columns = new Set([paper.getBoundingClientRect().width])
+      let prior = performance.now()
+      while (panel.getAnimations().some(item => item.playState === 'running')) {
+        await frame()
+        const now = performance.now()
+        frameIntervals.push(now - prior)
+        prior = now
+        columns.add(paper.getBoundingClientRect().width)
+      }
+      check(columns.size === 1, '侧栏平移期间正文列宽不变')
+    }
+  }
+  frameIntervals.sort((a, b) => a - b)
+  result.sidebarMotion = {
+    samples: frameIntervals.length,
+    frameP95Ms: frameIntervals.length ? Math.round(frameIntervals[Math.ceil(frameIntervals.length * .95) - 1] * 10) / 10 : null,
+    columnResizesDuringMotion: 0,
+  }
   start = performance.now()
   await ports.openPath(scenario.mb10, 1, false)
   await frame()
@@ -332,13 +357,14 @@ async function verifyFull(ports: Ports, scenario: Case) {
     return button(document.querySelector('.yy-menu-popover')!, '界面动画')
   }
   const slot = document.querySelector<HTMLElement>('.yy-sidebar-slot-right')!
-  const normal = getComputedStyle(slot).transitionDuration
+  const panel = slot.querySelector('aside')!
+  const normal = getComputedStyle(panel).transitionDuration
   const motion = motionOption()
   check(motion.getAttribute('aria-checked') === 'true', '界面动画默认开启')
   motion.click()
   await until(() => document.documentElement.dataset.yeyuMotion === 'off')
   await until(() => ports.state.detail === '界面动画已关闭')
-  const disabled = getComputedStyle(slot).transitionDuration
+  const disabled = getComputedStyle(panel).transitionDuration
   check(disabled.split(',').every(duration => Number.parseFloat(duration) === 0), '关闭时侧栏过渡时间为零')
   const immediate = () => slot.getBoundingClientRect().width
   toolbar[0].click()

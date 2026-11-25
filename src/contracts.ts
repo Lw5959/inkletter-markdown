@@ -83,6 +83,7 @@ export type PluginMarketPort = {
 export type ShellAction =
   | { type: 'new' | 'open' | 'open-folder' | 'save' | 'save-as' | 'reload' | 'print' | 'import' | 'theme-import' | 'undo' | 'redo' | 'export-again' | 'copy-markdown' | 'copy-html' | 'paste-plain' | 'reopen' }
   | { type: 'markdown-default' }
+  | { type: 'check-update' }
   | { type: 'open-path'; path: string; line?: number }
   | { type: 'mode'; mode: EditorMode }
   | { type: 'theme'; id: string }

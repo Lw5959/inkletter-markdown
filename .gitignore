@@ -1,7 +1,8 @@
 node_modules/
 dist/
 target/
-src-tauri/gen/
+src-tauri/gen/*
+!src-tauri/gen/android/
 release/
 coverage/
 .DS_Store

@@ -19,6 +19,7 @@ import { Writing } from './ai'
 import { normalizePrompts } from './ai-prompts'
 import { Protocol } from './mcp'
 import { bind, chooseHunks, relocate, suggestion } from './suggestions'
+import { checkPublishedPackage, offerUpdate, type ReleaseInfo } from './release-updates'
 
 const markdownFilter = { name: 'Markdown', extensions: ['md', 'markdown', 'mdown', 'mkd', 'mkdn', 'mdwn', 'mdtxt', 'mdtext', 'text', 'txt', 'rmd', 'qmd', 'mdx'] }
 const imageFilter = { name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif', 'tiff', 'heic', 'ico'] }
@@ -58,6 +59,7 @@ let workspaceSearch = 0
 let recoveryQueue = Promise.resolve()
 let preferenceQueue = Promise.resolve()
 let checking = false
+let checkingUpdate = false
 let exits = false
 let outlineKey = ''
 let outline: OutlineEntry[] = []
@@ -686,6 +688,34 @@ async function applyTitlebar(material: TitlebarMaterial) {
   shell.setTitlebar(view)
 }
 
+async function checkAppUpdate() {
+  if (checkingUpdate) return
+  checkingUpdate = true
+  try {
+    update('正在检查 GitHub Releases')
+    const standalone = await invoke<string | null>('update_package')
+    if (standalone) {
+      const release = await checkPublishedPackage(standalone)
+      if (release && await offerUpdate(release, '下载更新') === 'apply') await invoke('visit_link', { url: release.url })
+      update(release ? '' : '已是最新版本')
+      return
+    }
+    const release = await invoke<Pick<ReleaseInfo, 'version' | 'notes'> | null>('update_check')
+    if (!release) { update('已是最新版本'); return }
+    if (await offerUpdate(release, '安装更新') !== 'apply' || !await canLeave()) { update(); return }
+    await checkpoint()
+    const progress = document.createElement('dialog')
+    progress.className = 'app-dialog'
+    progress.setAttribute('aria-label', '正在安装更新')
+    progress.textContent = '正在下载、校验并安装更新…'
+    progress.addEventListener('cancel', event => event.preventDefault())
+    document.body.append(progress)
+    progress.showModal()
+    try { await invoke('update_install', { version: release.version }) }
+    finally { progress.close(); progress.remove() }
+  } finally { checkingUpdate = false }
+}
+
 async function dispatch(action: ShellAction) {
   switch (action.type) {
     case 'new':
@@ -697,10 +727,11 @@ async function dispatch(action: ShellAction) {
       break
     }
     case 'open-path': await openPath(action.path, action.line); break
+    case 'check-update': await checkAppUpdate(); break
     case 'markdown-default': {
       const result = await invoke<'applied' | 'systemSettings' | 'finder'>('markdown_default')
       if (result === 'applied') update('页屿已是 Markdown 的默认打开方式')
-      else if (result === 'systemSettings') update('已打开默认应用设置，请将 .md 和 .markdown 设为 Yeyu')
+      else if (result === 'systemSettings') update('已打开默认应用设置，请将 .md 和 .markdown 设为页屿')
       else await choose('设置 Markdown 默认打开方式',
         '在 Finder 选中 .md 文件，打开「显示简介」，将「打开方式」设为 Yeyu，再点「全部更改」。',
         [{ value: 'ok', label: '好', primary: true, autofocus: true }])

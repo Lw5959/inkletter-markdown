@@ -1,6 +1,6 @@
 # 页屿
 
-页屿是原创桌面 Markdown 编辑器，支持 macOS、Windows 和 Linux。文档保存在普通 `.md` 文件中，实时视图和源码视图共用文本和撤销记录。默认主题使用系统字体与黑白灰配色，随系统切换明暗。切换主题时，文档、标题栏、文件侧栏、AI、MCP 和应用内设置页会同步换色。打开、编辑、保存、主题与文件管理可以离线使用。
+页屿是原创 Markdown 编辑器，支持 macOS、Windows、Linux，另提供 Android 预览版。文档保存在普通 `.md` 文件中，实时视图和源码视图共用文本和撤销记录。默认主题使用系统字体与黑白灰配色，随系统切换明暗。桌面端的文档、标题栏、文件侧栏、AI、MCP 和设置页会随主题换色。编辑、打开和保存可以离线使用。[GitHub Releases](https://github.com/Lw5959/yeyu/releases)
 
 ## 使用
 
@@ -12,6 +12,16 @@
 左右侧栏展开和收起时有过渡效果，菜单、弹窗和查找条也有动效。在「视图 → 界面动画」中可关闭，重启后保留设置。系统启用「减少动态效果」时，页屿会自动关闭这些动效。
 
 PDF 与 PNG 导出可用 `YEYU_CHROME` 指定浏览器可执行文件。如果程序找不到 Pandoc，可用 `YEYU_PANDOC` 指定其可执行文件后重新启动页屿。两个环境变量均可省略。
+
+## Android
+
+预览版提供 ARM64 APK。工具栏的文件夹图标打开系统文件选择器，保存图标写回当前 Markdown 文件，首次保存时由系统询问存放位置。底部可以切换实时和源码、撤销及重做。「更多操作」包含新建、另存副本、内置主题、界面动画和检查更新。
+
+预览版覆盖 UTF-8 文档、BOM、混合换行与待恢复草稿。文件访问由系统指定的文档提供方授予。部分远程提供方支持只读或不支持定位写入，此时可另存到本机。Android 的 AI、MCP、插件、Typora 配置迁移、工作区和导出仍待适配。
+
+## 更新
+
+桌面端从「文件 → 检查更新…」检查 GitHub Releases。macOS、Windows 和 AppImage 在安装前核对发布签名。Android 和 DEB 从应用检查对应架构的安装包，下载后交给系统安装。初次从 0.2.4 升级需要手动下载安装包。[发布说明](docs/releases.md)
 
 ## 从 Typora 迁移
 
@@ -29,7 +39,7 @@ PDF 与 PNG 导出可用 `YEYU_CHROME` 指定浏览器可执行文件。如果�
 
 ## Markdown 默认打开方式
 
-安装后打开「文件 → 设为 Markdown 默认打开方式」。macOS 12 及以上由系统弹窗确认，较早版本可按应用提示在 Finder 设置。Windows 会打开「默认应用」，将 `.md` 和 `.markdown` 都选择为 Yeyu。Linux 从已安装的桌面入口设置 `text/markdown`。
+安装后打开「文件 → 设为 Markdown 默认打开方式」。macOS 12 及以上由系统弹窗确认，较早版本可按应用提示在 Finder 设置。Windows 会打开「默认应用」，将 `.md` 和 `.markdown` 都选择为页屿。Linux 从已安装的桌面入口设置 `text/markdown`。
 
 ## 插件
 
@@ -57,6 +67,7 @@ PDF 与 PNG 导出可用 `YEYU_CHROME` 指定浏览器可执行文件。如果�
 | macOS（Intel） | Xcode Command Line Tools，Rust 的 `x86_64-apple-darwin` 目标 | `pnpm tauri build --target x86_64-apple-darwin --bundles dmg` |
 | Windows | MSVC C++ 构建工具、WebView2 Runtime | `pnpm tauri build --bundles nsis` |
 | Linux | GTK 3、WebKitGTK 4.1 开发包、CMake、pkg-config | `pnpm tauri build --bundles deb,appimage` |
+| Android ARM64 | JDK 21，Android SDK 37，NDK r28c，Rust 的 `aarch64-linux-android` 目标 | `pnpm tauri android build --apk --target aarch64 --debug` |
 
 ```sh
 pnpm install --frozen-lockfile
@@ -66,3 +77,5 @@ cargo test --locked --manifest-path src-tauri/Cargo.toml
 ```
 
 [功能对照表](docs/feature-matrix.md) · [架构与文件归属](docs/architecture.md) · [性能和验收](docs/verification.md) · [三平台打包配置](.github/workflows/desktop.yml)
+
+源码采用 [MIT 许可证](LICENSE)，第三方组件仍适用各自的许可条款。

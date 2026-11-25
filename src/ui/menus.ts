@@ -228,6 +228,7 @@ export class MenuBar {
         { kind: 'item', label: '快速打开…', shortcutId: 'nav.quickOpen', onSelect: () => this.ctx.onOpenQuickOpen() },
         { kind: 'item', label: '重新打开最近关闭', onSelect: () => this.ctx.dispatch({ type: 'reopen' }) },
         { kind: 'item', label: '设为 Markdown 默认打开方式…', onSelect: () => this.ctx.dispatch({ type: 'markdown-default' }) },
+        { kind: 'item', label: '检查更新…', onSelect: () => this.ctx.dispatch({ type: 'check-update' }) },
         { kind: 'separator' },
         { kind: 'item', label: '保存', shortcutId: 'file.save', onSelect: () => this.ctx.dispatch({ type: 'save' }) },
         { kind: 'item', label: '另存为…', shortcutId: 'file.saveAs', onSelect: () => this.ctx.dispatch({ type: 'save-as' }) },

@@ -681,11 +681,13 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     })
   })
 
-  it('左右侧栏平滑展开收起，界面开关和系统减少动态效果使切换即时生效', async () => {
+  it('左右侧栏平滑展开收起，动画期间正文列宽固定，支持关闭动效', async () => {
     await page.emulateMedia({ reducedMotion: 'no-preference' })
     await mountTestHarness()
     const toggle = (side: 'left' | 'right') => page.evaluate(async side => {
       const slot = document.querySelector<HTMLElement>('.yy-sidebar-slot-' + side)!
+      const panel = slot.querySelector('aside')!
+      const paper = document.querySelector('.yy-paper')!
       const button = document.querySelector<HTMLButtonElement>(`[data-toggle="${side === 'left' ? 'left' : 'ai'}"]`)!
       const width = () => slot.getBoundingClientRect().width
       const start = width()
@@ -693,27 +695,32 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       button.click()
       const inert = slot.inert
       const focusReturned = document.activeElement?.matches('.cm-content')
-      const animation = slot.getAnimations().find(item => (item as CSSTransition).transitionProperty === 'flex-basis')
-      let middle = width()
+      const animation = panel.getAnimations().find(item => (item as CSSTransition).transitionProperty === 'transform')
+      const column = paper.getBoundingClientRect().width
+      let translation = 0
+      let middleColumn = column
       if (animation) {
         animation.pause()
         animation.currentTime = 80
-        middle = width()
+        translation = Math.abs(new DOMMatrixReadOnly(getComputedStyle(panel).transform).m41)
+        middleColumn = paper.getBoundingClientRect().width
         animation.finish()
       }
-      return { start, middle, end: width(), animated: !!animation, inert, focusReturned }
+      return { start, translation, columns: [column, middleColumn, paper.getBoundingClientRect().width], end: width(), animated: !!animation, inert, focusReturned }
     }, side)
 
     for (const [side, size] of [['left', 220], ['right', 360]] as const) {
       if (side === 'right') await toggle(side)
       const close = await toggle(side)
       expect(close).toMatchObject({ start: size, end: 0, animated: true, inert: true, focusReturned: true })
-      expect(close.middle).toBeGreaterThan(0)
-      expect(close.middle).toBeLessThan(size)
+      expect(close.translation).toBeGreaterThan(0)
+      expect(close.translation).toBeLessThan(size)
+      expect(new Set(close.columns).size).toBe(1)
       const open = await toggle(side)
       expect(open).toMatchObject({ start: 0, end: size, animated: true, inert: false })
-      expect(open.middle).toBeGreaterThan(0)
-      expect(open.middle).toBeLessThan(size)
+      expect(open.translation).toBeGreaterThan(0)
+      expect(open.translation).toBeLessThan(size)
+      expect(new Set(open.columns).size).toBe(1)
     }
 
     const viewMenu = page.locator('[data-menu="view"]')
@@ -728,7 +735,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
         presentation: { focus: false, typewriter: false, spellcheck: false } })
     }, animations)
     await preference(false)
-    expect(await toggle('left')).toMatchObject({ start: 220, middle: 0, end: 0, animated: false })
+    expect(await toggle('left')).toMatchObject({ start: 220, end: 0, animated: false })
     await viewMenu.click()
     expect(await motion.getAttribute('aria-checked')).toBe('false')
     expect(await page.locator('.yy-menu-popover').evaluate(item => getComputedStyle(item).animationDuration)).toBe('0s')
@@ -736,7 +743,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
 
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await preference(true)
-    expect(await toggle('left')).toMatchObject({ start: 0, middle: 220, end: 220, animated: false })
+    expect(await toggle('left')).toMatchObject({ start: 0, end: 220, animated: false })
     await page.locator('.yy-doc-title-btn').click()
     expect(await page.locator('.yy-modal-backdrop').evaluate(item => getComputedStyle(item).animationDuration)).toBe('0s')
     await page.keyboard.press('Escape')
@@ -906,6 +913,52 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     expect(actions).toContainEqual({ type: 'suggestion-apply', id: 'sug-1', hunks: [1] })
     expect(actions).toContainEqual({ type: 'suggestion-apply', id: 'sug-1', hunks: [0, 1] })
     expect(actions).toContainEqual({ type: 'suggestion-dismiss', id: 'sug-1' })
+  })
+
+  it('Android 窄屏可打开和保存、切换源码，宽屏菜单留在视口内', async () => {
+    await page.setViewportSize({ width: 390, height: 736 })
+    try {
+      await page.goto(`${baseUrl}/__ui_harness__`)
+      await page.evaluate(`(async () => {
+        const path = 'content://qa/document/01'
+        const document = { uri: path, name: '移动笔记.md', text: '# 标题\\r\\n\\r\\n正文\\n', bom: true, version: '1', writable: true }
+        const writes = []
+        window.__TAURI_INTERNALS__ = { invoke: async (cmd, payload) => {
+          if (cmd === 'android_pick') return path
+          if (cmd === 'android_read') return document
+          if (cmd === 'android_write') { writes.push(payload); return { ...document, text: payload.text, version: '2' } }
+          if (cmd === 'android_load_session') return null
+          return null
+        } }
+        window.__mobileWrites = writes
+        await import('/src/mobile.ts')
+      })()`)
+      const open = page.getByRole('button', { name: '打开文件' })
+      expect((await open.boundingBox())!.width).toBeGreaterThanOrEqual(44)
+      await open.click()
+      await page.getByRole('heading', { name: '移动笔记.md' }).waitFor()
+      await page.getByRole('button', { name: '源码', exact: true }).click()
+      expect(await page.locator('#write').getAttribute('data-mode')).toBe('source')
+      await page.locator('.cm-content .cm-line').last().click()
+      await page.keyboard.insertText('Android')
+      await page.getByRole('button', { name: '保存文档' }).click()
+      await expect.poll(() => page.evaluate(() => ((window as unknown as Record<string, any>).__mobileWrites).length)).toBe(1)
+      const [saved] = await page.evaluate(() => (window as unknown as Record<string, any>).__mobileWrites)
+      expect(saved).toMatchObject({ uri: 'content://qa/document/01', bom: true, expected: '1' })
+      expect(saved.text).toBe('# 标题\r\n\r\n正文\nAndroid')
+
+      await page.setViewportSize({ width: 820, height: 420 })
+      await page.getByRole('button', { name: '更多操作' }).click()
+      await page.getByRole('button', { name: '文档主题', exact: true }).click()
+      const dialog = page.getByRole('dialog', { name: '文档主题' })
+      const box = (await dialog.boundingBox())!
+      expect(box.x).toBeGreaterThan(0)
+      expect(box.y + box.height).toBeLessThanOrEqual(420)
+      await dialog.getByRole('button', { name: '石墨' }).click()
+      expect(await page.locator('html').getAttribute('data-yeyu-appearance')).toBe('dark')
+    } finally {
+      await page.setViewportSize({ width: 1360, height: 860 })
+    }
   })
 
   it('MCP 侧栏 stdio/HTTP 配置、调用前参数预览与显式许可、授权与待审建议', async () => {

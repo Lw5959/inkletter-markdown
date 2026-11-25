@@ -3,6 +3,7 @@
 mod ai;
 mod assets;
 mod associations;
+mod document_bytes;
 mod export;
 mod files;
 mod mcp;
@@ -15,6 +16,7 @@ mod themes;
 #[cfg(target_os = "macos")]
 mod titlebar;
 mod typora;
+mod updates;
 mod workspace;
 
 use std::{path::PathBuf, time::Duration};
@@ -96,6 +98,7 @@ fn main() {
         })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             #[cfg(feature = "qa")]
             qa::qa_config,
@@ -113,6 +116,9 @@ fn main() {
             settings::settings_load,
             settings::settings_save,
             settings::launch_paths,
+            updates::update_package,
+            updates::update_check,
+            updates::update_install,
             associations::markdown_default,
             #[cfg(target_os = "macos")]
             titlebar::titlebar_apply,

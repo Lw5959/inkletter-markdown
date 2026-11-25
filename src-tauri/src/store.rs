@@ -23,6 +23,7 @@ impl Store {
         atomic_write(&path, &serde_json::to_vec(data).map_err(err)?).map_err(err)
     }
 
+    #[cfg(not(target_os = "android"))]
     pub fn remove(&self, name: &str) -> Result<(), String> {
         match fs::remove_file(self.0.join(name)) {
             Ok(()) => Ok(()),
@@ -36,6 +37,7 @@ pub fn err(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
 
+#[cfg(not(target_os = "android"))]
 pub fn canonical(path: &Path) -> io::Result<PathBuf> {
     // 去除 Windows 的 extended-length 前缀，让对话框、URL 和跨进程路径一致。
     dunce::canonicalize(path)
@@ -57,6 +59,7 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
     Ok(())
 }
 
+#[cfg(not(target_os = "android"))]
 pub fn file_name(path: &Path) -> String {
     path.file_name()
         .unwrap_or_default()
