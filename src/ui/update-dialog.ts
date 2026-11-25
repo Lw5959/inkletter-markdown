@@ -2,6 +2,7 @@ import { getVersion } from '@tauri-apps/api/app'
 import '../dialogs.css'
 import './update-dialog.css'
 import { el } from './helpers'
+import { dismissOnBackdrop } from './dialog-dismiss'
 
 export type UpdateProgress =
   | { kind: 'download'; downloaded: number; total: number | null }
@@ -141,6 +142,7 @@ export function showUpdateDialog(check: (installedVersion: string) => Promise<Up
   }
 
   dismiss.onclick = () => dialog.close()
+  dismissOnBackdrop(dialog)
   dialog.addEventListener('keydown', event => event.stopPropagation())
   dialog.addEventListener('cancel', event => { if (applying) event.preventDefault() })
   dialog.addEventListener('close', () => dialog.remove(), { once: true })

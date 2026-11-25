@@ -1,9 +1,18 @@
 .app-dialog.yy-update-dialog {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  height: fit-content;
   box-sizing: border-box;
   width: min(480px, calc(100% - 24px));
   max-height: calc(100% - 24px);
   padding: clamp(16px, 4vw, 24px);
   overflow-y: auto;
+}
+
+.yy-android .app-dialog.yy-update-dialog {
+  inset-block-start: calc(var(--yy-safe-top) + 12px);
+  inset-block-end: calc(max(0px, 100dvh - var(--yy-viewport-height, 100dvh)) + var(--yy-safe-bottom) + 12px);
 }
 
 .yy-update-dialog .yy-update-version {

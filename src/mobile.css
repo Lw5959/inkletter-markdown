@@ -110,15 +110,33 @@
   border-radius: 22px;
   box-shadow: var(--yy-shadow-md);
   width: min(430px, calc(100% - 24px));
-  max-height: calc(var(--yy-viewport-height, 100dvh) - var(--yy-safe-top) - var(--yy-safe-bottom) - 24px);
+  height: fit-content;
   box-sizing: border-box;
-  margin: auto auto calc(12px + var(--yy-safe-bottom));
   padding: 6px 10px 12px;
   font-family: var(--yy-font-sans);
   animation: var(--yy-motion-disabled, yy-mobile-sheet-in var(--yy-motion-dialog) var(--yy-motion-ease));
 }
+.yy-android :is(.yy-mobile-sheet, .app-dialog) {
+  /* 对齐键盘上方的实际可见区域，横屏还需避开两侧的挖孔和系统手势。 */
+  position: fixed;
+  inset: calc(var(--yy-safe-top) + 12px) var(--yy-safe-right)
+    calc(max(0px, 100dvh - var(--yy-viewport-height, 100dvh)) + var(--yy-safe-bottom) + 30px) var(--yy-safe-left);
+  margin: auto;
+  max-height: calc(var(--yy-viewport-height, 100dvh) - var(--yy-safe-top) - var(--yy-safe-bottom) - 42px);
+  max-width: calc(100vw - var(--yy-safe-left) - var(--yy-safe-right) - 24px);
+  box-sizing: border-box;
+}
 .yy-mobile-sheet::backdrop { background: var(--yy-dialog-backdrop); }
-.yy-mobile-sheet-title { display: flex; justify-content: space-between; align-items: center; padding-left: 10px; }
+.yy-mobile-sheet-title {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-left: 10px;
+  background: var(--yy-chrome-elevated);
+}
 .yy-mobile-sheet-title h2 { margin: 0; font-size: 17px; font-weight: 620; }
 .yy-mobile-row {
   display: flex;
@@ -153,15 +171,28 @@
 .yy-mobile-workspace-notice { margin: 4px 10px; color: var(--yy-ink-muted); }
 .yy-mobile-workspace-rows { max-height: min(44dvh, 370px); overflow: auto; margin-block: 6px; }
 .yy-mobile-workspace-rows .yy-mobile-row { overflow-wrap: anywhere; }
+.yy-mobile-workbench.yy-shell {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, calc(100vw - 20px));
+  height: min(700px, calc(var(--yy-viewport-height, 100dvh) - var(--yy-safe-top) - var(--yy-safe-bottom) - 24px));
+  min-height: 0;
+  padding: 0;
+}
+.yy-mobile-workbench.yy-shell:not([open]) { display: none; }
+.yy-mobile-workbench .yy-mobile-sheet-title { border-bottom: 1px solid var(--yy-border); padding-right: 6px; }
+.yy-mobile-service-body { flex: 1; display: flex; min-height: 0; flex-direction: column; }
+.yy-mobile-service-body > .yy-pane { flex: 1; min-height: 0; }
+.yy-mobile-service-detail { margin: 0; padding: 8px 12px; color: var(--yy-danger); }
+.yy-mobile-workbench .yy-modal-backdrop { padding: 6px; }
+.yy-mobile-workbench .yy-modal { max-height: 100%; max-width: 100%; min-width: 0; }
+.yy-mobile-workbench .yy-mcp-scroll { overflow: auto; }
+.yy-mobile-workbench :is(input, textarea) { font-size: 16px; }
 body:has(.yy-mobile) .app-dialog-actions button { min-height: 44px; }
 
 @media (max-width: 360px) {
   .yy-mobile-mode { min-width: 52px; }
   .yy-mobile-footer .yy-mobile-tools { gap: 0; }
-}
-
-@media (min-width: 700px) and (orientation: landscape) {
-  .yy-mobile-sheet { margin: auto; }
 }
 
 @keyframes yy-mobile-sheet-in {

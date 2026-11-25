@@ -4,13 +4,15 @@ import type { EditorFormat, EditorMode, Presentation, Selection } from './contra
 import { choose } from './dialogs'
 import { count, find, lineOffset } from './document-tools'
 import { createEditor } from './editor'
+import type { MobileServicePage, MobileServiceSettings, createMobileServices } from './mobile-services'
 import { installMobileViewport } from './mobile-viewport'
-import { checkPublishedPackage, offerUpdate } from './release-updates'
+import { checkPublishedPackage } from './release-updates'
 import { createAppearance } from './ui/appearance'
 import { cancelDialog, dismissOnBackdrop } from './ui/dialog-dismiss'
 import { FindBar } from './ui/find-bar'
 import { el } from './ui/helpers'
 import { icons } from './ui/icons'
+import { showUpdateDialog } from './ui/update-dialog'
 import './ui/shell.css'
 import './ui/motion.css'
 import './mobile.css'
@@ -20,7 +22,7 @@ type Document = Origin & { text: string }
 type Draft = { origin: Origin | null; text: string; selection: Selection }
 type WorkspaceFile = { uri: string; name: string; path: string }
 type Session = { theme: string; animations: boolean; mode: EditorMode; draft?: Draft; recoveries?: Draft[];
-  workspace?: string; presentation?: Presentation }
+  workspace?: string; presentation?: Presentation; services?: MobileServiceSettings }
 type SheetRow = { label: string; icon?: string; checked?: boolean; action: () => void | Promise<void> }
 
 let origin: Origin | null = null
@@ -32,6 +34,9 @@ let hasDocument = false
 let recoveries: Draft[] = []
 let workspace: string | undefined
 let presentation: Presentation = { focus: false, typewriter: false, spellcheck: false }
+let serviceSettings: MobileServiceSettings = {}
+let services: ReturnType<typeof createMobileServices> | undefined
+let documentId = 0
 let dirty = false
 let replacing = false
 let busy = false
@@ -187,7 +192,9 @@ function showDocument(value: Document | null, draft?: Draft, opened = true) {
     if (draft) editor.select(draft.selection, false)
     dirty = !!draft
     hasDocument = opened
+    documentId++
     revision++
+    services?.documentChanged()
   } finally { replacing = false }
   refresh()
 }
@@ -195,7 +202,7 @@ function showDocument(value: Document | null, draft?: Draft, opened = true) {
 function checkpoint() {
   window.clearTimeout(timer)
   timer = 0
-  const session: Session = { theme, animations, mode, recoveries, workspace, presentation }
+  const session: Session = { theme, animations, mode, recoveries, workspace, presentation, services: serviceSettings }
   if (dirty) session.draft = { origin, text: editor.getMarkdown(), selection: editor.getSelection() }
   const next = pending.then(() => invoke<void>('android_save_session', { session }))
   pending = next.catch(() => {})
@@ -361,16 +368,42 @@ function showPresentation() {
 }
 
 async function exportDocument(format: 'html' | 'pdf') {
+  refresh('正在准备 ' + format.toUpperCase())
   const { exportHtml } = await import('./export')
   const name = origin?.name.replace(/\.[^.]+$/, '') ?? '未命名'
   const html = await exportHtml(editor.getMarkdown(), name, {}, builtinThemes.find(item => item.id === theme), false, appearance.get())
-  if (format === 'pdf') await invoke('android_print', { name, html })
+  if (format === 'pdf') {
+    await invoke('android_print', { name, html })
+    refresh('已打开系统打印预览')
+  }
   else {
     const uri = await pick(name + '.html', 'text/html')
-    if (!uri) return
+    if (!uri) { refresh(); return }
     await invoke('android_write', { uri, text: html, bom: false, expected: null })
     refresh('已导出 HTML')
   }
+}
+
+function showMobileUpdate() {
+  showUpdateDialog(async version => {
+    const release = await checkPublishedPackage('android-arm64.apk', version)
+    if (!release) return null
+    return { ...release, kind: 'external', async apply() {
+      await checkpoint()
+      await invoke('android_open_update', { url: release.url })
+    } }
+  })
+}
+
+async function openService(page: MobileServicePage) {
+  if (!services) {
+    const { createMobileServices } = await import('./mobile-services')
+    services = createMobileServices({ editor, settings: serviceSettings, persist: checkpoint, notify: refresh, read, pick,
+      state: () => ({ id: documentId, revision, title: origin?.name ?? '未命名.md', uri: origin?.uri ?? null,
+        open: hasDocument, readonly: !!presentation.readonly }),
+    })
+  }
+  await services.open(page)
 }
 
 async function showWorkspace(reselect = false) {
@@ -455,13 +488,11 @@ function showActions() {
       ]) },
     ] : []),
     ...(recoveries.length ? [{ label: '恢复草稿', icon: icons.undo, action: showRecoveries }] : []),
+    { label: 'AI 写作', icon: icons.sparkles, action: () => operate(() => openService('ai')) },
+    { label: 'MCP 工具', icon: icons.plug, action: () => operate(() => openService('mcp')) },
+    { label: '插件市场', icon: icons.settings, action: () => operate(() => openService('plugins')) },
     { label: '界面动画', icon: icons.settings, checked: animations, action: () => { setAnimations(!animations); scheduleCheckpoint() } },
-    { label: '检查更新', icon: icons.refresh, action: () => operate(async () => {
-      refresh('正在检查 GitHub Releases')
-      const release = await checkPublishedPackage('android-arm64.apk')
-      if (release && await offerUpdate(release, '下载更新') === 'apply') await invoke('android_open_update', { url: release.url })
-      refresh(release ? undefined : '已是最新版本')
-    }) },
+    { label: '检查更新', icon: icons.refresh, action: showMobileUpdate },
   ])
 }
 
@@ -472,6 +503,7 @@ async function start() {
   setMode(session?.mode === 'source' ? 'source' : 'live')
   if (session?.presentation) setPresentation(session.presentation)
   workspace = session?.workspace
+  serviceSettings = session?.services ?? {}
   // 启动时总是由用户选文件。旧会话里的未保存草稿保留在入口中，直到用户主动恢复。
   recoveries = [...(session?.recoveries ?? []), ...(session?.draft ? [session.draft] : [])]
   refresh()

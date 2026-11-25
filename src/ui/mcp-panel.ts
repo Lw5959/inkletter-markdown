@@ -11,6 +11,7 @@ import { icons } from './icons'
 export interface McpPanelOptions {
   dispatch: (action: ShellAction) => void
   onNotify?: (message: string) => void
+  remoteOnly?: boolean
 }
 
 const STATUS_LABELS: Record<McpConnection['status'], string> = {
@@ -78,6 +79,7 @@ export class McpPanel {
     const scroll = el('div', { className: 'yy-scroll-area yy-mcp-scroll' })
 
     const bridgeCard = this.buildBridgeCard()
+    bridgeCard.hidden = !!options.remoteOnly
     this.errorBanner = el('div', { className: 'yy-alert yy-alert-error', attrs: { role: 'alert', hidden: '' } })
     const serverSection = this.buildServerSection()
     this.callReviewWrap = el('div', { className: 'yy-mcp-review-host', attrs: { hidden: '' } })
@@ -188,6 +190,7 @@ export class McpPanel {
     this.transportStdioBtn.addEventListener('click', () => this.setTransport('stdio'))
     this.transportHttpBtn.addEventListener('click', () => this.setTransport('http'))
     transportRow.append(this.transportStdioBtn, this.transportHttpBtn)
+    transportRow.hidden = !!this.options.remoteOnly
 
     const nameField = el('label', { className: 'yy-field' })
     nameField.append(el('span', { className: 'yy-field-label', text: '服务名称' }))
@@ -319,7 +322,7 @@ export class McpPanel {
     this.nameInput.value = server?.name ?? ''
     this.idInput.value = server?.id ?? ''
     this.idInput.disabled = Boolean(server)
-    this.setTransport(server?.transport ?? 'stdio')
+    this.setTransport(this.options.remoteOnly ? 'http' : server?.transport ?? 'stdio')
     this.commandInput.value = server?.command ?? ''
     this.argsInput.value = formatCommandArgs(server?.args)
     this.urlInput.value = server?.url ?? ''

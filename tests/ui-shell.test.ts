@@ -985,6 +985,10 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       await openUpdate(1)
       await dialog.getByText('当前版本 0.2.5').waitFor()
       await dialog.getByText('正在检查更新…').waitFor()
+      const box = (await dialog.boundingBox())!
+      const viewport = page.viewportSize()!
+      expect(Math.abs(box.x + box.width / 2 - viewport.width / 2)).toBeLessThan(2)
+      expect(Math.abs(box.y + box.height / 2 - viewport.height / 2)).toBeLessThan(5)
       await dialog.getByRole('button', { name: '关闭' }).click()
       expect(await page.getByRole('menuitem', { name: '帮助', exact: true }).evaluate(el => document.activeElement === el)).toBe(true)
       await openUpdate(2)
@@ -1061,6 +1065,9 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
           if (cmd === 'android_write') { writes.push(payload); return { ...document, text: payload.text, version: '2' } }
           if (cmd === 'android_load_session') return { uri: 'content://qa/last-note', theme: 'default', animations: true, mode: 'live' }
           if (cmd === 'android_insets') return { top: 26, bottom: 10, left: 0, right: 0 }
+          if (cmd === 'ai_settings') return { providers: [], active: null }
+          if (cmd === 'plugin_list') return []
+          if (cmd === 'plugin_market_list') return { name: '页屿插件市场', source: payload.source, plugins: [] }
           return null
         } }
         window.__mobileWrites = writes
@@ -1081,9 +1088,13 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       await page.setViewportSize({ width: 390, height: 218 })
       await expect.poll(() => page.evaluate(() => {
         const paper = document.querySelector('.yy-paper')!
-        const caret = document.getSelection()!.getRangeAt(0).getBoundingClientRect()
+        const selection = document.getSelection()!
+        const range = selection.getRangeAt(0).getBoundingClientRect()
+        const focus = selection.focusNode
+        const element = focus instanceof Element ? focus : focus?.parentElement
+        const caret = range.height ? range : element?.closest('.cm-line')?.getBoundingClientRect()
         const visible = paper.getBoundingClientRect()
-        return paper.scrollTop > 0 && caret.height > 0 && caret.top >= visible.top - 1 && caret.bottom <= visible.bottom + 1
+        return !!caret && paper.scrollTop > 0 && caret.top >= visible.top - 1 && caret.bottom <= visible.bottom + 1
       })).toBe(true)
       await page.setViewportSize({ width: 390, height: 736 })
       await page.getByRole('button', { name: '保存文档' }).click()
@@ -1091,6 +1102,12 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       const [saved] = await page.evaluate(() => (window as unknown as Record<string, any>).__mobileWrites)
       expect(saved).toMatchObject({ uri: 'content://qa/document/01', bom: true, expected: '1' })
       expect(saved.text).toBe('# 标题\r\n\r\n正文\nAndroid')
+
+      await page.getByRole('button', { name: '文档主题', exact: true }).click()
+      const phoneDialog = page.getByRole('dialog', { name: '文档主题' })
+      const phoneBox = (await phoneDialog.boundingBox())!
+      expect(Math.abs(phoneBox.y + phoneBox.height / 2 - 368)).toBeLessThan(32)
+      await phoneDialog.getByRole('button', { name: '关闭', exact: true }).click()
 
       await page.setViewportSize({ width: 820, height: 420 })
       await page.getByRole('button', { name: '文档主题', exact: true }).click()
@@ -1109,6 +1126,35 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       expect(await page.evaluate(() => window.dispatchEvent(new Event('yeyu:android-back', { cancelable: true })))).toBe(false)
       await page.getByRole('dialog', { name: '文档操作' }).waitFor({ state: 'hidden' })
       expect(await page.getByRole('heading', { name: '移动笔记.md' }).isVisible()).toBe(true)
+
+      const more = page.getByRole('button', { name: '更多操作' })
+      const back = () => page.evaluate(() => window.dispatchEvent(new Event('yeyu:android-back', { cancelable: true })))
+      await more.click()
+      await page.getByRole('button', { name: 'AI 写作', exact: true }).click()
+      const writing = page.getByRole('dialog', { name: 'AI 写作助手' })
+      await writing.getByRole('button', { name: '模型配置', exact: true }).click()
+      await page.getByRole('dialog', { name: '模型配置', exact: true }).waitFor()
+      await back()
+      await page.getByRole('dialog', { name: '模型配置', exact: true }).waitFor({ state: 'hidden' })
+      expect(await writing.isVisible()).toBe(true)
+      await back()
+      await writing.waitFor({ state: 'hidden' })
+
+      await more.click()
+      await page.getByRole('button', { name: 'MCP 工具', exact: true }).click()
+      const protocol = page.getByRole('dialog', { name: 'MCP 连接与工具' })
+      await protocol.getByRole('button', { name: '添加服务' }).click()
+      expect(await protocol.getByRole('textbox', { name: '远端 HTTP 地址 (URL)' }).isVisible()).toBe(true)
+      expect(await protocol.getByRole('button', { name: '授权工作区' }).count()).toBe(0)
+      await back()
+
+      await more.click()
+      await page.getByRole('button', { name: '插件市场', exact: true }).click()
+      const market = page.getByRole('button', { name: '内置插件', exact: true })
+      await market.click()
+      expect(await market.getAttribute('aria-pressed')).toBe('true')
+      await back()
+      await back()
     } finally {
       await page.setViewportSize({ width: 1360, height: 860 })
     }
