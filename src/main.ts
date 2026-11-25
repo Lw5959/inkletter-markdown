@@ -696,6 +696,15 @@ async function dispatch(action: ShellAction) {
       break
     }
     case 'open-path': await openPath(action.path, action.line); break
+    case 'markdown-default': {
+      const result = await invoke<'applied' | 'systemSettings' | 'finder'>('markdown_default')
+      if (result === 'applied') update('页屿已是 Markdown 的默认打开方式')
+      else if (result === 'systemSettings') update('已打开默认应用设置，请将 .md 和 .markdown 设为 Yeyu')
+      else await choose('设置 Markdown 默认打开方式',
+        '在 Finder 选中 .md 文件，打开「显示简介」，将「打开方式」设为 Yeyu，再点「全部更改」。',
+        [{ value: 'ok', label: '好', primary: true, autofocus: true }])
+      break
+    }
     case 'reopen': {
       const path = settings.recent.find(path => path !== state.path)
       if (path) await openPath(path)

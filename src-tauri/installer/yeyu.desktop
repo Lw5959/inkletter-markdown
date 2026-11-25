@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Yeyu
+Comment=A desktop Markdown editor
+Exec=yeyu %F
+Icon=yeyu
+StartupWMClass=yeyu
+Terminal=false
+Categories=Office;
+MimeType=text/markdown;

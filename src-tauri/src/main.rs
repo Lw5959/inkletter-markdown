@@ -2,6 +2,7 @@
 
 mod ai;
 mod assets;
+mod associations;
 mod export;
 mod files;
 mod mcp;
@@ -111,6 +112,7 @@ fn main() {
             settings::settings_load,
             settings::settings_save,
             settings::launch_paths,
+            associations::markdown_default,
             #[cfg(target_os = "macos")]
             titlebar::titlebar_apply,
             workspace::workspace_root,

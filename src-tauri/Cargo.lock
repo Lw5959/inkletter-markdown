@@ -6121,9 +6121,11 @@ version = "0.2.3"
 dependencies = [
  "base64 0.22.1",
  "blake3",
+ "block2",
  "dunce",
  "eventsource-stream",
  "futures-util",
+ "gio",
  "glob",
  "keyring",
  "mime_guess",

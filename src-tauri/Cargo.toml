@@ -41,6 +41,10 @@ sha2 = "0.10"
 qa = []
 
 [target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6"
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSGraphics", "NSUserInterfaceItemIdentification", "NSView", "NSVisualEffectView", "NSWindow"] }
-objc2-foundation = { version = "0.3", features = ["NSGeometry", "NSRange", "NSString"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "block2", "NSGraphics", "NSUserInterfaceItemIdentification", "NSView", "NSVisualEffectView", "NSWindow", "NSWorkspace"] }
+objc2-foundation = { version = "0.3", features = ["NSBundle", "NSError", "NSGeometry", "NSRange", "NSString", "NSURL"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gio = "0.18"
