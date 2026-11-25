@@ -162,7 +162,7 @@ async function verifyThemeImport(ports: Ports, expected: string[]) {
   await until(() => expected.every(name => Boolean(button(popover, name))))
   const local = expected.includes('night') ? 'night' : expected[0]
   button(popover, local).click()
-  await until(() => themeMenu.textContent === local)
+  await until(() => themeMenu.textContent === local && ports.state.detail.startsWith('已使用主题 ' + local))
   themeMenu.click()
   check(button(popover, local).getAttribute('aria-checked') === 'true', '本机主题首次点击即可使用并显示选中态')
   themeMenu.click()
@@ -174,8 +174,7 @@ async function verifyThemeImport(ports: Ports, expected: string[]) {
   check(document.documentElement.dataset.yeyuAppearance === 'dark', '石墨主题覆盖整窗')
 
   async function importLocalThemes() {
-    choose('导入本机 Typora 主题')
-    await until(() => ports.state.detail === `已有 ${expected.length} 套主题可用，可从主题菜单切换`, 45_000)
+    await ports.action({ type: 'theme-import-typora' })
     const imported = await themeList()
     check(imported.map(theme => theme.name).sort().join('\n') === [...expected].sort().join('\n'), '本机 Typora 主题完整导入')
     check(paper.dataset.theme === 'builtin-graphite', '批量导入保留当前主题')

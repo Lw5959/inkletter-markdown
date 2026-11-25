@@ -46,6 +46,7 @@ let saving: Promise<boolean> | null = null
 let switching = false
 let opening = false
 let importingThemes = false
+let themeSelection = 0
 let loaded = false
 let checkpointTimer = 0
 let autoSaveTimer = 0
@@ -603,12 +604,16 @@ async function dispatch(action: ShellAction) {
     case 'theme': {
       const path = action.type === 'theme' ? typoraThemePaths.find(path => typoraThemeId(path) === action.id) : undefined
       if (action.type === 'theme' && !path) {
+        themeSelection++
         settings.theme = action.id
         syncThemeMenu()
         await persist()
         break
       }
-      if (importingThemes) break
+      if (importingThemes) {
+        update('主题正在导入，请稍后切换')
+        break
+      }
       importingThemes = true
       try {
         if (action.type === 'theme-import-typora') update('正在导入主题')
@@ -883,6 +888,7 @@ async function loadTheme(path: string) {
 }
 
 async function addThemes(paths: string[]) {
+  const selectedAtStart = themeSelection
   const available = new Map<string, Theme>()
   const linked: [string, string][] = []
   const missing = new Set<string>()
@@ -900,7 +906,7 @@ async function addThemes(paths: string[]) {
     }
   }
   if (!available.size) throw new Error('主题导入失败，' + failures[0])
-  const single = paths.length === 1 ? available.values().next().value : undefined
+  const single = paths.length === 1 && selectedAtStart === themeSelection ? available.values().next().value : undefined
   if (single) settings.theme = single.id
   if (linked.length) settings.typoraThemes = { ...settings.typoraThemes, ...Object.fromEntries(linked) }
   syncThemeMenu()
