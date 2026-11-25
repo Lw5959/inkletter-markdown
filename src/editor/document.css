@@ -88,6 +88,10 @@
 :where(.document-theme #write) :where(mark) { background: var(--doc-mark); color: inherit; }
 :where(.document-theme #write) :where(.yaml-frontmatter) { color: var(--doc-muted); font-size: .8em; }
 :where(.document-theme #write) :where(.footnotes) { font-size: .85em; color: var(--doc-muted); }
+:where(.document-theme #write) :where(.md-toc-content) { margin: 0; padding: 0; list-style: none; }
+:where(.document-theme #write) :where(.md-toc-item) { display: block; font-size: .9em; }
+:where(.document-theme #write) :where(.md-toc-item:not(.toc-h1)) { padding-inline-start: 1em; }
+:where(.document-theme #write) :where(.md-toc-item:is(.toc-h3, .toc-h4, .toc-h5, .toc-h6)) { padding-inline-start: 2em; }
 :where(.document-theme #write) ::selection {
   background: var(--select-text-bg-color, var(--doc-selection));
   color: var(--select-text-font-color, inherit);

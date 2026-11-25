@@ -13,6 +13,12 @@ const browserPath = process.env.YEYU_CHROME || (platform() === 'darwin'
 
 const hasBrowser = existsSync(useWebKit ? webkit.executablePath() : browserPath)
 
+function importedThemes() {
+  const directory = process.env.YEYU_TEST_THEME_SNAPSHOTS
+  return directory ? readdirSync(directory, { withFileTypes: true }).filter(entry => entry.isDirectory())
+    .map(entry => JSON.parse(readFileSync(join(directory, entry.name, 'theme.json'), 'utf8')) as Theme) : []
+}
+
 describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
   let server: ViteDevServer
   let browser: Browser
@@ -119,9 +125,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
 
   it('各主题的恢复按钮、菜单、侧栏和协作控件在悬停及按下时可读', async () => {
     await mountTestHarness(true)
-    const directory = process.env.YEYU_TEST_THEME_SNAPSHOTS
-    const imported = directory ? readdirSync(directory, { withFileTypes: true }).filter(entry => entry.isDirectory())
-      .map(entry => JSON.parse(readFileSync(join(directory, entry.name, 'theme.json'), 'utf8')) as Theme) : []
+    const imported = importedThemes()
     const themes = await page.evaluate(extra => {
       const test = (window as unknown as Record<string, any>).__test
       const canvas = document.createElement('canvas')
@@ -219,7 +223,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       await toggleMcp()
     }
     await page.emulateMedia({ colorScheme: 'light' })
-    if (directory) {
+    if (imported.length) {
       console.log(`已检查 ${samples.length} 套外观的悬停、按下和选中态，包含 ${imported.length} 套导入主题，最低对比度 ${lowestContrast.toFixed(2)}:1`)
     }
   }, 120_000)
@@ -960,6 +964,121 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       await page.setViewportSize({ width: 1360, height: 860 })
     }
   })
+
+  it('导入主题的标题底线占满实时编辑行，内边距不会盖住随后正文', async () => {
+    await mountTestHarness()
+    const markdown = '## 使用\r\n\r\n1. 在文件菜单打开文档。\r\n\r\n## Android\n\n预览版提供 APK。\n'
+    const boxes = await page.evaluate(async markdown => {
+      const { editor, shell } = (window as unknown as Record<string, any>).__test
+      shell.setThemes([{ id: 'vue-like', name: '标题边框样本', styles: [`
+        .document-theme h2 { font-size: 1.75rem; margin: 35px 0 15px; line-height: 1.225;
+          padding-bottom: .5em; border-bottom: 1px solid #ddd; }
+      `] }], 'vue-like')
+      editor.setMarkdown(markdown)
+      editor.select({ anchor: markdown.indexOf('预览版'), head: markdown.indexOf('预览版') })
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+      return [...document.querySelectorAll('.live-h2 > h2')].map(heading => {
+        const bounds = heading.getBoundingClientRect()
+        const row = heading.parentElement!
+        const line = row.getBoundingClientRect()
+        return { width: bounds.width, lineWidth: line.width, border: getComputedStyle(heading).borderBottomWidth,
+          rowBottom: line.bottom, headingBottom: bounds.bottom, nextTop: row.nextElementSibling!.getBoundingClientRect().top }
+      })
+    }, markdown)
+    expect(boxes).toHaveLength(2)
+    for (const box of boxes) {
+      expect(box.border).toBe('1px')
+      expect(box.width).toBeCloseTo(box.lineWidth)
+      expect(box.headingBottom).toBeLessThan(box.rowBottom)
+      expect(box.nextTop).toBeGreaterThanOrEqual(box.rowBottom)
+    }
+    expect(await page.evaluate(() => {
+      const { editor } = (window as unknown as Record<string, any>).__test
+      editor.setMode('source')
+      return editor.getMarkdown()
+    })).toBe(markdown)
+  })
+
+  it('主题区块在实时编辑与导出中使用相同的标签和留白，点击区块可修改原文', async () => {
+    await page.setViewportSize({ width: 1360, height: 1800 })
+    const output = await browser.newPage({ viewport: page.viewportSize()! })
+    try {
+      await mountTestHarness()
+      await page.evaluate(`(async () => {
+        const { exportHtml } = await import('/src/export.ts')
+        window.__test.exportHtml = exportHtml
+      })()`)
+      const markdown = [
+        '---', 'title: 区块样本', '---', '', '## **行内样式**', '',
+        '[TOC]', '', '> 第一行引用', '> 第二行引用', '', '  ***  ', '',
+        '| 字段 | 内容 |', '| --- | --- |', '| 时长 | 一天 |', '',
+        '```js', 'const ready = true', '```', '', '最后一行。',
+      ].join('\r\n')
+      const sample: Theme = { id: 'block-layout', name: '区块布局样本', styles: [`
+        .document-theme hr { height: 3px; margin: 12px 0 16px; background: #ddd; border: 0; }
+        .document-theme blockquote { margin: 9px 0 14px; border-left: 4px solid #999; padding: 9px 18px; }
+        .document-theme pre.md-meta-block { padding-top: 17px; }
+        .document-theme .md-toc-content { padding-bottom: 21px; }
+        .document-theme table { margin-bottom: 23px; }
+        .document-theme pre.md-fences { margin-bottom: 25px; }
+      `] }
+      const extract = (platform: Page) => platform.evaluate(() => {
+        const element = (selector: string) => document.querySelector<HTMLElement>('#write ' + selector)!
+        const style = (selector: string) => getComputedStyle(element(selector))
+        return {
+          rule: [style('hr').height, style('hr').marginTop, style('hr').marginBottom],
+          quote: [style('blockquote').borderLeftWidth, style('blockquote').paddingTop, style('blockquote').paddingLeft],
+          metadata: style('pre.md-meta-block').paddingTop,
+          toc: [style('nav .md-toc-content').display, style('nav .md-toc-content').paddingBottom],
+          table: style('table').marginBottom,
+          fence: style('pre.md-fences').marginBottom,
+        }
+      })
+      const builtins = await page.evaluate(() => (window as unknown as Record<string, any>).__test.builtinThemes as Theme[])
+      const imported = importedThemes()
+      for (const theme of [sample, ...builtins, ...imported]) {
+        const html = await page.evaluate(async ({ markdown, theme }) => {
+          const { editor, shell, exportHtml } = (window as unknown as Record<string, any>).__test
+          shell.setThemes([theme], theme.id)
+          editor.setMarkdown(markdown)
+          editor.select({ anchor: markdown.length, head: markdown.length })
+          return await exportHtml(markdown, '区块样本', {}, theme, false, shell.getAppearance())
+        }, { markdown, theme })
+        await output.setContent(html)
+        await page.locator('#write .live-toc .md-toc-inner').first().waitFor()
+        await page.locator('#write .live-block-preview pre.md-fences').waitFor()
+        expect(await page.locator('#write hr').count(), theme.name).toBe(1)
+        expect(await page.locator('#write blockquote').textContent(), theme.name).toContain('第二行引用')
+        const live = await extract(page)
+        const exported = await extract(output)
+        expect(live.rule[0], theme.name).toBe(exported.rule[0])
+        expect(live.quote[0], theme.name).toBe(exported.quote[0])
+        expect(live.toc[0], theme.name).toBe('block')
+        if (theme === sample) {
+          expect(live).toEqual({ rule: ['3px', '12px', '16px'], quote: ['4px', '9px', '18px'],
+            metadata: '17px', toc: ['block', '21px'], table: '23px', fence: '25px' })
+          expect(live).toEqual(exported)
+        }
+        if (theme.name === 'whitey') {
+          expect(await page.locator('#write h2').evaluate(heading => getComputedStyle(heading, '::after').width)).toBe('100px')
+        }
+      }
+      await page.locator('#write .live-block-preview blockquote').click()
+      await page.locator('#write .cm-line.live-quote').first().waitFor()
+      await page.keyboard.press('End')
+      await page.keyboard.insertText('（已修改）')
+      const roundTrip = await page.evaluate(() => {
+        const { editor } = (window as unknown as Record<string, any>).__test
+        editor.setMode('source')
+        return editor.getMarkdown()
+      })
+      expect(roundTrip).toBe(markdown.replace('第一行引用', '第一行引用（已修改）'))
+      if (imported.length) console.log(`文档区块已检查 ${builtins.length} 套内置与 ${imported.length} 套本机 Typora 主题`)
+    } finally {
+      await output.close()
+      await page.setViewportSize({ width: 1360, height: 860 })
+    }
+  }, 60_000)
 
   it('MCP 侧栏 stdio/HTTP 配置、调用前参数预览与显式许可、授权与待审建议', async () => {
     await mountTestHarness()

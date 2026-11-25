@@ -38,7 +38,7 @@ macOS 原生窗口在首次导入前从顶栏菜单发现八套本机主题。�
 | Pixyll、Vue | Pixyll 加载 Merriweather 和 Lato，Vue 加载 Source Sans Pro 和 Roboto Mono |
 | Whitey | 正常正文宽度、标题分隔线及任务框。样本 CSS 依赖系统中的 Vollkorn 字体，未安装时由浏览器回退 |
 
-实时引用和 YAML 仍呈现原文行，HTML 中按完整块排版。针对旧版 CodeMirror 源码界面编写的选择器不会完整匹配。测试使用本机 CSS 和字体，安装包只包含页屿自带主题。
+Chromium 和 WebKit 用相同的样稿复查了本机八套主题和四套内置主题。实时标题的边框和内边距随标题行排版，Whitey 保留居中短线。水平线、引用、YAML、目录、表格和代码块沿用导出的语义标签与区块留白。点击引用可以编辑原文，切换源码后保留 CRLF 和 Markdown 标记。较大的区块和光标所在的区块会展开为可编辑行。针对旧版 CodeMirror 源码界面编写的选择器仍有兼容差异。测试使用本机 CSS 和字体，安装包只包含页屿自带主题。
 
 ### 整窗配色
 

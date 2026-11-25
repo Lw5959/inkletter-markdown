@@ -15,17 +15,23 @@ const inlineTags: Record<string, string> = { Highlight: 'mark', Subscript: 'sub'
 const markTags: Record<string, string> = { StrongEmphasis: 'strong', Emphasis: 'em', Strikethrough: 'del', InlineCode: 'code' }
 const markers = new Set(['EmphasisMark', 'StrikethroughMark', 'CodeMark', 'HeaderMark', 'LinkMark', 'HighlightMark', 'SubscriptMark', 'SuperscriptMark', 'QuoteMark'])
 const blocks: Record<string, string> = {
-  Blockquote: 'quote', Table: 'table', FencedCode: 'fence', CodeBlock: 'fence', HorizontalRule: 'rule',
+  Blockquote: 'quote', Table: 'table', FencedCode: 'fence', CodeBlock: 'fence',
 }
+const previewLimits: Record<string, number> = {
+  Table: 16_000, FencedCode: 32_000, CodeBlock: 32_000, Blockquote: 32_000, HorizontalRule: 8192,
+}
+type PreviewKind = 'inline' | 'block' | 'metadata'
 
 class Preview extends WidgetType {
-  constructor(readonly source: string, readonly options: EditorOptions, readonly inline: boolean, readonly readOnly = false) { super() }
-  eq(other: Preview) { return other.source === this.source && other.inline === this.inline && other.readOnly === this.readOnly }
+  constructor(readonly source: string, readonly options: EditorOptions, readonly kind: PreviewKind, readonly readOnly = false) { super() }
+  eq(other: Preview) { return other.source === this.source && other.kind === this.kind && other.readOnly === this.readOnly }
   toDOM(view: EditorView) {
-    const element = view.dom.ownerDocument.createElement(this.inline ? 'span' : 'div')
-    element.className = this.inline ? 'live-inline-preview' : 'live-block-preview'
+    const inline = this.kind === 'inline'
+    const element = view.dom.ownerDocument.createElement(inline ? 'span' : 'div')
+    element.className = inline ? 'live-inline-preview' : 'live-block-preview'
+    if (this.kind === 'metadata') element.classList.add('live-metadata-preview')
     element.contentEditable = 'false'
-    if (!this.inline && !this.readOnly) {
+    if (!inline && !this.readOnly) {
       element.tabIndex = 0
       element.setAttribute('aria-label', '编辑此 Markdown 块')
       const edit = (event: Event) => {
@@ -89,17 +95,17 @@ class Toc extends WidgetType {
   constructor(readonly outline: () => OutlineEntry[], readonly jump: (from: number) => void, readonly version: object) { super() }
   eq(other: Toc) { return other.version === this.version }
   toDOM(view: EditorView) {
-    const element = view.dom.ownerDocument.createElement('span')
+    const element = view.dom.ownerDocument.createElement('nav')
     element.className = 'live-block-preview live-toc md-toc'
     element.contentEditable = 'false'
-    const content = element.appendChild(element.ownerDocument.createElement('span'))
+    const content = element.appendChild(element.ownerDocument.createElement('ul'))
     content.className = 'md-toc-content'
     // 目录可见时再取全量大纲。编辑和滚动时的装饰计算仍限于视窗。
     const window = view.dom.ownerDocument.defaultView!
     this.timer = window.setTimeout(() => {
       if (!element.isConnected) return
       for (const entry of this.outline()) {
-        const item = content.appendChild(element.ownerDocument.createElement('span'))
+        const item = content.appendChild(element.ownerDocument.createElement('li'))
         item.className = `toc-h${entry.level} md-toc-item md-toc-h${entry.level}`
         const link = item.appendChild(element.ownerDocument.createElement('a'))
         link.href = '#' + (entry.id ?? '')
@@ -119,6 +125,11 @@ class Toc extends WidgetType {
 
 function overlapsSelection(state: EditorState, from: number, to: number) {
   return !state.readOnly && state.selection.ranges.some(range => range.from <= to && range.to >= from)
+}
+
+function frontMatterEnd(doc: EditorState['doc'], viewportFrom: number) {
+  if (viewportFrom >= 65_536 || doc.line(1).text.trimEnd() !== '---') return 0
+  return frontMatter(doc.sliceString(0, Math.min(doc.length, 65_536)))?.[0].length ?? 0
 }
 
 const replaceBlocks = StateEffect.define<ReturnType<typeof Decoration.set>>()
@@ -144,37 +155,42 @@ function visibleBlocks(view: EditorView, options: EditorOptions) {
   const tree = syntaxTree(state)
   const start = doc.lineAt(view.viewport.from)
   const end = doc.lineAt(view.viewport.to)
-  function insert(from: number, to: number) {
+  const yamlEnd = frontMatterEnd(doc, start.from)
+  function insert(from: number, to: number, kind: 'block' | 'metadata' = 'block') {
     if (from >= to || overlapsSelection(state, from, to)) return
-    const widget = new Preview(doc.sliceString(from, to), options, false, state.readOnly)
+    const widget = new Preview(doc.sliceString(from, to), options, kind, state.readOnly)
     ranges.push(Decoration.replace({ block: true, widget }).range(from, to))
   }
+  // 区块复用导出的语义标签，让主题的边框和留白按整个区块排版。
+  if (yamlEnd > start.from) insert(0, doc.lineAt(yamlEnd - 1).to, 'metadata')
   tree.iterate({
     from: start.from, to: end.to,
     enter(node) {
-      if (!/^(Table|FencedCode|CodeBlock)$/.test(node.name)) return
+      const limit = previewLimits[node.name]
+      if (!limit || node.from < yamlEnd) return
       // 只替换完整块。缩进列表里的局部语法继续保留原本的行结构。
       const first = doc.lineAt(node.from)
       const last = doc.lineAt(node.to)
-      const limit = node.name === 'Table' ? 16_000 : 32_000
-      if (node.from === first.from && node.to === last.to && node.to - node.from <= limit) insert(node.from, node.to)
+      const complete = node.from === first.from || node.node.parent?.name === 'Document'
+      if (complete && node.to === last.to && last.to - first.from <= limit) insert(first.from, last.to)
       return false
     },
   })
   for (let line = start.number; line <= end.number; line++) {
     const first = doc.line(line)
-    if (!/^\s*\$\$\s*$/.test(first.text)) continue
+    if (first.from < yamlEnd || !/^\s*\$\$\s*$/.test(first.text)) continue
     let inside = tree.resolveInner(first.from, 1)
-    let fenced = false
+    let nested = false
     while (inside.parent) {
-      if (inside.name === 'FencedCode' || inside.name === 'CodeBlock') { fenced = true; break }
+      if (/^(?:FencedCode|CodeBlock|Blockquote)$/.test(inside.name)) { nested = true; break }
       inside = inside.parent
     }
-    if (fenced) continue
+    if (nested) continue
     const tail = doc.sliceString(first.to, Math.min(first.to + 8192, doc.length))
     const match = /^\n[\s\S]+?^[ \t]*\$\$[ \t]*$/m.exec(tail)
     if (match?.index !== 0) continue
     const last = doc.lineAt(first.to + match[0].length)
+    if (ranges.some(range => range.from < last.to && range.to > first.from)) continue
     insert(first.from, last.to)
     line = last.number
   }
@@ -238,8 +254,7 @@ export function liveDecoration(options: EditorOptions, outline: () => OutlineEnt
         if (from < to) ranges.push(Decoration.mark({ class: 'live-' + name, tagName }).range(from, to))
       }
       // YAML 中的横线可能被增量语法树识别为标题标记。在装饰阶段先划定它的范围。
-      const yamlEnd = doc.line(1).text.trimEnd() === '---' && view.viewport.from < 65_536
-        ? frontMatter(doc.sliceString(0, Math.min(doc.length, 65_536)))?.[0].length ?? 0 : 0
+      const yamlEnd = frontMatterEnd(doc, view.viewport.from)
       const tree = syntaxTree(view.state)
       const seen = new Set<string>()
       for (const visible of view.visibleRanges) {
@@ -315,7 +330,7 @@ export function liveDecoration(options: EditorOptions, outline: () => OutlineEnt
               }
             }
             if ((name === 'Image' || name === 'Emoji') && to <= first.to && to - from <= 4096 && !reveal) {
-              ranges.push(Decoration.replace({ widget: new Preview(doc.sliceString(from, to), options, true) }).range(from, to))
+              ranges.push(Decoration.replace({ widget: new Preview(doc.sliceString(from, to), options, 'inline') }).range(from, to))
               return false
             }
           },
@@ -335,6 +350,7 @@ export function liveDecoration(options: EditorOptions, outline: () => OutlineEnt
           if (line.length > 8192) continue
           const editing = !view.state.readOnly && active(line.from, line.to)
           if (!editing && /^\s*\[toc\]\s*$/i.test(line.text)) {
+            addLine(line.from, 'toc-line')
             ranges.push(Decoration.replace({ widget: new Toc(outline, jump, doc) }).range(line.from, line.to))
           }
           if (/^\s*\[\^[^\]]+\]:/.test(line.text)) addLine(line.from, 'footnote')
@@ -349,7 +365,7 @@ export function liveDecoration(options: EditorOptions, outline: () => OutlineEnt
               let node = tree.resolveInner(from, 1)
               while (node.parent && !/^(?:InlineCode|Image|Link)$/.test(node.name)) node = node.parent
               if (node.parent) continue
-              ranges.push(Decoration.replace({ widget: new Preview(match[0], options, true) }).range(from, to))
+              ranges.push(Decoration.replace({ widget: new Preview(match[0], options, 'inline') }).range(from, to))
             }
           }
         }

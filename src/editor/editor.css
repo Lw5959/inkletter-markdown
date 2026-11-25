@@ -6,7 +6,9 @@
 .document-theme #write .cm-content { caret-color: currentColor; min-width: 0; padding-block: 0; }
 .document-theme #write .cm-line { padding-inline: 0; }
 :where(.document-theme #write) .cm-line.live-empty { min-height: .9em; font-size: .68em; line-height: .9; }
-:where(.document-theme #write) :where(.cm-line) :where(h1, h2, h3, h4, h5, h6) { display: inline; margin: 0; }
+/* 主题的标题边框和内边距要计入行高，避免在标题文字末尾截断或盖住下一行。 */
+:where(.document-theme #write) .cm-line:is(.live-h1, .live-h2, .live-h3, .live-h4, .live-h5, .live-h6, .live-toc-line) { display: flow-root; }
+:where(.document-theme #write) :where(.cm-line) :where(h1, h2, h3, h4, h5, h6) { display: block; margin: 0; }
 :where(.document-theme #write) :where(.live-bullet) { display: inline-block; color: var(--doc-muted); }
 :where(.document-theme #write) :where(.live-bullet svg) { display: block; }
 /* 为主题可能通过绝对定位绘制的勾号提供坐标系。 */
@@ -22,14 +24,12 @@
 :where(.document-theme #write) :where(.live-yaml) { color: var(--doc-muted); font-size: .8em; }
 :where(.document-theme #write) :where(.cm-line.live-quote) { border-inline-start: 2px solid var(--doc-rule); padding-inline-start: .9em; color: var(--doc-muted); }
 :where(.document-theme #write) :where(.live-footnote, .live-reference) { color: var(--link-color, var(--doc-accent)); }
-:where(.document-theme #write) :where(.live-rule) { border-bottom: 1px solid var(--doc-rule); opacity: .65; }
-
+:where(.document-theme #write) :where(.live-inline-preview, .live-block-preview) { white-space: normal; }
 :where(.document-theme #write) :where(.live-inline-preview) { display: inline-block; vertical-align: middle; }
 :where(.document-theme #write) :where(.live-inline-preview p) { display: inline; margin: 0; }
 :where(.document-theme #write) :where(.live-inline-preview img) { max-width: 100%; max-height: 22rem; }
-:where(.document-theme #write) :where(.live-block-preview) { display: block; max-width: 100%; overflow-x: auto; padding: .25em 0; }
-:where(.document-theme #write) :where(.live-block-preview table, .live-block-preview pre, .live-block-preview figure) { margin-block: 0; }
-:where(.document-theme #write) :where(.live-toc .md-toc-item) { display: block; font-size: .9em; }
-:where(.document-theme #write) :where(.live-toc .md-toc-item:not(.toc-h1)) { padding-inline-start: 1em; }
-:where(.document-theme #write) :where(.live-toc :is(.toc-h3, .toc-h4, .toc-h5, .toc-h6)) { padding-inline-start: 2em; }
+:where(.document-theme #write) :where(.live-block-preview) { display: flow-root; max-width: 100%; overflow-x: auto; }
+/* 元数据主题可以用负边距把底色延伸到文档页边，滚动容器会裁掉靠近顶部的文字。 */
+:where(.document-theme #write) :where(.live-metadata-preview) { overflow: visible; }
+:where(.document-theme #write) :where(.live-metadata-preview > pre) { overflow-x: auto; }
 :where(.document-theme #write.editor-focus) :where(.cm-line:not(.cm-activeLine)) { opacity: .45; }
