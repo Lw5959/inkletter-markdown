@@ -6,6 +6,8 @@
   <string>页屿</string>
   <key>CFBundleName</key>
   <string>页屿</string>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>zh-Hans</string>
   <key>UTImportedTypeDeclarations</key>
   <array>
     <dict>

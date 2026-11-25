@@ -7,6 +7,8 @@ mod document_bytes;
 mod export;
 mod files;
 mod mcp;
+#[cfg(target_os = "macos")]
+mod native_menu;
 mod plugins;
 #[cfg(feature = "qa")]
 mod qa;
@@ -71,7 +73,12 @@ fn main() {
                 .filter(|path| path.is_file() && workspace::markdown(path)),
         );
     }
-    let app = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .menu(native_menu::build)
+        .on_menu_event(native_menu::handle_event);
+    let app = builder
         .manage(files::SaveLock::default())
         .manage(themes::ThemeImports::default())
         .manage(ai::Jobs::default())
