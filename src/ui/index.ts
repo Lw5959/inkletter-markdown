@@ -606,6 +606,12 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   const onWindowKeyDown = (event: KeyboardEvent) => {
     if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return
     if (modals.isOpen) return
+    // WebKit 中点击查找按钮可能让焦点离开输入框，Esc 仍可关闭查找栏。
+    if (event.key === 'Escape' && findBar.visible) {
+      event.preventDefault()
+      findBar.close()
+      return
+    }
 
     const matched = shortcuts.match(event, isEditableFormElement(event.target), isMac)
     if (!matched) return
