@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { chromium, webkit, type Browser, type Locator, type Page } from 'playwright-core'
 import { createServer, type ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import type { Theme } from '../src/contracts'
+import type { AiSettings, Theme } from '../src/contracts'
 
 const useWebKit = process.env.YEYU_TEST_WEBKIT === '1'
 const browserPath = process.env.YEYU_CHROME || (platform() === 'darwin'
@@ -200,6 +200,15 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       await inspect(ai, '已展开的 AI 侧栏')
       await page.getByRole('textbox', { name: 'AI 指令输入' }).fill('交互样稿')
       await inspect(page.getByRole('button', { name: '发送', exact: true }), 'AI 发送')
+      await inspect(page.getByRole('combobox', { name: '写作操作' }), '写作操作选择器')
+      await page.getByRole('button', { name: '模型配置', exact: true }).click()
+      await inspect(page.locator('.yy-ai-provider-choice[aria-pressed="true"]'), '选中的模型供应商')
+      const apiProtocol = page.getByRole('combobox', { name: 'API 协议' })
+      await inspect(apiProtocol, 'API 协议选择器')
+      await apiProtocol.press('ArrowDown')
+      await inspect(page.getByRole('option', { name: 'Chat Completions' }), '选中的 API 协议')
+      await page.keyboard.press('Escape')
+      await page.keyboard.press('Escape')
       await page.getByRole('button', { name: '默认提示词', exact: true }).click()
       await inspect(page.locator('.yy-ai-task-choice[aria-pressed="true"]'), '选中的提示词')
       await page.keyboard.press('Escape')
@@ -381,7 +390,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       await tint('.yy-ai-send')
       await page.getByRole('button', { name: '模型配置', exact: true }).click()
       await tint('.yy-ai-settings')
-      await tint('.yy-ai-settings select')
+      await tint('.yy-ai-settings [role="combobox"]')
       await page.keyboard.press('Escape')
       await page.getByRole('button', { name: '默认提示词', exact: true }).click()
       await tint('.yy-ai-task-choice[aria-pressed="true"]')
@@ -672,10 +681,76 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     })
   })
 
+  it('左右侧栏平滑展开收起，界面开关和系统减少动态效果使切换即时生效', async () => {
+    await page.emulateMedia({ reducedMotion: 'no-preference' })
+    await mountTestHarness()
+    const toggle = (side: 'left' | 'right') => page.evaluate(async side => {
+      const slot = document.querySelector<HTMLElement>('.yy-sidebar-slot-' + side)!
+      const button = document.querySelector<HTMLButtonElement>(`[data-toggle="${side === 'left' ? 'left' : 'ai'}"]`)!
+      const width = () => slot.getBoundingClientRect().width
+      const start = width()
+      if (start) slot.querySelector<HTMLElement>('button')?.focus()
+      button.click()
+      const inert = slot.inert
+      const focusReturned = document.activeElement?.matches('.cm-content')
+      const animation = slot.getAnimations().find(item => (item as CSSTransition).transitionProperty === 'flex-basis')
+      let middle = width()
+      if (animation) {
+        animation.pause()
+        animation.currentTime = 80
+        middle = width()
+        animation.finish()
+      }
+      return { start, middle, end: width(), animated: !!animation, inert, focusReturned }
+    }, side)
+
+    for (const [side, size] of [['left', 220], ['right', 360]] as const) {
+      if (side === 'right') await toggle(side)
+      const close = await toggle(side)
+      expect(close).toMatchObject({ start: size, end: 0, animated: true, inert: true, focusReturned: true })
+      expect(close.middle).toBeGreaterThan(0)
+      expect(close.middle).toBeLessThan(size)
+      const open = await toggle(side)
+      expect(open).toMatchObject({ start: 0, end: size, animated: true, inert: false })
+      expect(open.middle).toBeGreaterThan(0)
+      expect(open.middle).toBeLessThan(size)
+    }
+
+    const viewMenu = page.locator('[data-menu="view"]')
+    const motion = page.getByRole('menuitemcheckbox', { name: '界面动画' })
+    await viewMenu.click()
+    expect(await motion.getAttribute('aria-checked')).toBe('true')
+    await motion.click()
+    expect(await page.evaluate(() => (window as unknown as Record<string, any>).__test.actions)).toContainEqual({ type: 'animations', enabled: false })
+    const preference = (animations: boolean) => page.evaluate(animations => {
+      const { shell } = (window as unknown as Record<string, any>).__test
+      shell.setState({ title: '未命名.md', path: null, mode: 'live', workspace: null, animations,
+        presentation: { focus: false, typewriter: false, spellcheck: false } })
+    }, animations)
+    await preference(false)
+    expect(await toggle('left')).toMatchObject({ start: 220, middle: 0, end: 0, animated: false })
+    await viewMenu.click()
+    expect(await motion.getAttribute('aria-checked')).toBe('false')
+    expect(await page.locator('.yy-menu-popover').evaluate(item => getComputedStyle(item).animationDuration)).toBe('0s')
+    await page.keyboard.press('Escape')
+
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await preference(true)
+    expect(await toggle('left')).toMatchObject({ start: 0, middle: 220, end: 220, animated: false })
+    await page.locator('.yy-doc-title-btn').click()
+    expect(await page.locator('.yy-modal-backdrop').evaluate(item => getComputedStyle(item).animationDuration)).toBe('0s')
+    await page.keyboard.press('Escape')
+    await page.emulateMedia({ reducedMotion: 'no-preference' })
+  })
+
   it('AI 模型配置与提示词页面、上下文全文预览、流式会话和差异逐段应用', async () => {
     await mountTestHarness()
 
     const fullContextText = '第一行上下文\n' + '超长全文预览内容不会被截断。'.repeat(12)
+    const settings: AiSettings = { providers: [
+      { id: 'cloud', name: '云端写作', endpoint: 'https://api.example.com/v1/responses', protocol: 'responses', models: ['qwen-plus', 'qwen-long'], hasKey: true },
+      { id: 'local', name: '本地推理', endpoint: 'http://localhost:11434/v1/chat/completions', protocol: 'chat', models: ['qwen-plus'], hasKey: false },
+    ], active: { providerId: 'cloud', model: 'qwen-plus' } }
     await page.click('[data-toggle="ai"]')
 
     const composer = page.getByLabel('AI 指令输入')
@@ -690,13 +765,25 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
 
     const modelDialog = page.getByRole('dialog', { name: '模型配置' })
     await page.getByRole('button', { name: '模型配置', exact: true }).click()
-    expect(await modelDialog.locator('.yy-select-field svg').count()).toBe(1)
-    expect(await modelDialog.getByLabel('API 协议').locator('option').count()).toBe(3)
-    await modelDialog.getByLabel('API 协议').selectOption('responses')
-    await modelDialog.locator('input[type="url"]').fill('https://api.example.com/v1')
-    await modelDialog.locator('input[type="text"]').fill('qwen-plus')
+    const protocols = modelDialog.getByRole('combobox', { name: 'API 协议' })
+    expect(await modelDialog.locator('select').count()).toBe(0)
+    await protocols.press('ArrowDown')
+    expect(await page.getByRole('option').count()).toBe(3)
+    await protocols.press('Escape')
+    expect(await modelDialog.isVisible()).toBe(true)
+    expect(await protocols.getAttribute('aria-expanded')).toBe('false')
+    await protocols.press('ArrowDown')
+    await protocols.press('End')
+    await protocols.press('Enter')
+    expect(await protocols.textContent()).toContain('Responses')
+    await modelDialog.getByLabel('供应商名称').fill('云端写作')
+    await modelDialog.getByLabel('API 地址').fill('https://api.example.com/v1')
+    await modelDialog.getByLabel('模型 ID 1').fill('qwen-plus')
+    await modelDialog.getByRole('button', { name: '添加模型' }).click()
+    await modelDialog.getByLabel('模型 ID 2').fill('qwen-long')
     await modelDialog.locator('input[type="password"]').fill('sk-test-123')
     await modelDialog.getByRole('button', { name: '保存配置' }).click()
+    await modelDialog.getByRole('button', { name: '关闭', exact: true }).click()
     expect(await modelDialog.count()).toBe(0)
 
     await page.getByRole('button', { name: '默认提示词', exact: true }).click()
@@ -714,11 +801,13 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     expect(await promptsDialog.count()).toBe(0)
 
     // Pick context scope & push full context + diff suggestion
-    await page.getByLabel('添加上下文').selectOption('document')
-    await page.evaluate(text => {
+    await page.getByRole('combobox', { name: '添加上下文' }).click()
+    await page.getByRole('option', { name: '全文' }).click()
+    expect(await page.locator('.yy-ai-pane select').count()).toBe(0)
+    await page.evaluate(({ text, settings }) => {
       const { shell } = (window as unknown as Record<string, any>).__test
       shell.setAI({
-        settings: { endpoint: 'https://api.example.com/v1', model: 'qwen-plus', protocol: 'responses', hasKey: true },
+        settings,
         prompts: { rewrite: '保留专名，将段落缩为两句。' },
         context: { scope: 'document', label: '设计稿.md', text },
         messages: [{ role: 'user', text: '请润色两处表述' }],
@@ -741,24 +830,19 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
           ],
         },
       })
-    }, fullContextText)
+    }, { text: fullContextText, settings })
 
-    // Verify all 9 intents exist and context full text is rendered completely
-    const aiCheck = await page.evaluate(() => ({
-      intentCount: document.querySelectorAll('select[aria-label="写作操作"] option').length,
-      previewText: document.querySelector('.yy-context-fulltext')?.textContent,
-    }))
-    expect(aiCheck.intentCount).toBe(9)
-    expect(aiCheck.previewText).toBe(fullContextText)
+    expect(await page.locator('.yy-context-fulltext').textContent()).toBe(fullContextText)
+    expect(await page.getByRole('combobox', { name: '切换模型' }).isEnabled()).toBe(false)
 
     // Cancel while pending
     await page.getByRole('button', { name: '取消生成' }).click()
 
     // Switch to retryable non-pending state, send a polish intent, and test per-hunk & all diff apply
-    await page.evaluate(() => {
+    await page.evaluate(settings => {
       const { shell } = (window as unknown as Record<string, any>).__test
       shell.setAI({
-        settings: { endpoint: 'https://api.example.com/v1', model: 'qwen-plus', protocol: 'responses', hasKey: true },
+        settings,
         prompts: { rewrite: '保留专名，将段落缩为两句。' },
         context: null,
         messages: [{ role: 'user', text: '润色' }],
@@ -779,7 +863,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
           ],
         },
       })
-    })
+    }, settings)
 
     await page.getByRole('button', { name: '默认提示词', exact: true }).click()
     await promptsDialog.getByRole('button', { name: '改写', exact: true }).click()
@@ -790,7 +874,14 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     expect(await promptsDialog.count()).toBe(0)
 
     await page.getByRole('button', { name: '重试上次请求' }).click()
-    await page.getByLabel('写作操作').selectOption('translate')
+    const modelPicker = page.getByRole('combobox', { name: '切换模型' })
+    expect(await modelPicker.textContent()).toBe('云端写作 · qwen-plus')
+    await modelPicker.click()
+    expect(await page.getByRole('option').count()).toBe(3)
+    await page.getByRole('option', { name: /qwen-plus.*本地推理/ }).click()
+    await page.getByRole('combobox', { name: '写作操作' }).click()
+    expect(await page.getByRole('option').count()).toBe(9)
+    await page.getByRole('option', { name: '翻译' }).click()
     await page.fill('.yy-ai-composer textarea', '翻译为英文')
     await page.click('.yy-ai-composer button[type="submit"]')
 
@@ -801,12 +892,11 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
 
     const actions = await page.evaluate(() => (window as unknown as Record<string, any>).__test.actions)
     expect(actions).toContainEqual({
-      type: 'ai-config',
-      endpoint: 'https://api.example.com/v1',
-      model: 'qwen-plus',
-      protocol: 'responses',
+      type: 'ai-provider-save',
+      provider: { id: expect.any(String), name: '云端写作', endpoint: 'https://api.example.com/v1', protocol: 'responses', models: ['qwen-plus', 'qwen-long'] },
       key: 'sk-test-123',
     })
+    expect(actions).toContainEqual({ type: 'ai-model-select', selection: { providerId: 'local', model: 'qwen-plus' } })
     expect(actions).toContainEqual({ type: 'ai-prompts', prompts: { rewrite: '保留专名，将段落缩为两句。' } })
     expect(actions).toContainEqual({ type: 'ai-prompts', prompts: {} })
     expect(actions).toContainEqual({ type: 'ai-context', scope: 'document' })

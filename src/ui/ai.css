@@ -145,43 +145,86 @@
   min-width: 0;
 }
 
-.yy-shell .yy-composer-picker {
-  position: relative;
+.yy-shell .yy-picker-trigger {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  min-height: 26px;
-  padding: 0 7px;
-  border-radius: 7px;
-  color: var(--yy-ink-muted);
-  font-size: 12px;
+  gap: 6px;
+  min-width: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.yy-shell .yy-picker-trigger .yy-picker-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.yy-shell .yy-composer-picker:hover,
-.yy-shell .yy-composer-picker:focus-within {
-  background: var(--yy-accent-soft);
+.yy-shell .yy-picker-trigger .yy-picker-arrow { margin-left: auto; }
+.yy-shell .yy-picker-trigger[aria-expanded="true"] .yy-picker-arrow { transform: rotate(180deg); }
+.yy-shell .yy-picker-trigger:is(:disabled, [aria-disabled="true"]) { cursor: default; opacity: .65; }
+
+.yy-shell .yy-composer-picker,
+.yy-shell .yy-ai-model-switch {
+  min-height: 27px;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--yy-ink-muted);
+  font-size: 12px;
+  font-family: inherit;
+}
+
+.yy-shell .yy-ai-model-switch {
+  align-self: flex-start;
+  max-width: calc(100% - 26px);
+  margin: 0 13px 5px;
+  padding-inline: 9px;
+  border-color: var(--yy-border);
+  background: var(--yy-chrome-subtle);
   color: var(--yy-ink);
+  font-weight: 550;
 }
 
-.yy-shell .yy-composer-picker:has(select:focus-visible) {
-  outline: 1px solid var(--yy-ink-muted);
-}
-
-.yy-shell .yy-composer-picker svg {
+.yy-shell .yy-picker-trigger svg {
   width: 12px;
   height: 12px;
 }
 
-.yy-shell .yy-composer-picker select {
-  /* 保留系统下拉菜单、辅助技术和键盘操作。可见标签随任务更新。 */
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
+.yy-shell .yy-picker-list {
+  position: fixed;
+  z-index: 300;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 4px;
+  border: 1px solid var(--yy-border-strong);
+  border-radius: 9px;
+  background: var(--yy-chrome-elevated);
+  color: var(--yy-ink);
+  box-shadow: var(--yy-shadow-md);
+}
+
+.yy-shell .yy-picker-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 14px;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  font-size: 13px;
   cursor: pointer;
 }
+
+.yy-shell .yy-picker-option-text { display: grid; gap: 1px; overflow-wrap: anywhere; }
+.yy-shell .yy-picker-option small,
+.yy-shell .yy-ai-provider-choice small { color: var(--yy-ink-muted); font-size: 11px; }
+.yy-shell .yy-picker-option:not([aria-selected="true"]) > .yy-icon { visibility: hidden; }
+.yy-shell .yy-picker-option:is(:hover, [data-highlighted]) { background: var(--yy-accent-soft); }
+.yy-shell .yy-picker-option:where([data-highlighted]):hover { background: var(--yy-accent-soft-hover); }
+.yy-shell .yy-picker-option:active { background: var(--yy-accent-soft-pressed); }
+.yy-shell .yy-picker-option[aria-selected="true"] > .yy-icon { color: var(--yy-accent); }
 
 .yy-shell .yy-ai-send {
   flex: 0 0 auto;
@@ -281,6 +324,10 @@
   width: min(660px, 100%);
 }
 
+.yy-shell .yy-ai-settings:has(.yy-ai-catalog) {
+  width: min(735px, 100%);
+}
+
 .yy-shell .yy-ai-settings-head {
   display: flex;
   align-items: flex-start;
@@ -311,10 +358,79 @@
   overflow: auto;
 }
 
-.yy-shell .yy-ai-model-fields {
+.yy-shell .yy-ai-catalog {
+  display: grid;
+  grid-template-columns: minmax(126px, 170px) minmax(0, 1fr);
+  gap: 20px;
+}
+
+.yy-shell .yy-ai-provider-nav {
+  min-width: 0;
+  padding-right: 10px;
+  border-right: 1px solid var(--yy-border);
+}
+
+.yy-shell .yy-ai-provider-list {
+  display: grid;
+  gap: 3px;
+}
+
+.yy-shell .yy-ai-provider-choice {
+  display: grid;
+  gap: 2px;
+  padding: 8px 9px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  text-align: left;
+  background: transparent;
+  color: var(--yy-ink);
+  font: inherit;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.yy-shell .yy-ai-provider-choice:is(:hover, [aria-pressed="true"]) { background: var(--yy-accent-soft); }
+.yy-shell .yy-ai-provider-choice[aria-pressed="true"] { border-color: var(--yy-border); font-weight: 600; }
+.yy-shell .yy-ai-provider-choice:where([aria-pressed="true"]):hover { background: var(--yy-accent-soft-hover); }
+.yy-shell .yy-ai-provider-choice:active { background: var(--yy-accent-soft-pressed); }
+.yy-shell .yy-ai-add-provider { margin-top: 6px; }
+
+.yy-shell .yy-ai-provider-editor {
   display: flex;
   flex-direction: column;
-  gap: 13px;
+  align-items: stretch;
+  gap: 11px;
+  min-width: 0;
+}
+
+.yy-shell .yy-ai-provider-editor > .yy-btn { align-self: flex-start; }
+.yy-shell .yy-ai-provider-editor > [role="status"] { margin: 0; }
+.yy-shell .yy-ai-provider-editor > [role="status"]:empty { display: none; }
+.yy-shell .yy-ai-endpoint-fields {
+  display: grid;
+  grid-template-columns: minmax(152px, .85fr) minmax(0, 1.25fr);
+  gap: 9px;
+}
+.yy-shell .yy-ai-endpoint-fields .yy-picker-trigger { width: 100%; }
+
+.yy-shell .yy-ai-models-head,
+.yy-shell .yy-ai-model-entry,
+.yy-shell .yy-ai-provider-remove {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.yy-shell .yy-ai-models-head { justify-content: space-between; margin-bottom: 5px; }
+.yy-shell .yy-ai-model-list { display: grid; gap: 5px; }
+.yy-shell .yy-ai-model-entry input { min-width: 0; flex: 1; }
+.yy-shell .yy-ai-model-entry button { flex: none; }
+.yy-shell .yy-ai-provider-remove { flex-wrap: wrap; font-size: 12px; color: var(--yy-ink-muted); }
+
+@media (max-width: 660px) {
+  .yy-shell .yy-ai-catalog { gap: 11px; grid-template-columns: 125px minmax(0, 1fr); }
+  .yy-shell .yy-ai-endpoint-fields { grid-template-columns: minmax(0, 1fr); }
 }
 
 .yy-shell .yy-ai-settings .yy-field-label {
@@ -328,6 +444,15 @@
   padding: 8px 9px;
   background: var(--yy-chrome-bg);
   font-size: 13px;
+}
+
+.yy-shell .yy-picker-trigger:where(:not(:disabled, [aria-disabled="true"])):is(:hover, [aria-expanded="true"]) {
+  background: var(--yy-accent-soft);
+  color: var(--yy-ink);
+}
+
+.yy-shell .yy-picker-trigger:where(:not(:disabled, [aria-disabled="true"])):active {
+  background: var(--yy-accent-soft-pressed);
 }
 
 .yy-shell .yy-ai-setting-help,

@@ -45,8 +45,9 @@ export class ModalManager {
     this.keydownHandler = event => {
       if (!this.activeDialog) return
       if (event.key === 'Escape') {
-        // Allow shortcut recorder inside modal to handle its own Escape
+        // 先关闭展开的选项列表，快捷键录制也有自己的取消处理。
         if (this.activeDialog.dataset.recording === 'true') return
+        if (event.target instanceof Element && event.target.closest('[role="combobox"][aria-expanded="true"]')) return
         event.preventDefault()
         event.stopPropagation()
         this.close()
@@ -551,6 +552,7 @@ export class ModalManager {
   }
 
   destroy() {
+    this.close(false)
     window.removeEventListener('keydown', this.keydownHandler, true)
     this.backdrop.remove()
   }

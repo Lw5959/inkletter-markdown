@@ -396,6 +396,12 @@ export class MenuBar {
       { kind: 'separator' },
       {
         kind: 'item',
+        label: '界面动画',
+        checked: state.animations !== false,
+        onSelect: () => this.ctx.dispatch({ type: 'animations', enabled: state.animations === false }),
+      },
+      {
+        kind: 'item',
         label: '专注模式',
         checked: state.presentation.focus,
         shortcutId: 'view.toggleFocus',

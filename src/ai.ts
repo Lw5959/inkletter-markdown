@@ -1,4 +1,4 @@
-import type { AiContext, AiIntent, AiMessage, AiPrompts, AiProtocol, AiView, Editor } from './contracts'
+import type { AiContext, AiIntent, AiMessage, AiPrompts, AiSettings, AiSelection, AiView, Editor, ShellAction } from './contracts'
 import { aiTasks, systemPrompt } from './ai-prompts'
 import { interval, paragraph } from './document-tools'
 import { Channel, invoke, reason } from './native'
@@ -7,36 +7,61 @@ import { bind, suggestion } from './suggestions'
 import type { Binding, PendingSuggestion } from './suggestions'
 
 type Context = { view: AiContext; binding: Binding | null }
-type Run = { id: string; intent: AiIntent; messages: WireMessage[]; binding: Binding | null }
+type Run = { id: string; selection: AiSelection; intent: AiIntent; messages: WireMessage[]; binding: Binding | null }
 type WireMessage = { role: 'system' | AiMessage['role']; text: string }
+type ModelAction = Extract<ShellAction, { type: 'ai-provider-save' | 'ai-provider-remove' | 'ai-model-select' }>
 
 export class Writing {
   view: AiView = {
-    settings: { endpoint: '', model: '', protocol: 'chat', hasKey: false },
+    settings: { providers: [], active: null },
     prompts: {}, context: null, messages: [], stream: '', pending: false, error: '', suggestion: null, canRetry: false,
   }
   pending: PendingSuggestion | null = null
   private context: Context | null = null
   private previous: Run | null = null
   private frame = 0
+  private configuring = false
+  private conversations = new Map<string, AiMessage[]>()
 
   constructor(private publish: (state: AiView) => void) {}
 
   async load() {
-    this.view.settings = await invoke<AiView['settings']>('ai_settings')
-    this.update()
+    this.setSettings(await invoke<AiSettings>('ai_settings'))
   }
 
-  async configure(endpoint: string, model: string, protocol: AiProtocol, key?: string) {
+  async configure(action: ModelAction) {
     if (this.view.pending) throw new Error('请等待本次生成结束，或取消后再更改模型')
-    const previous = this.view.settings
-    const next = await invoke<AiView['settings']>('ai_config', { endpoint, model, protocol, key })
-    this.view.settings = next
-    if (next.endpoint !== previous.endpoint || next.model !== previous.model || next.protocol !== previous.protocol) {
-      // 重试沿用当时确认的上下文，切换服务或模型后需重新发送。
+    if (this.configuring) throw new Error('模型配置正在保存')
+    this.configuring = true
+    try {
+      const next = action.type === 'ai-provider-save'
+        ? await invoke<AiSettings>('ai_provider_save', { provider: action.provider, key: action.key })
+        : action.type === 'ai-provider-remove'
+          ? await invoke<AiSettings>('ai_provider_remove', { id: action.id })
+          : await invoke<AiSettings>('ai_model_select', { selection: action.selection })
       this.previous = null
       this.view.canRetry = false
+      this.setSettings(next)
+      return next.notice
+    } finally {
+      this.configuring = false
     }
+  }
+
+  private setSettings(next: AiSettings) {
+    const prior = conversationKey(this.view.settings)
+    const current = conversationKey(next)
+    if (prior !== current) {
+      // 换供应商或服务地址时使用独立会话，避免上传先前服务的对话内容。
+      if (prior) this.conversations.set(prior, this.view.messages)
+      this.view.messages = this.conversations.get(current) ?? []
+      this.view.error = ''
+    }
+    const available = new Set(next.providers.map(provider => provider.id + '\n' + provider.endpoint))
+    for (const key of this.conversations.keys()) {
+      if (!available.has(key)) this.conversations.delete(key)
+    }
+    this.view.settings = next
     this.update()
   }
 
@@ -88,16 +113,19 @@ export class Writing {
   }
 
   async retry() {
+    if (this.configuring) throw new Error('模型配置正在保存')
     if (this.previous && !this.view.pending) await this.run({ ...this.previous, id: crypto.randomUUID() })
   }
 
   async send(intent: AiIntent, prompt: string, editor: Editor, doc: number, revision: number) {
     if (this.view.pending) return
+    if (this.configuring) throw new Error('模型配置正在保存')
     const text = editor.getMarkdown()
     const caret = editor.getSelection().head
     const context = this.context
     const replacing = aiTasks[intent].replaces
-    if (!this.view.settings.model) throw new Error('请先在 AI 侧栏配置模型')
+    const selection = this.view.settings.active
+    if (!selection) throw new Error('请先在 AI 侧栏配置模型')
     if (replacing && (!context?.binding || context.binding.doc !== doc)) {
       throw new Error('请在侧栏选择当前文档的上下文，确认后再发起改稿')
     }
@@ -111,7 +139,7 @@ export class Writing {
       { role: 'user', text: aiTasks[intent].label + (prompt.trim() ? '\n' + task : '') + (context ? '\n\n用户确认的上下文《' + context.view.label + '》\n' + context.view.text : '') },
     ]
     this.view.messages = [...this.view.messages, { role: 'user', text: task }]
-    await this.run({ id: crypto.randomUUID(), intent, messages, binding })
+    await this.run({ id: crypto.randomUUID(), selection, intent, messages, binding })
   }
 
   private async run(job: Run) {
@@ -136,7 +164,7 @@ export class Writing {
       }
     }
     try {
-      await invoke('ai_stream', { id: job.id, messages: job.messages, event: channel })
+      await invoke('ai_stream', { id: job.id, selection: job.selection, messages: job.messages, event: channel })
       if (ending === 'cancelled') {
         this.view.error = '已取消生成'
       } else if (ending === 'done' && text) {
@@ -162,4 +190,9 @@ export class Writing {
   }
 
   private update() { this.publish(this.view) }
+}
+
+function conversationKey(settings: AiSettings) {
+  const provider = settings.providers.find(item => item.id === settings.active?.providerId)
+  return provider ? provider.id + '\n' + provider.endpoint : ''
 }

@@ -1,7 +1,8 @@
 import { aiIntents, aiTasks, normalizePrompts } from '../ai-prompts'
-import type { AiIntent, AiPrompts, AiProtocol, AiSettings, ShellActions } from '../contracts'
+import type { AiIntent, AiPrompts, AiProtocol, AiProviderDraft, AiSettings, ShellActions } from '../contracts'
 import type { ModalManager } from './dialogs'
-import { el, selectWithIcon } from './helpers'
+import { ChoicePicker } from './choice-picker'
+import { el } from './helpers'
 import { icons } from './icons'
 
 type Dispatch = ShellActions['dispatch']
@@ -12,66 +13,173 @@ const protocols: Record<AiProtocol, { name: string; endpoint: string }> = {
   responses: { name: 'Responses', endpoint: 'https://api.openai.com/v1' },
 }
 
-export function openModelSettings(modals: ModalManager, settings: AiSettings, dispatch: Dispatch) {
-  const protocol = el('select', { className: 'yy-input' })
-  for (const [value, entry] of Object.entries(protocols)) {
-    protocol.append(el('option', { text: entry.name, attrs: { value } }))
-  }
-  protocol.value = settings.protocol
-  const endpoint = el('input', {
-    className: 'yy-input', type: 'url',
-    attrs: { required: '', spellcheck: 'false' },
-  })
-  endpoint.value = settings.endpoint
-  const model = el('input', {
-    className: 'yy-input', type: 'text',
-    attrs: { required: '', placeholder: '例如 qwen2.5:7b', spellcheck: 'false' },
-  })
-  model.value = settings.model
-  const key = el('input', {
-    className: 'yy-input', type: 'password',
-    attrs: { autocomplete: 'new-password', placeholder: settings.hasKey ? '留空沿用该地址已存的密钥' : '无需认证时留空' },
-  })
-  const deleteKey = el('input', { type: 'checkbox' })
-  const deleteLabel = el('label', { className: 'yy-ai-delete-key' })
-  deleteLabel.append(deleteKey, document.createTextNode('删除此地址已存的密钥'))
-  const syncKey = () => {
-    const hasExisting = settings.hasKey && endpoint.value.trim() === settings.endpoint && protocol.value === settings.protocol
-    deleteLabel.hidden = !hasExisting
-    if (!hasExisting) deleteKey.checked = false
-    key.disabled = deleteKey.checked
-    key.placeholder = hasExisting ? '留空沿用该地址已存的密钥' : '无需认证时留空'
-  }
-  const syncProtocol = () => {
-    endpoint.placeholder = protocols[protocol.value as AiProtocol].endpoint
-    syncKey()
-  }
-  protocol.addEventListener('change', syncProtocol)
-  endpoint.addEventListener('input', syncKey)
-  deleteKey.addEventListener('change', syncKey)
-  syncProtocol()
+type Draft = { provider: AiProviderDraft; key: string; clearKey: boolean }
 
-  const fields = el('div', { className: 'yy-ai-model-fields' })
-  fields.append(
-    labelled('API 协议', selectWithIcon(protocol)),
-    labelled('API 地址', endpoint, '远程服务使用 HTTPS。本机服务可使用 HTTP。'),
-    labelled('模型名称', model),
-    labelled('API 密钥（可选）', key, '密钥保存在系统凭据存储中。'),
-    deleteLabel,
-  )
+export function openModelSettings(modals: ModalManager, settings: () => AiSettings, dispatch: Dispatch) {
+  const body = el('div', { className: 'yy-ai-catalog' })
+  const list = el('div', { className: 'yy-ai-provider-list', attrs: { 'aria-label': '供应商' } })
+  const add = el('button', { className: 'yy-btn yy-btn-sm yy-btn-ghost yy-ai-add-provider', type: 'button' },
+    el('span', { className: 'yy-icon', html: icons.plus }), '添加供应商')
+  const editor = el('div', { className: 'yy-ai-provider-editor' })
+  const drafts = new Map<string, Draft>()
+  let fresh: string | null = null
+  let protocol: ChoicePicker | undefined
+  let editing = settings().active?.providerId ?? settings().providers[0]?.id ?? makeNew()
+  let notice = ''
+
+  function makeNew() {
+    const id = crypto.randomUUID()
+    fresh = id
+    drafts.set(id, { provider: { id, name: '', endpoint: '', protocol: 'chat', models: [''] }, key: '', clearKey: false })
+    return id
+  }
+
+  function getDraft(): Draft {
+    const prior = drafts.get(editing)
+    if (prior) return prior
+    const saved = settings().providers.find(item => item.id === editing)!
+    const { id, name, endpoint, protocol, models } = saved
+    const draft = { provider: { id, name, endpoint, protocol, models: [...models] }, key: '', clearKey: false }
+    drafts.set(editing, draft)
+    return draft
+  }
+
+  const select = (id: string) => { editing = id; notice = ''; render() }
+  add.addEventListener('click', () => {
+    select(fresh ?? makeNew())
+    editor.querySelector<HTMLInputElement>('[name="provider-name"]')?.focus()
+  })
+
+  function render() {
+    protocol?.close()
+    list.replaceChildren()
+    const rows = settings().providers.map(({ id, name, protocol }) => ({ id, name, detail: protocols[protocol].name }))
+    if (fresh) rows.push({ id: fresh, name: '新供应商', detail: '' })
+    for (const row of rows) {
+      const button = el('button', {
+        className: 'yy-ai-provider-choice', type: 'button',
+        attrs: { 'aria-pressed': String(row.id === editing), 'data-provider-id': row.id },
+      }, el('span', { text: row.name }))
+      if (row.detail) button.append(el('small', { text: row.detail }))
+      button.addEventListener('click', () => {
+        select(row.id)
+        // 列表更新后让键盘焦点仍停在刚选中的供应商。
+        list.querySelector<HTMLElement>('[aria-pressed="true"]')?.focus()
+      })
+      list.append(button)
+    }
+
+    const draft = getDraft()
+    const saved = settings().providers.find(item => item.id === editing)
+    const name = el('input', { className: 'yy-input', type: 'text', attrs: { name: 'provider-name', required: '', autocomplete: 'off' } })
+    name.value = draft.provider.name
+    name.addEventListener('input', () => { draft.provider.name = name.value })
+    const address = el('input', { className: 'yy-input', type: 'url', attrs: { required: '', spellcheck: 'false' } })
+    address.value = draft.provider.endpoint
+    address.addEventListener('input', () => { draft.provider.endpoint = address.value; syncKey() })
+    protocol = new ChoicePicker('API 协议', 'API 协议', value => {
+      draft.provider.protocol = value as AiProtocol
+      protocol?.setValue(value)
+      syncKey()
+    }, { className: 'yy-input' })
+    protocol.setItems(Object.entries(protocols).map(([value, item]) => ({ value, label: item.name })), draft.provider.protocol)
+    const key = el('input', { className: 'yy-input', type: 'password', attrs: { autocomplete: 'new-password' } })
+    key.value = draft.key
+    key.addEventListener('input', () => { draft.key = key.value })
+    const clearKey = el('input', { type: 'checkbox' })
+    clearKey.checked = draft.clearKey
+    clearKey.addEventListener('change', () => { draft.clearKey = clearKey.checked; syncKey() })
+    const clearLabel = el('label', { className: 'yy-ai-delete-key' }, clearKey, '删除已存密钥')
+    function syncKey() {
+      address.placeholder = protocols[draft.provider.protocol].endpoint
+      const stored = saved?.hasKey && address.value.trim() === saved.endpoint && draft.provider.protocol === saved.protocol
+      clearLabel.hidden = !stored
+      if (!stored) draft.clearKey = clearKey.checked = false
+      key.disabled = draft.clearKey
+      key.placeholder = stored ? '留空沿用已存密钥' : '无需认证时留空'
+    }
+    syncKey()
+
+    const models = el('div', { className: 'yy-ai-model-list' })
+    const addModel = el('button', { type: 'button', className: 'yy-btn yy-btn-sm yy-btn-ghost' },
+      el('span', { className: 'yy-icon', html: icons.plus }), '添加模型')
+    function showModels(focus?: number) {
+      models.replaceChildren(...draft.provider.models.map((model, index) => {
+        const input = el('input', {
+          className: 'yy-input', type: 'text',
+          attrs: { required: '', 'aria-label': `模型 ID ${index + 1}`, placeholder: '例如 qwen2.5:7b', spellcheck: 'false' },
+        })
+        input.value = model
+        input.addEventListener('input', () => { draft.provider.models[index] = input.value })
+        const remove = el('button', {
+          type: 'button', className: 'yy-icon-btn', html: icons.close, attrs: { 'aria-label': `移除模型 ${index + 1}` },
+        })
+        remove.disabled = draft.provider.models.length === 1
+        remove.addEventListener('click', () => {
+          draft.provider.models.splice(index, 1)
+          showModels(Math.min(index, draft.provider.models.length - 1))
+        })
+        const row = el('div', { className: 'yy-ai-model-entry' }, input, remove)
+        if (focus === index) queueMicrotask(() => input.focus())
+        return row
+      }))
+    }
+    addModel.addEventListener('click', () => { draft.provider.models.push(''); showModels(draft.provider.models.length - 1) })
+    showModels()
+    const modelFields = el('section', { className: 'yy-ai-models', attrs: { 'aria-label': '模型' } },
+      el('div', { className: 'yy-ai-models-head' }, el('span', { className: 'yy-field-label', text: '模型' }), addModel), models)
+    const status = el('p', { className: 'yy-ai-setting-help', text: notice, attrs: { role: 'status' } })
+    editor.replaceChildren(
+      labelled('供应商名称', name),
+      el('div', { className: 'yy-ai-endpoint-fields' }, labelled('API 协议', protocol.button), labelled('API 地址', address)),
+      labelled('API 密钥（可选）', key, '密钥保存在系统凭据存储中。'),
+      clearLabel, modelFields, status,
+    )
+    if (saved) {
+      const remove = el('button', { className: 'yy-btn yy-btn-sm yy-btn-ghost', type: 'button', text: '删除供应商' })
+      const confirm = el('button', { className: 'yy-btn yy-btn-sm yy-btn-danger', type: 'button', text: '确认删除' })
+      const cancel = el('button', { className: 'yy-btn yy-btn-sm yy-btn-ghost', type: 'button', text: '取消' })
+      const alert = el('div', { className: 'yy-ai-provider-remove', attrs: { hidden: '' } },
+        el('span', { text: '删除此供应商及其模型？' }), cancel, confirm)
+      remove.addEventListener('click', () => { remove.hidden = true; alert.hidden = false; cancel.focus() })
+      cancel.addEventListener('click', () => { alert.hidden = true; remove.hidden = false; remove.focus() })
+      confirm.addEventListener('click', async () => {
+        confirm.disabled = true
+        const failure = await dispatch({ type: 'ai-provider-remove', id: saved.id })
+        if (!editor.isConnected) return
+        confirm.disabled = false
+        if (failure) { status.textContent = failure; return }
+        drafts.delete(saved.id)
+        editing = settings().active?.providerId ?? settings().providers[0]?.id ?? fresh ?? makeNew()
+        notice = settings().notice ?? '供应商已删除'
+        render()
+        list.querySelector<HTMLElement>('[aria-pressed="true"]')?.focus()
+      })
+      editor.append(remove, alert)
+    }
+  }
+
+  body.append(el('nav', { className: 'yy-ai-provider-nav' }, list, add), editor)
+  render()
   openSettings(modals, {
-    title: '模型配置',
-    description: '填写本地或远程模型的连接信息。',
-    body: fields,
-    initialFocus: endpoint,
-    submitLabel: '保存配置',
-    save: () => dispatch({
-      type: 'ai-config',
-      endpoint: endpoint.value.trim(),
-      model: model.value.trim(),
-      protocol: protocol.value as AiProtocol,
-      key: deleteKey.checked ? '' : key.value.trim() || undefined,
-    }),
+    title: '模型配置', body, initialFocus: editor.querySelector<HTMLInputElement>('[name="provider-name"]')!,
+    submitLabel: '保存配置', keepOpen: true, onClose: () => protocol?.close(),
+    save: async () => {
+      const draft = getDraft()
+      const failure = await dispatch({
+        type: 'ai-provider-save',
+        provider: { ...draft.provider, models: [...draft.provider.models] },
+        key: draft.clearKey ? '' : draft.key.trim() || undefined,
+      })
+      if (failure || !editor.isConnected) return failure
+      const savedId = draft.provider.id
+      if (settings().providers.some(item => item.id === savedId)) {
+        if (fresh === savedId) fresh = null
+        drafts.delete(savedId)
+      }
+      notice = settings().notice ?? '已保存'
+      render()
+    },
   })
 }
 
@@ -137,11 +245,13 @@ function labelled(title: string, input: HTMLElement, description?: string) {
 
 function openSettings(modals: ModalManager, options: {
   title: string
-  description: string
+  description?: string
   body: HTMLElement
   initialFocus: HTMLElement
   submitLabel: string
   save: () => ReturnType<Dispatch>
+  keepOpen?: boolean
+  onClose?: () => void
 }) {
   const dialog = el('form', {
     className: 'yy-modal yy-ai-settings',
@@ -149,7 +259,8 @@ function openSettings(modals: ModalManager, options: {
   })
   const header = el('header', { className: 'yy-ai-settings-head' })
   const heading = el('div')
-  heading.append(el('h2', { text: options.title }), el('p', { text: options.description }))
+  heading.append(el('h2', { text: options.title }))
+  if (options.description) heading.append(el('p', { text: options.description }))
   const close = el('button', {
     className: 'yy-icon-btn', type: 'button', html: icons.close, attrs: { 'aria-label': '关闭' },
   })
@@ -171,14 +282,15 @@ function openSettings(modals: ModalManager, options: {
     try {
       const detail = await options.save()
       if (detail) throw new Error(detail)
-      if (dialog.isConnected) modals.close()
+      if (dialog.isConnected && !options.keepOpen) modals.close()
     } catch (error) {
       status.textContent = error instanceof Error ? error.message : String(error)
       status.hidden = false
     } finally {
       fields.disabled = submit.disabled = false
+      if (options.keepOpen && dialog.isConnected && !dialog.contains(document.activeElement)) submit.focus({ preventScroll: true })
     }
   })
   dialog.append(header, fields, status, footer)
-  modals.open(dialog, { initialFocus: options.initialFocus })
+  modals.open(dialog, { initialFocus: options.initialFocus, onClose: options.onClose })
 }

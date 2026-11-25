@@ -73,6 +73,7 @@ fn main() {
         .manage(files::SaveLock::default())
         .manage(themes::ThemeImports::default())
         .manage(ai::Jobs::default())
+        .manage(ai::config::Models::default())
         .manage(mcp::Sessions::default())
         .manage(plugins::Plugins::default())
         .manage(plugins::market::Market::default())
@@ -140,8 +141,10 @@ fn main() {
             export::pandoc_export,
             print_document,
             visit_link,
-            ai::ai_settings,
-            ai::ai_config,
+            ai::config::ai_settings,
+            ai::config::ai_provider_save,
+            ai::config::ai_provider_remove,
+            ai::config::ai_model_select,
             ai::ai_stream,
             ai::ai_cancel,
             plugins::plugin_list,

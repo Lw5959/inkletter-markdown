@@ -9,6 +9,8 @@
 3. 从「视图 → 文档主题」选择默认、白纸、青瓷、石墨、松夜或本机 Typora 的主题。白纸是纯白底的衬线主题。本机款式首次选择时保存一份可离线使用的副本，也可以用「导入本机 Typora 主题」一次导入，或用「导入主题 CSS…」选择主文件。相对字体、图片、子目录以及 `base.user.css` 和同名覆盖样式一并导入。
 4. 文件菜单可导出 HTML、PDF、PNG 和常见办公文档。PDF 与 PNG 使用本机的 Chrome、Chromium 或 Edge。DOCX、EPUB、ODT、LaTeX 等需要安装 Pandoc。
 
+左右侧栏展开和收起时有过渡效果，菜单、弹窗和查找条也有动效。在「视图 → 界面动画」中可关闭，重启后保留设置。系统启用「减少动态效果」时，页屿会自动关闭这些动效。
+
 PDF 与 PNG 导出可用 `YEYU_CHROME` 指定浏览器可执行文件。如果程序找不到 Pandoc，可用 `YEYU_PANDOC` 指定其可执行文件后重新启动页屿。两个环境变量均可省略。
 
 ## 从 Typora 迁移
@@ -19,7 +21,9 @@ PDF 与 PNG 导出可用 `YEYU_CHROME` 指定浏览器可执行文件。如果�
 
 ## AI 写作
 
-在 AI 侧栏打开「模型配置」，选择 Chat Completions、Anthropic Messages 或 Responses，填写 API 地址和模型。支持远程 HTTPS 和本机回环 HTTP，例如 `http://127.0.0.1:8080/v1`。可以填 API 前缀或完整接口地址。API 密钥保存到系统的 Keychain、Credential Manager 或 Secret Service。
+在 AI 侧栏打开「模型配置」，点击「添加供应商」。每个供应商有自己的 API 地址、协议和密钥，可添加多个模型 ID。协议支持 Chat Completions、Anthropic Messages 和 Responses。地址支持远程 HTTPS、本机回环 HTTP、API 前缀或完整接口地址。密钥保存到系统的 Keychain、Credential Manager 或 Secret Service。已有单模型配置会自动显示为一个供应商。
+
+保存后，在对话顶部的模型菜单选择供应商和模型。下次启动时沿用最后选择。切换供应商会切换到对应的会话，原供应商的对话保留在当前应用会话中。
 
 在「默认提示词」中可编辑九种操作的提示词，或恢复内置内容。改稿前从输入框旁添加上下文并核对全文预览。结果生成后可选择应用整份建议或指定差异块，应用操作可以撤销。
 

@@ -1,4 +1,4 @@
-import type { AiProtocol, Editor, ExportFormat, PluginInfo, ShellAction, ShellState, Theme, WorkspaceEntry } from './contracts'
+import type { AiProtocol, AiSelection, Editor, ExportFormat, PluginInfo, ShellAction, ShellState, Theme, WorkspaceEntry } from './contracts'
 import type { Writing } from './ai'
 import type { Protocol } from './mcp'
 import { invoke, native, reason } from './native'
@@ -20,6 +20,9 @@ type Case = {
   exports: Record<string, string>
   recoveryText?: string
   model?: { endpoint: string; name: string }
+  aiFixture?: string
+  aiFixtureKey?: string
+  activeModel?: AiSelection
   mcp: string
   picgo?: string
   market?: string
@@ -57,6 +60,22 @@ async function until(ready: () => boolean, ms = 10_000) {
     if (performance.now() > deadline) throw new Error('等待验收状态超时')
     await wait(40)
   }
+}
+
+function chooseOption(scope: ParentNode, label: string, text: string, detail?: string) {
+  const picker = scope.querySelector<HTMLButtonElement>(`[role="combobox"][aria-label="${label}"]`)!
+  picker.click()
+  const list = document.getElementById(picker.getAttribute('aria-controls')!)!
+  const option = [...list.querySelectorAll<HTMLElement>('[role="option"]')].find(item =>
+    item.querySelector('.yy-picker-option-text span')?.textContent === text &&
+    (detail === undefined || item.querySelector('small')?.textContent === detail))
+  check(option, `可选择 ${label} ${text}`)
+  option.click()
+}
+
+function setInput(input: HTMLInputElement | HTMLTextAreaElement, value: string) {
+  input.value = value
+  input.dispatchEvent(new Event('input', { bubbles: true }))
 }
 
 export async function prepareRecovery() {
@@ -308,6 +327,25 @@ async function verifyFull(ports: Ports, scenario: Case) {
   check(mcpMenu.getAttribute('aria-checked') === 'true', '菜单勾选当前协作面板')
   mcpMenu.click()
   result.collaborationMenu = true
+  const motionOption = () => {
+    document.querySelector<HTMLButtonElement>('[data-menu="view"]')!.click()
+    return button(document.querySelector('.yy-menu-popover')!, '界面动画')
+  }
+  const slot = document.querySelector<HTMLElement>('.yy-sidebar-slot-right')!
+  const normal = getComputedStyle(slot).transitionDuration
+  const motion = motionOption()
+  check(motion.getAttribute('aria-checked') === 'true', '界面动画默认开启')
+  motion.click()
+  await until(() => document.documentElement.dataset.yeyuMotion === 'off')
+  await until(() => ports.state.detail === '界面动画已关闭')
+  const disabled = getComputedStyle(slot).transitionDuration
+  check(disabled.split(',').every(duration => Number.parseFloat(duration) === 0), '关闭时侧栏过渡时间为零')
+  const immediate = () => slot.getBoundingClientRect().width
+  toolbar[0].click()
+  check(immediate() > 0 && !slot.inert, '关闭动效后即时展开侧栏')
+  toolbar[0].click()
+  check(immediate() === 0 && slot.inert, '关闭动效后即时收起侧栏')
+  result.motion = { normal, disabled, reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches }
   const filtered = await invoke<WorkspaceEntry[]>('workspace_tree', { root: scenario.root, hidden: false, all: false, filter: '**/*.png' })
   check(filtered.length === 1 && filtered[0].children?.some(child => child.name === 'icon.png'), '文件树路径规则')
   const original = await native.read(scenario.guide)
@@ -381,26 +419,38 @@ async function verifyFull(ports: Ports, scenario: Case) {
   result.exports = scenario.exports
   await mark('exported', result)
 
-  if (scenario.model) {
+  if (scenario.aiFixture) {
+    const model = scenario.model ?? { endpoint: scenario.aiFixture + '/chat/v1', name: 'qa-shared' }
+    const writing = ports.writing.view
+    check(writing.settings.active?.providerId === 'legacy' && writing.settings.active.model === 'qa-shared', '旧单模型配置已迁入供应商目录')
     const body = ports.text().indexOf('The draft is wordy.')
     check(body >= 0, 'AI 选区样本')
     const selected = 'The draft is wordy.'
     ports.editor.select({ anchor: body, head: body + selected.length })
     document.querySelector<HTMLButtonElement>('[data-toggle="ai"]')!.click()
     const panel = document.querySelector('.yy-ai-pane')!
-    button(panel, '模型配置').click()
-    const modelPage = document.querySelector<HTMLFormElement>('form[aria-label="模型配置"]')!
+    const openModels = () => {
+      button(panel, '模型配置').click()
+      return document.querySelector<HTMLFormElement>('form[aria-label="模型配置"]')!
+    }
+    const closeModels = (page: ParentNode) => page.querySelector<HTMLButtonElement>('button[aria-label="关闭"]')!.click()
+    const modelPage = openModels()
     const endpoint = modelPage.querySelector<HTMLInputElement>('input[type="url"]')!
-    const model = modelPage.querySelector<HTMLInputElement>('input[type="text"]')!
-    model.value = scenario.model.name
-    endpoint.value = 'http://model.example.invalid/v1'
+    const name = modelPage.querySelector<HTMLInputElement>('input[aria-label="模型 ID 1"]')!
+    setInput(name, model.name)
+    setInput(modelPage.querySelector<HTMLInputElement>('[name="provider-name"]')!, '本地 Chat')
+    setInput(endpoint, 'http://model.example.invalid/v1')
     modelPage.requestSubmit()
     await until(() => !modelPage.querySelector<HTMLElement>('[role="alert"]')!.hidden)
-    check(modelPage.isConnected && model.value === scenario.model.name, '模型配置失败后保留字段')
-    endpoint.value = scenario.model.endpoint
+    check(modelPage.isConnected && name.value === model.name, '模型配置失败后保留字段')
+    setInput(endpoint, model.endpoint)
+    button(modelPage, '添加模型').click()
+    setInput(modelPage.querySelector<HTMLInputElement>('input[aria-label="模型 ID 2"]')!, 'qa-chat-extra')
     modelPage.requestSubmit()
-    await until(() => !modelPage.isConnected)
-    check(ports.writing.view.settings.model === scenario.model.name, '从页面保存真实模型配置')
+    await until(() => writing.settings.providers[0]?.name === '本地 Chat')
+    check(writing.settings.active?.model === model.name && writing.settings.providers[0].models.length === 2,
+      '从配置页保存原供应商的两个模型')
+    closeModels(modelPage)
 
     const rewritePrompt = 'Replace the word "wordy" with "verbose" in the supplied sentence. Keep the rest and output only the changed sentence.'
     const openPrompts = () => {
@@ -417,18 +467,14 @@ async function verifyFull(ports: Ports, scenario: Case) {
     await until(() => !prompts.page.isConnected)
     check((await native.preferences())?.aiPrompts?.rewrite === rewritePrompt, '提示词已写入本地设置')
 
-    const scope = panel.querySelector<HTMLSelectElement>('[aria-label="添加上下文"]')!
-    scope.value = 'selection'
-    scope.dispatchEvent(new Event('change'))
+    chooseOption(panel, '添加上下文', '当前选区')
     await until(() => ports.writing.view.context?.text === selected)
     check(panel.querySelector('.yy-context-fulltext')?.textContent === selected, '发送前可预览完整选区')
-    const task = panel.querySelector<HTMLSelectElement>('[aria-label="写作操作"]')!
-    task.value = 'rewrite'
-    task.dispatchEvent(new Event('change'))
+    chooseOption(panel, '写作操作', '改写')
     panel.querySelector<HTMLFormElement>('.yy-ai-composer')!.requestSubmit()
     await until(() => !ports.writing.view.pending, 60_000)
     const proposal = ports.writing.pending
-    check(proposal && !ports.writing.view.error, '真实模型返回差异：' + ports.writing.view.error)
+    check(proposal && !writing.error, '模型返回差异：' + writing.error)
     check(ports.text() === original.text, '预览差异期间编辑缓冲区保持不变')
     await ports.action({ type: 'suggestion-apply', id: proposal.view.id, hunks: proposal.view.parts.flatMap(part => part.hunk === undefined ? [] : [part.hunk]) })
     check(ports.text() !== original.text, 'AI 建议已应用')
@@ -443,24 +489,51 @@ async function verifyFull(ports: Ports, scenario: Case) {
     saved.page.requestSubmit()
     await until(() => !saved.page.isConnected)
     check(!(await native.preferences())?.aiPrompts?.rewrite, '恢复默认后清除本地覆盖')
+    await ports.action({ type: 'ai-context-clear' })
+    const added = openModels()
+    const providers = [
+      { protocol: 'anthropic', name: 'Anthropic 夹具', label: 'Anthropic Messages', next: 'qa-claude' },
+      { protocol: 'responses', name: 'Responses 夹具', label: 'Responses', next: 'qa-response' },
+    ] as const
+    for (const provider of providers) {
+      button(added, '添加供应商').click()
+      setInput(added.querySelector<HTMLInputElement>('[name="provider-name"]')!, provider.name)
+      chooseOption(added, 'API 协议', provider.label)
+      setInput(added.querySelector<HTMLInputElement>('input[type="url"]')!, `${scenario.aiFixture}/${provider.protocol}/v1`)
+      setInput(added.querySelector<HTMLInputElement>('input[aria-label="模型 ID 1"]')!, 'qa-shared')
+      button(added, '添加模型').click()
+      setInput(added.querySelector<HTMLInputElement>('input[aria-label="模型 ID 2"]')!, provider.next)
+      if (provider.protocol === 'responses' && scenario.aiFixtureKey) {
+        setInput(added.querySelector<HTMLInputElement>('input[type="password"]')!, scenario.aiFixtureKey)
+      }
+      added.requestSubmit()
+      await until(() => writing.settings.providers.some(item => item.name === provider.name && item.models.length === 2))
+    }
+    closeModels(added)
     const protocols: AiProtocol[] = ['chat']
-    for (const protocol of ['anthropic', 'responses'] as const) {
-      await ports.action({ type: 'ai-clear' })
-      await ports.action({ type: 'ai-context-clear' })
-      button(panel, '模型配置').click()
-      const settingsPage = document.querySelector<HTMLFormElement>('form[aria-label="模型配置"]')!
-      const picker = settingsPage.querySelector('select')!
-      picker.value = protocol
-      picker.dispatchEvent(new Event('change'))
-      settingsPage.requestSubmit()
-      await until(() => !settingsPage.isConnected)
-      check(ports.writing.view.settings.protocol === protocol, '保存协议 ' + protocol)
+    for (const { protocol, name, next } of providers) {
+      chooseOption(panel, '切换模型', next, name)
+      await until(() => writing.settings.active?.model === next)
+      check(!writing.messages.length, '各供应商的会话分开保存')
       await ports.action({ type: 'ai-send', intent: 'chat', prompt: 'Answer in just one short sentence. What is Markdown?' })
-      check(!ports.writing.view.error && ports.writing.view.messages.at(-1)?.role === 'assistant',
-        '协议流式输出 ' + protocol + ' ' + ports.writing.view.error)
+      check(!writing.error && writing.messages.at(-1)?.text === `${protocol}·${next}`, '协议流式输出 ' + protocol + ' ' + writing.error)
       protocols.push(protocol)
     }
-    result.ai = { answer, hunks: proposal.view.hunks, undo: true, modelPage: true, promptSettings: true, protocols }
+    if (scenario.aiFixtureKey) {
+      check(writing.settings.providers.find(provider => provider.protocol === 'responses')?.hasKey, 'Responses 供应商使用系统凭据')
+    }
+    const remove = openModels()
+    button(remove, '删除供应商').click()
+    button(remove, '确认删除').click()
+    await until(() => writing.settings.providers.length === 2)
+    check(writing.settings.active?.providerId === 'legacy' && writing.messages.at(-1)?.text === answer, '删除当前供应商后恢复可用模型及其会话')
+    closeModels(remove)
+    chooseOption(panel, '切换模型', 'qa-shared', 'Anthropic 夹具')
+    await until(() => writing.settings.active?.providerId !== 'legacy')
+    check(writing.settings.active?.model === 'qa-shared' && writing.messages.at(-1)?.text === 'anthropic·qa-claude', '同供应商切换模型保留会话')
+    result.ai = { answer, hunks: proposal.view.hunks, undo: true, promptSettings: true, protocols,
+      sources: { chat: scenario.model ? 'local-model' : 'fixture', anthropic: 'fixture', responses: 'fixture' },
+      migrated: true, catalog: true, active: writing.settings.active, systemCredential: !!scenario.aiFixtureKey }
   }
 
   const pluginText = '\n\n插件首行  \r\n下一行\t\r末尾  '
@@ -812,7 +885,14 @@ export async function runNativeQa(ports: Ports) {
     if (scenario.phase === 'measure') await measure(ports, scenario)
     else if (scenario.phase === 'recover') {
       check(ports.text() === scenario.recoveryText && ports.state.dirty && ports.state.mode === 'source', '强制结束后恢复内容和源码模式')
-      await mark('recovery', { recovered: true, mode: ports.state.mode, dirty: ports.state.dirty })
+      check((await native.preferences())?.animations === false && document.documentElement.dataset.yeyuMotion === 'off', '重启保留动画开关')
+      if (scenario.activeModel) {
+        const { providers, active } = ports.writing.view.settings
+        check(active?.providerId === scenario.activeModel.providerId && active.model === scenario.activeModel.model &&
+          providers.length === 2 && providers.every(provider => provider.models.length === 2), '重启保留供应商、多个模型和当前选择')
+      }
+      await mark('recovery', { recovered: true, mode: ports.state.mode, dirty: ports.state.dirty,
+        motionPersisted: true, aiSelectionPersisted: !!scenario.activeModel })
     } else await verifyFull(ports, scenario)
   } catch (error) {
     await mark('failure', { error: reason(error), stack: error instanceof Error ? error.stack : '' })

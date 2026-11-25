@@ -1,6 +1,7 @@
 import { aiIntents, aiTasks } from '../ai-prompts'
-import type { AiContext, AiIntent, AiMessage, AiScope, AiView, ShellAction, ShellActions, Suggestion } from '../contracts'
+import type { AiContext, AiIntent, AiMessage, AiScope, AiSelection, AiSettings, AiView, ShellAction, ShellActions, Suggestion } from '../contracts'
 import { openModelSettings, openPromptSettings } from './ai-settings'
+import { ChoicePicker } from './choice-picker'
 import type { ModalManager } from './dialogs'
 import { el, groupDiffParts } from './helpers'
 import { icons } from './icons'
@@ -24,15 +25,18 @@ export class AiPanel {
     attrs: { role: 'tabpanel', 'aria-label': 'AI 写作助手' },
   })
   private view: AiView = {
-    settings: { endpoint: '', model: '', protocol: 'chat', hasKey: false },
+    settings: { providers: [], active: null },
     prompts: {}, context: null, messages: [], stream: '', pending: false, error: '', suggestion: null, canRetry: false,
   }
   private shownMessages: AiMessage[] | null = null
+  private shownSettings: AiSettings | null = null
   private shownContext: AiContext | null = null
   private activeSuggestionId: string | null = null
   private selectedHunks = new Set<number>()
   private submitting = false
   private actionError = ''
+  private intent: AiIntent = 'chat'
+  private changingModel = false
 
   private modelButton = el('button', {
     className: 'yy-btn yy-btn-sm yy-btn-ghost', type: 'button', text: '模型配置',
@@ -60,7 +64,17 @@ export class AiPanel {
     className: 'yy-ai-input',
     attrs: { rows: '1', placeholder: aiTasks.chat.placeholder, 'aria-label': 'AI 指令输入' },
   })
-  private taskSelect = el('select', { attrs: { 'aria-label': '写作操作' } })
+  private modelOptions = new Map<string, AiSelection>()
+  private modelPicker = new ChoicePicker('切换模型', '选择模型', value => { void this.selectModel(value) },
+    { className: 'yy-ai-model-switch', minimumWidth: 225 })
+  private taskPicker = new ChoicePicker('写作操作', aiTasks.chat.label, value => {
+    this.intent = value as AiIntent
+    this.taskPicker.setValue(value)
+    this.promptInput.placeholder = aiTasks[this.intent].placeholder
+    this.updateDraft()
+  }, { className: 'yy-composer-picker' })
+  private contextPicker = new ChoicePicker('添加上下文', '上下文', value => { void this.selectContext(value as AiScope) },
+    { className: 'yy-composer-picker', icon: icons.plus })
   private sendButton = iconButton('发送', icons.arrowUp, 'yy-ai-send', 'submit')
   private cancelButton = iconButton('取消生成', icons.stop, 'yy-ai-send')
 
@@ -97,14 +111,28 @@ export class AiPanel {
     this.contextSummary.append(el('span', { className: 'yy-ai-context-arrow yy-icon', html: icons.chevronRight }), this.contextLabel)
     this.contextDetails.append(this.contextSummary, this.contextPreview)
     this.contextHost.append(this.contextDetails, clearContext)
-    this.element.append(header, this.conversation, this.buildComposer())
+    this.element.append(header, this.modelPicker.button, this.conversation, this.buildComposer())
     this.setView(this.view)
   }
 
-  private get intent() { return this.taskSelect.value as AiIntent }
-
   private openModels() {
-    openModelSettings(this.options.modals, this.view.settings, this.options.dispatch)
+    openModelSettings(this.options.modals, () => this.view.settings, this.options.dispatch)
+  }
+
+  private async selectModel(value: string) {
+    const selection = this.modelOptions.get(value)
+    if (!selection || value === modelKey(this.view.settings.active) || this.changingModel) return
+    this.changingModel = true
+    this.modelPicker.setDisabled(true)
+    await this.request({ type: 'ai-model-select', selection })
+    this.changingModel = false
+    this.modelPicker.setDisabled(this.view.pending)
+  }
+
+  private async selectContext(scope: AiScope) {
+    this.contextPicker.setDisabled(true)
+    await this.request({ type: 'ai-context', scope })
+    this.contextPicker.setDisabled(false)
   }
 
   private buildComposer() {
@@ -112,32 +140,9 @@ export class AiPanel {
     const inputBox = el('div', { className: 'yy-ai-input-box' })
     const bar = el('div', { className: 'yy-composer-bar' })
     const tools = el('div', { className: 'yy-ai-composer-tools' })
-    for (const id of aiIntents) {
-      this.taskSelect.append(el('option', { text: aiTasks[id].label, attrs: { value: id } }))
-    }
-    const taskLabel = el('span', { text: aiTasks.chat.label })
-    this.taskSelect.addEventListener('change', () => {
-      const task = aiTasks[this.intent]
-      taskLabel.textContent = task.label
-      this.promptInput.placeholder = task.placeholder
-      this.updateDraft()
-    })
-    const scope = el('select', { attrs: { 'aria-label': '添加上下文' } })
-    scope.append(el('option', { text: '添加上下文', attrs: { value: '', disabled: '', selected: '' } }))
-    for (const [value, label] of Object.entries(scopes)) {
-      scope.append(el('option', { text: label, attrs: { value } }))
-    }
-    scope.addEventListener('change', async () => {
-      const selected = scope.value as AiScope
-      scope.value = ''
-      scope.disabled = true
-      await this.request({ type: 'ai-context', scope: selected })
-      scope.disabled = false
-    })
-    tools.append(
-      composerPicker(this.taskSelect, taskLabel, icons.chevronDown),
-      composerPicker(scope, el('span', { text: '上下文' }), icons.plus, true),
-    )
+    this.taskPicker.setItems(aiIntents.map(value => ({ value, label: aiTasks[value].label })), this.intent)
+    this.contextPicker.setItems(Object.entries(scopes).map(([value, label]) => ({ value, label })))
+    tools.append(this.taskPicker.button, this.contextPicker.button)
     this.sendButton.setAttribute('aria-keyshortcuts', 'Meta+Enter Control+Enter')
     this.cancelButton.addEventListener('click', () => { void this.request({ type: 'ai-cancel' }) })
     bar.append(tools, this.sendButton, this.cancelButton)
@@ -161,13 +166,13 @@ export class AiPanel {
   }
 
   private async submitPrompt() {
-    if (this.submitting || this.view.pending) return
+    if (this.submitting || this.view.pending || this.changingModel) return
     const draft = this.promptInput.value
     if (!draft.trim() && this.intent === 'chat') {
       this.promptInput.focus()
       return
     }
-    if (!this.view.settings.model) {
+    if (!this.view.settings.active) {
       this.openModels()
       return
     }
@@ -211,14 +216,27 @@ export class AiPanel {
     const { settings, context, messages, stream, pending, suggestion, canRetry } = view
     const nearEnd = this.conversation.scrollHeight - this.conversation.clientHeight - this.conversation.scrollTop < 48
     this.view = view
-    this.modelButton.title = settings.model ? '当前模型 · ' + settings.model : '配置本地或远程模型'
+    if (settings !== this.shownSettings) {
+      this.shownSettings = settings
+      this.modelOptions.clear()
+      const items = settings.providers.flatMap(provider => provider.models.map(model => {
+        const selection = { providerId: provider.id, model }
+        const value = modelKey(selection)
+        this.modelOptions.set(value, selection)
+        return { value, label: model, detail: provider.name }
+      }))
+      this.modelPicker.setItems(items, modelKey(settings.active))
+      this.modelPicker.button.hidden = !items.length
+    }
+    this.modelPicker.setDisabled(pending || this.changingModel)
     this.clearButton.hidden = !messages.length
     this.clearButton.disabled = pending
     this.retryButton.hidden = pending || !canRetry
     this.sendButton.hidden = pending
     this.cancelButton.hidden = !pending
     this.empty.hidden = !!(messages.length || pending || suggestion)
-    this.emptyHint.textContent = settings.model ? settings.model : '配置模型后可以开始对话'
+    this.emptyHint.textContent = settings.active ? '' : '配置模型后可以开始对话'
+    this.emptyHint.hidden = !!settings.active
 
     // 流式更新只写入正在生成的消息。保留历史消息的选区与上下文的滚动位置。
     if (messages !== this.shownMessages) {
@@ -383,7 +401,13 @@ export class AiPanel {
   }
 
   focusInput() {
-    queueMicrotask(() => this.promptInput.focus())
+    queueMicrotask(() => this.promptInput.focus({ preventScroll: true }))
+  }
+
+  closePickers() {
+    this.modelPicker.close()
+    this.taskPicker.close()
+    this.contextPicker.close()
   }
 }
 
@@ -397,10 +421,6 @@ function iconButton(label: string, html: string, className = '', type = 'button'
   })
 }
 
-function composerPicker(select: HTMLSelectElement, label: HTMLElement, icon: string, iconFirst = false) {
-  const picker = el('div', { className: 'yy-composer-picker' })
-  const glyph = el('span', { className: 'yy-icon', html: icon, attrs: { 'aria-hidden': 'true' } })
-  label.setAttribute('aria-hidden', 'true')
-  picker.append(...(iconFirst ? [glyph, label] : [label, glyph]), select)
-  return picker
+function modelKey(selection: AiSelection | null) {
+  return selection ? selection.providerId + '\n' + selection.model : ''
 }

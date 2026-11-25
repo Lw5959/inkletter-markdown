@@ -41,7 +41,10 @@ export type AiIntent = 'chat' | 'outline' | 'draft' | 'continue' | 'rewrite' | '
 export type AiPrompts = Partial<Record<AiIntent, string>>
 export type AiScope = 'selection' | 'paragraph' | 'document' | 'files'
 export type AiProtocol = 'chat' | 'anthropic' | 'responses'
-export type AiSettings = { endpoint: string; model: string; protocol: AiProtocol; hasKey: boolean }
+export type AiSelection = { providerId: string; model: string }
+export type AiProviderDraft = { id: string; name: string; endpoint: string; protocol: AiProtocol; models: string[] }
+export type AiProvider = AiProviderDraft & { hasKey: boolean }
+export type AiSettings = { providers: AiProvider[]; active: AiSelection | null; notice?: string }
 export type AiContext = { scope: AiScope; label: string; text: string }
 export type AiMessage = { role: 'user' | 'assistant'; text: string }
 export type DiffPart = { kind: 'keep' | 'add' | 'remove'; text: string; hunk?: number }
@@ -99,7 +102,9 @@ export type ShellAction =
   | { type: 'workspace-trash'; path: string }
   | { type: 'image-import'; files?: File[] }
   | { type: 'images'; mode: ImageMode }
-  | { type: 'ai-config'; endpoint: string; model: string; protocol: AiProtocol; key?: string }
+  | { type: 'ai-provider-save'; provider: AiProviderDraft; key?: string }
+  | { type: 'ai-provider-remove'; id: string }
+  | { type: 'ai-model-select'; selection: AiSelection }
   | { type: 'ai-prompts'; prompts: AiPrompts }
   | { type: 'ai-context'; scope: AiScope }
   | { type: 'ai-context-clear' }
@@ -117,10 +122,12 @@ export type ShellAction =
   | { type: 'mcp-authorize'; allow: boolean }
   | { type: 'mcp-next' }
   | { type: 'autosave'; enabled: boolean }
+  | { type: 'animations'; enabled: boolean }
 export type ShellState = {
   title: string; path: string | null; dirty: boolean; mode: EditorMode;
   detail: string; words: number; characters: number; line: number; column: number;
   workspace: string | null; autosave: boolean; presentation: Presentation
+  animations?: boolean
   workspaceFilter?: { hidden: boolean; all: boolean; glob: string }
 }
 export type ShellActions = {

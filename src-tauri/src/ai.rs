@@ -1,4 +1,7 @@
+pub mod config;
+
 use crate::store::{Store, err};
+use config::{Models, Selection, Target};
 use eventsource_stream::Eventsource;
 use futures_util::StreamExt;
 use reqwest::{Client, RequestBuilder, Url, header::HeaderValue};
@@ -8,8 +11,6 @@ use std::{collections::HashMap, sync::Mutex, time::Duration};
 use tauri::{State, ipc::Channel};
 use tokio::sync::oneshot;
 use url::Host;
-
-const SETTINGS_FILE: &str = "ai.json";
 
 #[derive(Default)]
 pub struct Jobs(Mutex<HashMap<String, oneshot::Sender<()>>>);
@@ -31,23 +32,6 @@ impl Protocol {
             Self::Responses => "/responses",
         }
     }
-}
-
-#[derive(Debug, Default, Deserialize, Serialize)]
-struct Settings {
-    endpoint: String,
-    model: String,
-    #[serde(default)]
-    protocol: Protocol,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct View {
-    endpoint: String,
-    model: String,
-    protocol: Protocol,
-    has_key: bool,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -102,77 +86,10 @@ fn model_endpoint(endpoint: &str, protocol: Protocol) -> Result<Url, String> {
     Ok(url)
 }
 
-fn credential(endpoint: &str) -> Result<keyring::Entry, String> {
-    let key = blake3::hash(endpoint.as_bytes()).to_hex().to_string();
-    // 调用方通过 get/set 显示系统凭据存储失败，绝不把凭据写到应用设置。
-    keyring::Entry::new("io.yeyu.markdown.ai", &key)
-        .map_err(|error| format!("系统凭据存储不可用：{error}"))
-}
-
-fn password(endpoint: &str) -> Result<Option<String>, String> {
-    match credential(endpoint)?.get_password() {
-        Ok(secret) => Ok(Some(secret)),
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(error) => Err(format!("系统凭据存储不可用：{error}")),
-    }
-}
-
-fn view(settings: Settings) -> View {
-    let has_key = !settings.endpoint.is_empty()
-        && password(&settings.endpoint).is_ok_and(|secret| secret.is_some());
-    View {
-        endpoint: settings.endpoint,
-        model: settings.model,
-        protocol: settings.protocol,
-        has_key,
-    }
-}
-
-#[tauri::command]
-pub async fn ai_settings(store: State<'_, Store>) -> Result<View, String> {
-    Ok(view(store.read(SETTINGS_FILE)?))
-}
-
-#[tauri::command]
-pub async fn ai_config(
-    endpoint: String,
-    model: String,
-    key: Option<String>,
-    protocol: Option<Protocol>,
-    store: State<'_, Store>,
-) -> Result<View, String> {
-    let protocol = protocol.unwrap_or_default();
-    let endpoint = model_endpoint(&endpoint, protocol)?.to_string();
-    let model = model.trim().to_owned();
-    if model.is_empty() {
-        return Err("请填写模型名称".into());
-    }
-    if let Some(secret) = key {
-        let entry = credential(&endpoint)?;
-        if secret.trim().is_empty() {
-            match entry.delete_credential() {
-                Ok(()) | Err(keyring::Error::NoEntry) => {}
-                Err(error) => return Err(format!("删除系统凭据失败：{error}")),
-            }
-        } else {
-            entry
-                .set_password(secret.trim())
-                .map_err(|error| format!("写入系统凭据失败：{error}"))?;
-        }
-    }
-    let settings = Settings {
-        endpoint,
-        model,
-        protocol,
-    };
-    store.write(SETTINGS_FILE, &settings)?;
-    Ok(view(settings))
-}
-
 fn model_request(
     http: &Client,
     endpoint: Url,
-    settings: &Settings,
+    settings: &Target,
     messages: &[Message],
     key: Option<String>,
 ) -> Result<RequestBuilder, String> {
@@ -297,18 +214,15 @@ fn model_event<'a>(
 
 async fn stream(
     http: &Client,
-    settings: Settings,
+    settings: Target,
     messages: Vec<Message>,
     event: &Channel<Event>,
 ) -> Result<(), String> {
-    if settings.endpoint.is_empty() || settings.model.is_empty() {
-        return Err("请先配置 AI 地址和模型".into());
-    }
     let endpoint = model_endpoint(&settings.endpoint, settings.protocol)?;
-    let key = match password(&settings.endpoint) {
-        Ok(secret) => secret,
+    let key = match config::password(settings.credential.as_deref()) {
+        // 沿用旧版行为，本机服务在系统凭据存储不可用时仍可无密钥连接。
         Err(_) if endpoint.scheme() == "http" => None,
-        Err(error) => return Err(error),
+        result => result?,
     };
     let request = model_request(http, endpoint, &settings, &messages, key)?;
     let response = request
@@ -361,13 +275,15 @@ async fn stream(
 #[tauri::command]
 pub async fn ai_stream(
     id: String,
+    selection: Selection,
     messages: Vec<Message>,
     event: Channel<Event>,
     store: State<'_, Store>,
     jobs: State<'_, Jobs>,
+    models: State<'_, Models>,
     http: State<'_, Client>,
 ) -> Result<(), String> {
-    let settings: Settings = store.read(SETTINGS_FILE)?;
+    let settings = config::target(&store, &models, selection)?;
     let (cancel, stop) = oneshot::channel();
     {
         let mut active = jobs.0.lock().map_err(err)?;
@@ -421,11 +337,6 @@ mod tests {
         );
         assert!(model_endpoint("http://example.org", Protocol::Anthropic).is_err());
         assert!(model_endpoint("https://user@example.org", Protocol::Responses).is_err());
-        let old: Settings = serde_json::from_value(json!({
-            "endpoint": "https://example.org/v1/chat/completions", "model": "legacy"
-        }))
-        .unwrap();
-        assert_eq!(old.protocol, Protocol::Chat);
     }
 
     #[test]
@@ -441,7 +352,7 @@ mod tests {
             },
         ];
         for protocol in [Protocol::Chat, Protocol::Anthropic, Protocol::Responses] {
-            let settings = Settings {
+            let settings = Target {
                 protocol,
                 model: "test".into(),
                 ..Default::default()

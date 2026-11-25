@@ -27,6 +27,7 @@ import { PluginManager } from './plugins'
 import { ShortcutRegistry, detectMac, type ShortcutCommandId } from './shortcuts'
 import './shell.css'
 import './ai.css'
+import './motion.css'
 
 type RightTab = 'ai' | 'mcp'
 
@@ -124,11 +125,11 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   const focusEditor = () => {
     const editable = editorHost.querySelector<HTMLElement>('.cm-content, [contenteditable="true"]')
     if (editable) {
-      editable.focus()
+      editable.focus({ preventScroll: true })
     } else if (editorHost.tabIndex >= 0) {
-      editorHost.focus()
+      editorHost.focus({ preventScroll: true })
     } else {
-      paperEl.focus()
+      paperEl.focus({ preventScroll: true })
     }
   }
 
@@ -180,7 +181,6 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
     syncLayout()
     if (rightOpen && tab === 'ai') aiPanel.focusInput()
     if (rightOpen && tab === 'mcp') rightMcpTabBtn.focus({ preventScroll: true })
-    if (!rightOpen && tab === 'mcp') focusEditor()
   }
 
   const openRightTab = (tab: RightTab) => {
@@ -356,7 +356,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   // Right workbench (AI + MCP)
   const rightPanel = el('aside', {
     className: 'yy-right-panel yy-chrome',
-    attrs: { 'aria-label': 'AI 与 MCP 协作侧栏', hidden: '' },
+    attrs: { 'aria-label': 'AI 与 MCP 协作侧栏' },
   })
   const rightTabs = el('div', { className: 'yy-seg-tabs', attrs: { role: 'tablist', 'aria-label': '右侧栏视图' } })
   const rightAiTabBtn = el('button', {
@@ -406,7 +406,9 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   })
   rightPanel.append(rightHead, aiPanel.element, mcpPanel.element)
 
-  bodyEl.append(leftPanel.element, stageEl, rightPanel)
+  const leftSlot = el('div', { className: 'yy-sidebar-slot yy-sidebar-slot-left' }, leftPanel.element)
+  const rightSlot = el('div', { className: 'yy-sidebar-slot yy-sidebar-slot-right' }, rightPanel)
+  bodyEl.append(leftSlot, stageEl, rightSlot)
 
   // Bottom Status Bar
   const statusBar = el('footer', { className: 'yy-statusbar yy-chrome' })
@@ -458,12 +460,22 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
     }
   }
 
+  function syncPanel(slot: HTMLElement, open: boolean) {
+    if (slot.dataset.open === String(open)) return
+    // 收起时保留画面直到动画结束，同时立即移出点击和键盘导航范围。
+    if (!open && slot.contains(document.activeElement)) focusEditor()
+    slot.inert = !open
+    slot.setAttribute('aria-hidden', String(!open))
+    slot.dataset.open = String(open)
+  }
+
   function syncLayout() {
-    leftPanel.element.toggleAttribute('hidden', !leftOpen)
+    syncPanel(leftSlot, leftOpen)
     leftToggleBtn.classList.toggle('is-active', leftOpen)
     leftToggleBtn.setAttribute('aria-pressed', String(leftOpen))
 
-    rightPanel.toggleAttribute('hidden', !rightOpen)
+    if (!rightOpen || rightTab !== 'ai') aiPanel.closePickers()
+    syncPanel(rightSlot, rightOpen)
     aiPanel.element.toggleAttribute('hidden', rightTab !== 'ai')
     mcpPanel.element.toggleAttribute('hidden', rightTab !== 'mcp')
 
@@ -498,6 +510,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   }
 
   function applyState(next: ShellState) {
+    document.documentElement.dataset.yeyuMotion = next.animations === false ? 'off' : 'on'
     if (next.workspace !== state.workspace && next.workspace !== null && window.innerWidth >= 880) {
       leftPanel.setTab('files')
       leftOpen = true
@@ -679,8 +692,10 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
       appearance.destroy()
       menuBar.destroy()
       leftPanel.destroy()
+      aiPanel.closePickers()
       modals.destroy()
       if (actions.macTitlebar) delete document.documentElement.dataset.yeyuTitlebar
+      delete document.documentElement.dataset.yeyuMotion
       themeStyle.remove()
       root.replaceChildren()
     },

@@ -24,7 +24,7 @@ const markdownFilter = { name: 'Markdown', extensions: ['md', 'markdown', 'mdown
 const imageFilter = { name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif', 'tiff', 'heic', 'ico'] }
 const officialPluginMarket = 'https://lw5959.github.io/yeyu-plugin-market/index.json'
 const defaults: Preferences = {
-  autosave: true, theme: 'default', typoraThemes: {}, workspace: null, mcp: [],
+  autosave: true, animations: true, theme: 'default', typoraThemes: {}, workspace: null, mcp: [],
   hidden: false, allFiles: false, fileGlob: '', zoom: 1, remoteImages: false, uploadEndpoint: '', recent: [],
   aiPrompts: {},
   titlebarMaterial: 'liquid',
@@ -71,6 +71,7 @@ const images = new Map<string, Promise<string>>()
 const state: ShellState = {
   title: '未命名.md', path: null, dirty: false, mode: 'live', detail: '',
   words: 0, characters: 0, line: 1, column: 1, workspace: null, autosave: defaults.autosave,
+  animations: false,
   presentation: { focus: false, typewriter: false, spellcheck: true },
 }
 const macTitlebar = detectMac()
@@ -791,6 +792,11 @@ async function dispatch(action: ShellAction) {
       await persist()
       update(action.enabled ? '自动保存已启用' : '自动保存已关闭')
       break
+    case 'animations':
+      state.animations = settings.animations = action.enabled
+      update(action.enabled ? '界面动画已启用' : '界面动画已关闭')
+      await persist()
+      break
     case 'copy-markdown': {
       const { from, to } = interval(editor.getSelection())
       await navigator.clipboard.writeText(text().slice(from, to))
@@ -901,7 +907,13 @@ async function dispatch(action: ShellAction) {
     }
     case 'image-import': await addImages(action.files); break
     case 'images': await manageImages(action.mode); break
-    case 'ai-config': await writing.configure(action.endpoint, action.model, action.protocol, action.key); break
+    case 'ai-provider-save':
+    case 'ai-provider-remove':
+    case 'ai-model-select': {
+      const notice = await writing.configure(action)
+      if (notice) update(notice)
+      break
+    }
     case 'ai-prompts': {
       const previous = settings.aiPrompts
       const next = normalizePrompts(action.prompts)
@@ -1198,6 +1210,7 @@ async function startup() {
       native.preferences(), invoke<Theme[]>('theme_list'), native.recover(),
     ])
     settings = { ...defaults, ...preferences }
+    state.animations = settings.animations
     settings.aiPrompts = normalizePrompts(settings.aiPrompts)
     writing.setPrompts(settings.aiPrompts)
     themes = [...builtinThemes, ...imported]

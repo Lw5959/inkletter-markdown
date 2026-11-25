@@ -1,6 +1,7 @@
 // 用发布配置启动真实 Tauri 窗口，固定输入文件及操作；系统依赖由运行者提供。
 import assert from 'node:assert/strict'
 import { spawn, execFileSync } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { createServer } from 'node:http'
 import { copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -103,7 +104,7 @@ async function result(name, limit = 75_000) {
   return JSON.parse(readFileSync(path, 'utf8'))
 }
 
-async function serveMcp() {
+async function serveFixtures(aiFixtureKey) {
   const marketPackages = join(folder, 'market-packages')
   const marketRoot = join(folder, 'market')
   mkdirSync(marketPackages)
@@ -115,6 +116,43 @@ async function serveMcp() {
   let damageOnce = true
   let marketReads = 0
   const http = createServer(async (request, response) => {
+    if (request.method === 'POST' && request.url?.startsWith('/qa-ai/')) {
+      try {
+        const [, , provider] = request.url.split('/')
+        const routes = { chat: 'chat/completions', anthropic: 'messages', responses: 'responses' }
+        assert.equal(request.url, `/qa-ai/${provider}/v1/${routes[provider]}`)
+        const data = []
+        for await (const chunk of request) data.push(chunk)
+        const body = JSON.parse(Buffer.concat(data))
+        assert.equal(body.stream, true)
+        let events
+        if (provider === 'chat') {
+          assert.equal(body.model, 'qa-shared')
+          assert.match(body.messages.at(-1).content, /The draft is wordy\./)
+          assert.match(body.messages[0].content, /verbose/)
+          events = [{ choices: [{ delta: { content: 'The draft is verbose.' }, finish_reason: null }] },
+            { choices: [{ delta: {}, finish_reason: 'stop' }] }]
+        } else if (provider === 'anthropic') {
+          assert.equal(request.headers['anthropic-version'], '2023-06-01')
+          assert.equal(body.model, 'qa-claude')
+          assert.equal(body.messages.length, 1)
+          events = [{ type: 'content_block_delta', delta: { type: 'text_delta', text: 'anthropic·' + body.model } }, { type: 'message_stop' }]
+        } else {
+          assert.equal(request.headers.authorization, aiFixtureKey ? 'Bearer ' + aiFixtureKey : undefined)
+          if (aiFixtureKey) assert.ok(!readFileSync(join(folder, 'app-data', 'ai.json'), 'utf8').includes(aiFixtureKey))
+          assert.equal(body.model, 'qa-response')
+          assert.equal(body.input.length, 1)
+          events = [{ type: 'response.output_text.delta', delta: 'responses·' + body.model }, { type: 'response.completed' }]
+        }
+        response.writeHead(200, { 'Content-Type': 'text/event-stream' })
+        response.write(`data: ${JSON.stringify(events[0])}\n\n`)
+        await delay(30)
+        response.end(`data: ${JSON.stringify(events[1])}\n\n`)
+      } catch {
+        response.writeHead(400).end('模型协议、路径、模型或鉴权与验收请求不符')
+      }
+      return
+    }
     if (request.method === 'GET' && request.url === '/market/index.json') {
       // 第二次请求挂起，让桌面验收覆盖在线目录未返回时的内置安装。
       if (++marketReads === 2) await delay(8_000)
@@ -194,9 +232,16 @@ try {
     const metrics = await result('measurement')
     console.log(JSON.stringify({ ...ready, ...metrics, rssStartupKiB, rssAfter10MbKiB: rss() }, null, 2))
   } else {
-    remote = await serveMcp()
+    const aiFixtureKey = process.env.YEYU_TEST_KEYS === '1' ? 'qa-only-' + randomUUID() : undefined
+    remote = await serveFixtures(aiFixtureKey)
+    const aiFixture = new URL('/qa-ai', remote.url).href
+    const data = join(folder, 'app-data')
+    mkdirSync(data)
+    const aiFile = join(data, 'ai.json')
+    writeFileSync(aiFile, JSON.stringify({ endpoint: aiFixture + '/chat/v1/chat/completions', model: 'qa-shared' }))
     boot(kind, {
       mcp: remote.url,
+      aiFixture, aiFixtureKey,
       picgo: new URL('/upload', remote.url).href,
       market: new URL('/market/index.json', remote.url).href,
     })
@@ -215,6 +260,7 @@ try {
     await result('conflict-ready')
     writeFileSync(guide, readFileSync(guide, 'utf8') + '\r\n外部冲突内容\r\n')
     const partial = await result('crash-ready')
+    assert.equal(JSON.parse(readFileSync(aiFile, 'utf8')).providers.length, 2)
     const organized = readFileSync(gallery, 'utf8')
     const picture = /\(([^) ]+\/image-[a-f0-9]{20}\.png)/.exec(organized)?.[1]
     assert.ok(picture)
@@ -222,7 +268,7 @@ try {
     assert.deepEqual(readFileSync(join(folder, 'copy.png')), readFileSync(join(folder, '源 图.png')))
     assert.ok(readFileSync(batchPaths[0]).subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf])))
     await terminate('SIGKILL')
-    boot('recover', { recoveryText: partial.recoveryText })
+    boot('recover', { recoveryText: partial.recoveryText, activeModel: partial.ai.active })
     const recovery = await result('recovery')
     delete partial.recoveryText
     console.log(JSON.stringify({ ...partial, ...recovery }, null, 2))

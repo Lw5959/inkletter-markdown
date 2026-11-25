@@ -1,0 +1,94 @@
+:root {
+  --yy-motion-fast: 110ms;
+  --yy-motion-dialog: 170ms;
+  --yy-motion-panel: 220ms;
+  --yy-motion-ease: cubic-bezier(.22, .8, .25, 1);
+}
+
+:root[data-yeyu-motion="off"] {
+  --yy-motion-disabled: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --yy-motion-disabled: none;
+  }
+}
+
+.yy-shell .yy-sidebar-slot {
+  display: flex;
+  flex: 0 0 0px;
+  min-width: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+  transition: var(--yy-motion-disabled, flex-basis var(--yy-motion-panel) var(--yy-motion-ease), visibility 0ms var(--yy-motion-panel));
+}
+
+.yy-shell .yy-sidebar-slot[data-open="true"] {
+  flex-basis: var(--yy-sidebar-size);
+  visibility: visible;
+  pointer-events: auto;
+  transition-delay: 0ms;
+}
+
+.yy-sidebar-slot-left { --yy-sidebar-size: 220px; }
+.yy-sidebar-slot-right {
+  --yy-sidebar-size: min(360px, 46vw);
+  justify-content: flex-end;
+}
+
+@media (max-width: 820px) {
+  .yy-sidebar-slot-left { --yy-sidebar-size: 224px; }
+  .yy-sidebar-slot-right { --yy-sidebar-size: min(300px, 46vw); }
+}
+
+/* 侧栏内容保持全宽，展开途中工具按钮和输入框也保持各自的位置。 */
+.yy-shell .yy-sidebar-slot > aside {
+  width: var(--yy-sidebar-size);
+  flex: none;
+}
+
+.yy-shell :is(.yy-menu-popover, .yy-submenu-panel, .yy-picker-list, .yy-pane, .yy-ai-context, .yy-suggestion-host) {
+  animation: var(--yy-motion-disabled, yy-reveal var(--yy-motion-fast) var(--yy-motion-ease));
+}
+
+.yy-shell .yy-modal-backdrop,
+.app-dialog[open]::backdrop {
+  animation: var(--yy-motion-disabled, yy-reveal var(--yy-motion-dialog) var(--yy-motion-ease));
+}
+
+.yy-shell :is(.yy-findbar, .yy-stage-banner),
+.app-dialog[open] {
+  animation: var(--yy-motion-disabled, yy-enter var(--yy-motion-dialog) var(--yy-motion-ease));
+}
+
+.yy-shell :is(.yy-tree-actions, .yy-topbar, .yy-statusbar) {
+  transition: var(--yy-motion-disabled, opacity var(--yy-motion-fast) ease);
+}
+
+.yy-shell :is(.yy-btn, .yy-icon-btn, .yy-mode-btn, .yy-tool-btn, .yy-ai-send),
+.app-dialog-actions button {
+  transition: var(--yy-motion-disabled, transform var(--yy-motion-fast) var(--yy-motion-ease));
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-yeyu-motion="off"]) .yy-shell :is(.yy-btn, .yy-icon-btn, .yy-mode-btn, .yy-tool-btn, .yy-ai-send):active:not(:disabled),
+  :root:not([data-yeyu-motion="off"]) .app-dialog-actions button:active:not(:disabled) {
+    transform: scale(.96);
+  }
+}
+
+.yy-shell .yy-picker-arrow {
+  transition: var(--yy-motion-disabled, transform var(--yy-motion-fast) var(--yy-motion-ease));
+}
+
+@keyframes yy-reveal {
+  from { opacity: .55; }
+  to { opacity: 1; }
+}
+
+@keyframes yy-enter {
+  from { opacity: .55; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}

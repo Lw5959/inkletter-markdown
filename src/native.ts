@@ -6,7 +6,7 @@ import type { ImageUploadService, TyporaProfile } from './typora'
 export type FileSnapshot = { path: string; text: string; bom: boolean; version: string; name: string }
 export type Recovery = Selection & { path: string | null; text: string; bom: boolean; title: string; baseVersion: string | null; mode: EditorMode }
 export type Preferences = {
-  autosave: boolean; theme: string; typoraThemes: Record<string, string>; workspace: string | null; mcp: McpServer[];
+  autosave: boolean; animations: boolean; theme: string; typoraThemes: Record<string, string>; workspace: string | null; mcp: McpServer[];
   hidden: boolean; allFiles: boolean; fileGlob: string; zoom: number; remoteImages: boolean; uploadEndpoint: string; recent: string[];
   aiPrompts: AiPrompts;
   titlebarMaterial: TitlebarMaterial;
