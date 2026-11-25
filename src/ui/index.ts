@@ -144,7 +144,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   }
 
   const modals = new ModalManager(shellEl, focusEditor)
-  const plugins = new PluginManager(modals, actions.dispatch)
+  const plugins = new PluginManager(modals, actions.dispatch, actions.pluginMarket)
 
   const openQuickOpen = () => {
     modals.openQuickOpen({
@@ -214,6 +214,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
     },
     onOpenShortcuts: openShortcuts,
     onOpenPlugins: () => plugins.open(),
+    onOpenPluginMarket: actions.pluginMarket ? () => plugins.open('market') : undefined,
     getTitlebar: () => titlebar,
     onToggleLeftSidebar: toggleLeftSidebar,
     onToggleRightPanel: toggleRightPanel,

@@ -10,6 +10,7 @@ export type Preferences = {
   hidden: boolean; allFiles: boolean; fileGlob: string; zoom: number; remoteImages: boolean; uploadEndpoint: string; recent: string[];
   aiPrompts: AiPrompts;
   titlebarMaterial: TitlebarMaterial;
+  pluginMarketSource: string;
   uploadService: ImageUploadService;
   autosaveDelay: number;
   spellcheck: boolean;

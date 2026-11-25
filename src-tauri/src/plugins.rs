@@ -1,5 +1,8 @@
+pub mod market;
+
 use crate::store::{Store, err};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -14,6 +17,7 @@ use wasmi::{
 };
 
 const FILE: &str = "plugins.json";
+const API_VERSION: u32 = 1;
 const MAX_PACKAGE: usize = 2 * 1024 * 1024;
 const MAX_TEXT: usize = 4 * 1024 * 1024;
 
@@ -88,7 +92,7 @@ fn label(value: &str) -> bool {
 
 fn compile(package: &Package) -> Result<(Engine, Module), String> {
     let mut commands = BTreeSet::new();
-    if package.api_version != 1
+    if package.api_version != API_VERSION
         || !identifier(&package.id, true)
         || !label(&package.name)
         || !label(&package.version)
@@ -173,8 +177,54 @@ pub fn plugin_list(
     store: State<'_, Store>,
     plugins: State<'_, Plugins>,
 ) -> Result<Vec<PluginView>, String> {
+    list(&store, &plugins)
+}
+
+fn list(store: &Store, plugins: &Plugins) -> Result<Vec<PluginView>, String> {
     let _lock = plugins.0.lock().map_err(err)?;
     Ok(store.read::<Registry>(FILE)?.view())
+}
+
+fn read_package(bytes: &[u8]) -> Result<Package, String> {
+    if bytes.len() > MAX_PACKAGE {
+        return Err("插件包超过 2 MiB".into());
+    }
+    serde_json::from_slice(bytes).map_err(|error| format!("无法读取插件清单：{error}"))
+}
+
+fn newer_than(version: &Version, current: &str) -> bool {
+    Version::parse(current).is_ok_and(|installed| version.cmp_precedence(&installed).is_gt())
+}
+
+fn install(
+    store: &Store,
+    plugins: &Plugins,
+    package: Package,
+    market_version: Option<&Version>,
+) -> Result<Vec<PluginView>, String> {
+    compile(&package)?;
+    let _lock = plugins.0.lock().map_err(err)?;
+    let mut registry: Registry = store.read(FILE)?;
+    let existing = registry.entries.get(&package.id);
+    // 市场下载期间可能已经从另一入口安装，提交前按实际已安装版本重新判断。
+    if let Some(version) = market_version
+        && let Some(entry) = existing
+        && !newer_than(version, &entry.package.version)
+    {
+        return Err("已经安装相同、更新或无法比较的版本，请刷新市场".into());
+    }
+    let enabled = existing.is_some_and(|entry| entry.enabled);
+    registry.sequence = registry.sequence.wrapping_add(1);
+    registry.entries.insert(
+        package.id.clone(),
+        Installed {
+            package,
+            enabled,
+            revision: registry.sequence,
+        },
+    );
+    store.write(FILE, &registry)?;
+    Ok(registry.view())
 }
 
 #[tauri::command]
@@ -189,29 +239,7 @@ pub async fn plugin_install(
         .take((MAX_PACKAGE + 1) as u64)
         .read_to_end(&mut bytes)
         .map_err(err)?;
-    if bytes.len() > MAX_PACKAGE {
-        return Err("插件包超过 2 MiB".into());
-    }
-    let package: Package =
-        serde_json::from_slice(&bytes).map_err(|error| format!("无法读取插件清单：{error}"))?;
-    compile(&package)?;
-    let _lock = plugins.0.lock().map_err(err)?;
-    let mut registry: Registry = store.read(FILE)?;
-    let enabled = registry
-        .entries
-        .get(&package.id)
-        .is_some_and(|entry| entry.enabled);
-    registry.sequence = registry.sequence.wrapping_add(1);
-    registry.entries.insert(
-        package.id.clone(),
-        Installed {
-            package,
-            enabled,
-            revision: registry.sequence,
-        },
-    );
-    store.write(FILE, &registry)?;
-    Ok(registry.view())
+    install(&store, &plugins, read_package(&bytes)?, None)
 }
 
 #[tauri::command]
@@ -300,5 +328,48 @@ mod tests {
         assert_eq!(output, "首行\r\n二行\r末尾");
         package.commands[0].id = "missing".into();
         assert!(compile(&package).is_err());
+    }
+
+    #[test]
+    fn task_list_preserves_markdown_structure_and_line_endings() {
+        let package = read_package(include_bytes!(
+            "../../examples/plugins/task-list.yeyu-plugin.json"
+        ))
+        .unwrap();
+        let input = "写样稿\r\n- 看差异\r  2. [X] 通过\n# 标题\n```md\n- [ ] 假任务\n```\n";
+        let made = execute(&package, "make_tasks", input.into()).unwrap();
+        assert_eq!(
+            made,
+            "- [ ] 写样稿\r\n- [ ] 看差异\r  2. [X] 通过\n# 标题\n```md\n- [ ] 假任务\n```\n"
+        );
+        let completed = execute(&package, "complete_tasks", made).unwrap();
+        assert_eq!(
+            completed,
+            "- [x] 写样稿\r\n- [x] 看差异\r  2. [x] 通过\n# 标题\n```md\n- [ ] 假任务\n```\n"
+        );
+        let reset = execute(&package, "reset_tasks", completed).unwrap();
+        assert!(reset.starts_with("- [ ] 写样稿\r\n- [ ] 看差异\r  2. [ ] 通过\n"));
+    }
+
+    #[test]
+    fn headings_leave_yaml_code_and_level_boundaries_alone() {
+        let package = read_package(include_bytes!(
+            "../../examples/plugins/heading-levels.yeyu-plugin.json"
+        ))
+        .unwrap();
+        let untouched =
+            "---\r\n# YAML comment\r\n---\r\n```md\r\n## code\r\n```\r\n    ## indented\r\n";
+        let headings = "# 一级\r\n  ### 三级 ###\r中文正文\n###### 六级";
+        let raised = execute(&package, "raise_headings", format!("{untouched}{headings}")).unwrap();
+        assert_eq!(
+            raised,
+            format!("{untouched}# 一级\r\n  ## 三级 ###\r中文正文\n##### 六级")
+        );
+        let lowered =
+            execute(&package, "lower_headings", format!("{untouched}{headings}")).unwrap();
+        assert_eq!(
+            lowered,
+            format!("{untouched}## 一级\r\n  #### 三级 ###\r中文正文\n###### 六级")
+        );
     }
 }

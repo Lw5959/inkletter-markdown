@@ -33,6 +33,8 @@ rmcp = { version = "3.11", features = ["client", "transport-io", "transport-chil
 tungstenite = "0.29"
 url = "2"
 wasmi = { version = "2.0.2", default-features = false, features = ["std", "validate"] }
+semver = "1"
+sha2 = "0.10"
 
 [features]
 qa = []

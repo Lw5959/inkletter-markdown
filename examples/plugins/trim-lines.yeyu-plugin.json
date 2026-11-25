@@ -3,6 +3,11 @@
   "id": "yeyu.trim-lines",
   "name": "清理行尾空白",
   "version": "1.0.0",
+  "market": {
+    "description": "清理每一行末尾的空格和 Tab，保留原有换行符。清理也会移除 Markdown 的双空格硬换行。",
+    "author": "页屿",
+    "license": "MIT"
+  },
   "commands": [
     {
       "id": "trim_lines",

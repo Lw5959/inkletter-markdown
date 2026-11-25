@@ -1816,6 +1816,72 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
   overflow: auto;
 }
 
+.yy-shell .yy-plugin-manager {
+  width: min(650px, 100%);
+}
+
+.yy-shell .yy-plugin-tabs {
+  padding: 10px 16px 0;
+}
+
+.yy-shell .yy-market-tools {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.yy-shell .yy-market-search {
+  position: relative;
+  min-width: 0;
+}
+
+.yy-shell .yy-market-search > .yy-icon {
+  position: absolute;
+  inset-inline-start: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--yy-ink-muted);
+  pointer-events: none;
+}
+
+.yy-shell .yy-market-search > input {
+  padding-inline-start: 32px;
+}
+
+.yy-shell .yy-market-source {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--yy-border);
+  border-radius: var(--yy-radius-md);
+  background: var(--yy-chrome-subtle);
+}
+
+.yy-shell .yy-market-source .yy-plugin-controls {
+  justify-content: flex-end;
+}
+
+.yy-shell .yy-market-source-name {
+  overflow-wrap: anywhere;
+}
+
+.yy-shell .yy-market-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: 16px;
+}
+
+.yy-shell .yy-market-info {
+  min-width: 0;
+}
+
+.yy-shell .yy-market-description {
+  margin: 5px 0;
+  color: var(--yy-ink);
+  line-height: 1.55;
+}
+
 .yy-shell .yy-plugin-toolbar,
 .yy-shell .yy-plugin-controls {
   display: flex;

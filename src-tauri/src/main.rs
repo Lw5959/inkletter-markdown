@@ -74,6 +74,7 @@ fn main() {
         .manage(ai::Jobs::default())
         .manage(mcp::Sessions::default())
         .manage(plugins::Plugins::default())
+        .manage(plugins::market::Market::default())
         .manage(launch)
         .manage(
             reqwest::Client::builder()
@@ -144,6 +145,8 @@ fn main() {
             plugins::plugin_set_enabled,
             plugins::plugin_remove,
             plugins::plugin_run,
+            plugins::market::plugin_market_list,
+            plugins::market::plugin_market_install,
             mcp::mcp_connect,
             mcp::mcp_disconnect,
             mcp::mcp_connected,

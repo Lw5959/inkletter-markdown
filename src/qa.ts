@@ -22,6 +22,7 @@ type Case = {
   model?: { endpoint: string; name: string }
   mcp: string
   picgo?: string
+  market?: string
   plugin: string
   updatedPlugin: string
 }
@@ -473,6 +474,7 @@ async function verifyFull(ports: Ports, scenario: Case) {
   check((await invoke<PluginInfo[]>('plugin_list')).length === 0, '卸载后清除插件登记')
   pluginPage.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click()
   result.plugins = { install: true, hotUpdate: true, reviewAndUndo: true, disableAndRemove: true }
+  if (scenario.market) result.pluginMarket = await verifyPluginMarket(ports, scenario.market)
 
   await ports.action({ type: 'mcp-authorize', allow: true })
   ports.editor.select({ anchor: offset, head: offset + 4 })
@@ -528,6 +530,72 @@ async function verifyFull(ports: Ports, scenario: Case) {
   await ports.action({ type: 'mode', mode: 'source' })
   await ports.checkpoint()
   await mark('crash-ready', { ...result, recoveryText: ports.text() })
+}
+
+async function verifyPluginMarket(ports: Ports, source: string) {
+  document.querySelector<HTMLButtonElement>('[data-menu="edit"]')!.click()
+  button(document.querySelector('.yy-menu-popover')!, '插件市场…').click()
+  const dialog = document.querySelector<HTMLElement>('.yy-plugin-manager')!
+  const panel = dialog.querySelector<HTMLElement>('.yy-plugin-market')!
+  const query = panel.querySelector<HTMLInputElement>('[aria-label="搜索插件"]')!
+  const find = (id: string) => panel.querySelector<HTMLButtonElement>(`[data-market-plugin="${id}"]`)
+  await until(() => !!find('yeyu.heading-levels'))
+  check(panel.querySelectorAll('.yy-market-card').length === 3, '内置市场提供三款插件')
+  query.value = '任务'
+  query.dispatchEvent(new Event('input'))
+  check(panel.querySelectorAll('.yy-market-card').length === 1 && !!find('yeyu.task-list'), '按关键词搜索市场')
+  query.value = ''
+  query.dispatchEvent(new Event('input'))
+  for (const id of ['yeyu.task-list', 'yeyu.trim-lines', 'yeyu.heading-levels']) {
+    find(id)!.click()
+    await until(() => find(id)?.textContent === '已安装' && !find(id)?.disabled)
+  }
+  find('yeyu.task-list')!.click()
+  button(dialog.querySelector('.yy-plugin-body:not(.yy-plugin-market) [aria-label="任务清单"]')!, '启用').click()
+  await until(() => !!button(dialog, '转为任务'))
+  const original = ports.text()
+  const sample = '\r\n\r\n读样稿\r\n- 看差异\r'
+  ports.editor.replace(original.length, original.length, sample)
+  ports.editor.select({ anchor: original.length, head: original.length + sample.length })
+  button(dialog, '转为任务').click()
+  await until(() => ports.writing.pending?.view.source === 'plugin')
+  check(ports.text() === original + sample, '从市场安装的插件走差异审阅')
+  document.querySelector<HTMLButtonElement>('[data-suggestion-action="apply-all"]')!.click()
+  await until(() => ports.text() === original + '\r\n\r\n- [ ] 读样稿\r\n- [ ] 看差异\r')
+  ports.editor.undo()
+  ports.editor.undo()
+  check(ports.text() === original, '市场插件的修改可以撤销')
+
+  document.querySelector<HTMLButtonElement>('[data-menu="edit"]')!.click()
+  button(document.querySelector('.yy-menu-popover')!, '插件管理…').click()
+  const management = document.querySelector<HTMLElement>('.yy-plugin-manager')!
+  const trim = management.querySelector('[aria-label="清理行尾空白"]')!
+  button(trim, '启用').click()
+  await until(() => !!button(management, '清理行尾空白'))
+  button(management, '插件市场').click()
+  const market = management.querySelector<HTMLElement>('.yy-plugin-market')!
+  const sourceToggle = market.querySelector<HTMLButtonElement>('[aria-label="市场源"]')!
+  await until(() => !sourceToggle.disabled)
+  sourceToggle.click()
+  const form = market.querySelector('form')!
+  form.querySelector('input')!.value = source
+  form.requestSubmit()
+  await until(() => !!button(market, '更新'))
+  check((await native.preferences())?.pluginMarketSource === source, '保存市场源地址')
+  button(market, '更新').click()
+  await until(() => market.querySelector('[role="alert"]')?.textContent?.includes('校验失败') === true && !button(market, '更新')?.disabled)
+  const installedTrim = async () => (await invoke<PluginInfo[]>('plugin_list')).find(plugin => plugin.id === 'yeyu.trim-lines')
+  check((await installedTrim())?.version === '1.0.0', '校验失败保留当前插件')
+  button(market, '更新').click()
+  await until(() => !!button(market, '已安装'))
+  const updated = await installedTrim()
+  check(updated?.version === '1.0.1' && updated.enabled, '市场热更新保留启用状态')
+  sourceToggle.click()
+  button(form, '使用内置市场').click()
+  await until(() => !!market.querySelector('[data-market-plugin="yeyu.heading-levels"]'))
+  check((await native.preferences())?.pluginMarketSource === '', '可切回内置市场')
+  management.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click()
+  return { bundled: 3, search: true, installed: true, reviewAndUndo: true, checksum: true, hotUpdate: true }
 }
 
 export async function runNativeQa(ports: Ports) {

@@ -62,6 +62,17 @@ export type ImageMode = 'copy' | 'move' | 'upload'
 export type PluginInfo = {
   id: string; name: string; version: string; enabled: boolean; commands: { id: string; label: string }[]
 }
+export type MarketPlugin = {
+  id: string; name: string; version: string; apiVersion: number; sha256: string;
+  description: string; author: string; license: string; installedVersion: string | null;
+  availability: 'install' | 'update' | 'installed' | 'incompatible'
+}
+export type PluginCatalog = { name: string; source: string | null; plugins: MarketPlugin[] }
+export type PluginMarketPort = {
+  source(): string
+  load(source?: string, refresh?: boolean): Promise<PluginCatalog>
+  install(source: string | null, plugin: MarketPlugin): Promise<PluginCatalog>
+}
 export type ShellAction =
   | { type: 'new' | 'open' | 'open-folder' | 'save' | 'save-as' | 'reload' | 'print' | 'import' | 'theme-import' | 'undo' | 'redo' | 'export-again' | 'copy-markdown' | 'copy-html' | 'paste-plain' | 'reopen' }
   | { type: 'open-path'; path: string; line?: number }
@@ -109,6 +120,7 @@ export type ShellState = {
 }
 export type ShellActions = {
   dispatch: (action: ShellAction) => void | Promise<string | void>
+  pluginMarket?: PluginMarketPort
   onWindowAppearance?: (appearance: Appearance | null) => void
   macTitlebar?: boolean
 }

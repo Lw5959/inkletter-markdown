@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: MIT */
 /* 页屿插件接口 v1。输入与输出共享缓冲区，保留原本的 LF、CRLF 或 CR。 */
 typedef __UINT32_TYPE__ u32;
 typedef __UINT64_TYPE__ u64;

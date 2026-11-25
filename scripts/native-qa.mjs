@@ -96,7 +96,26 @@ async function result(name, limit = 75_000) {
 }
 
 async function serveMcp() {
+  const marketPackages = join(folder, 'market-packages')
+  const marketRoot = join(folder, 'market')
+  mkdirSync(marketPackages)
+  copyFileSync(updatedPlugin, join(marketPackages, 'trim-lines.yeyu-plugin.json'))
+  execFileSync(process.execPath, ['scripts/build-plugin-market.mjs', marketPackages, marketRoot])
+  const marketIndex = readFileSync(join(marketRoot, 'index.json'))
+  const packagePath = JSON.parse(marketIndex).plugins[0].download
+  const marketPackage = readFileSync(join(marketRoot, packagePath))
+  let damageOnce = true
   const http = createServer(async (request, response) => {
+    if (request.method === 'GET' && request.url === '/market/index.json') {
+      response.writeHead(200, { 'Content-Type': 'application/json' }).end(marketIndex)
+      return
+    }
+    if (request.method === 'GET' && request.url === '/market/' + packagePath) {
+      response.writeHead(200, { 'Content-Type': 'application/json' })
+        .end(damageOnce ? Buffer.concat([marketPackage, Buffer.from('\n')]) : marketPackage)
+      damageOnce = false
+      return
+    }
     if (request.method === 'POST' && request.url === '/upload') {
       try {
         const chunks = []
@@ -165,7 +184,11 @@ try {
     console.log(JSON.stringify({ ...ready, ...metrics, rssStartupKiB, rssAfter10MbKiB: rss() }, null, 2))
   } else {
     remote = await serveMcp()
-    boot(kind, { mcp: remote.url, picgo: new URL('/upload', remote.url).href })
+    boot(kind, {
+      mcp: remote.url,
+      picgo: new URL('/upload', remote.url).href,
+      market: new URL('/market/index.json', remote.url).href,
+    })
     const output = await result('exported', 90_000)
     assert.equal(output.themes.at(-1).color, 'rgb(27, 61, 53)')
     assert.equal(output.themes.at(-1).embeddedBackground, true)

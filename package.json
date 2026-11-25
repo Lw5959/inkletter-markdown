@@ -9,6 +9,8 @@
     "check": "tsc --noEmit",
     "build": "pnpm check && vite build",
     "test": "vitest run",
+    "plugin:pack": "node scripts/package-plugin.mjs",
+    "plugin:market": "node scripts/build-plugin-market.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

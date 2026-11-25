@@ -61,6 +61,7 @@ export interface MenuBarContext {
   onOpenWorkspaceSearch: () => void
   onOpenShortcuts: () => void
   onOpenPlugins: () => void
+  onOpenPluginMarket?: () => void
   getTitlebar: () => TitlebarView | null
   onToggleLeftSidebar: (tab?: 'files' | 'outline' | 'search') => void
   onToggleRightPanel: (tab?: 'ai' | 'mcp') => void
@@ -267,6 +268,9 @@ export class MenuBar {
         { kind: 'item', label: '快捷键设置…', shortcutId: 'settings.shortcuts', onSelect: () => this.ctx.onOpenShortcuts() },
         { kind: 'item', label: '导入 Typora 配置…', onSelect: () => this.ctx.dispatch({ type: 'typora-config-import' }) },
         { kind: 'item', label: '插件管理…', onSelect: () => this.ctx.onOpenPlugins() },
+        ...(this.ctx.onOpenPluginMarket
+          ? [{ kind: 'item' as const, label: '插件市场…', onSelect: this.ctx.onOpenPluginMarket }]
+          : []),
       ]
     }
 

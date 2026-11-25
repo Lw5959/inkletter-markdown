@@ -1,7 +1,7 @@
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { dirname, join } from '@tauri-apps/api/path'
-import type { Editor, ExportFormat, ImageMode, OutlineEntry, PluginInfo, ShellAction, ShellState, Theme, TitlebarMaterial, TitlebarView, WorkspaceEntry } from './contracts'
+import type { Editor, ExportFormat, ImageMode, MarketPlugin, OutlineEntry, PluginCatalog, PluginInfo, ShellAction, ShellState, Theme, TitlebarMaterial, TitlebarView, WorkspaceEntry } from './contracts'
 import { createEditor, renderMarkdown } from './editor'
 import { mountShell } from './ui'
 import { detectMac } from './ui/shortcuts'
@@ -27,6 +27,7 @@ const defaults: Preferences = {
   hidden: false, allFiles: false, fileGlob: '', zoom: 1, remoteImages: false, uploadEndpoint: '', recent: [],
   aiPrompts: {},
   titlebarMaterial: 'liquid',
+  pluginMarketSource: '',
   uploadService: 'multipart', autosaveDelay: 1_100, spellcheck: true,
   findOptions: { matchCase: false, wholeWord: false },
 }
@@ -73,6 +74,11 @@ const state: ShellState = {
 const macTitlebar = detectMac()
 const shell = mountShell(document.querySelector<HTMLElement>('#app')!, {
   dispatch: act,
+  pluginMarket: {
+    source: () => settings.pluginMarketSource,
+    load: loadPluginMarket,
+    install: installMarketPlugin,
+  },
   macTitlebar,
   onWindowAppearance: appearance => {
     void getCurrentWindow().setTheme(appearance).catch(error => console.error('窗口外观切换失败', error))
@@ -543,6 +549,33 @@ async function installPlugin(path: string) {
   const entries = await invoke<PluginInfo[]>('plugin_install', { path })
   setPlugins(entries)
   return entries
+}
+
+async function loadPluginMarket(source?: string, refresh = false) {
+  if (!loaded) throw new Error('正在载入应用，请稍后重试')
+  const catalog = await invoke<PluginCatalog>('plugin_market_list', {
+    source: (source ?? settings.pluginMarketSource).trim() || null, refresh,
+  })
+  if (source !== undefined) {
+    const previous = settings.pluginMarketSource
+    settings.pluginMarketSource = catalog.source ?? ''
+    try {
+      await persist()
+    } catch (error) {
+      settings.pluginMarketSource = previous
+      throw error
+    }
+  }
+  return catalog
+}
+
+async function installMarketPlugin(source: string | null, plugin: MarketPlugin) {
+  const result = await invoke<{ installed: PluginInfo[]; catalog: PluginCatalog }>('plugin_market_install', {
+    source, id: plugin.id, sha256: plugin.sha256,
+  })
+  setPlugins(result.installed)
+  update(plugin.availability === 'update' ? '已更新 ' + plugin.name : '已安装 ' + plugin.name)
+  return result.catalog
 }
 
 async function applyTitlebar(material: TitlebarMaterial) {

@@ -1,21 +1,28 @@
-import type { PluginInfo, ShellAction, ShellActions } from '../contracts'
+import type { PluginInfo, PluginMarketPort, ShellAction, ShellActions } from '../contracts'
 import type { ModalManager } from './dialogs'
 import { el, selectWithIcon } from './helpers'
 import { icons } from './icons'
+import { createPluginMarket } from './plugin-market'
+
+type PluginPage = 'installed' | 'market'
 
 export class PluginManager {
   private installed: PluginInfo[] = []
   private list: HTMLElement | null = null
   private processing = false
 
-  constructor(private modals: ModalManager, private dispatch: ShellActions['dispatch']) {}
+  constructor(
+    private modals: ModalManager,
+    private dispatch: ShellActions['dispatch'],
+    private marketPort?: PluginMarketPort,
+  ) {}
 
   setPlugins(plugins: PluginInfo[]) {
     this.installed = plugins
     this.render()
   }
 
-  open() {
+  open(page: PluginPage = 'installed') {
     const dialog = el('section', {
       className: 'yy-modal yy-plugin-manager',
       attrs: { role: 'dialog', 'aria-modal': 'true', 'aria-label': '插件管理' },
@@ -26,7 +33,7 @@ export class PluginManager {
     header.append(el('h2', { text: '插件管理' }), close)
     const body = el('div', { className: 'yy-modal-body yy-plugin-body' })
     const toolbar = el('div', { className: 'yy-plugin-toolbar' })
-    const install = el('button', { className: 'yy-btn yy-btn-primary', type: 'button', text: '安装插件…' })
+    const install = el('button', { className: 'yy-btn yy-btn-primary', type: 'button', text: '从文件安装…' })
     const scope = el('select', { className: 'yy-input', attrs: { 'aria-label': '处理范围' } })
     scope.append(
       el('option', { text: '当前选区', attrs: { value: 'selection' } }),
@@ -37,7 +44,34 @@ export class PluginManager {
     const list = el('div', { className: 'yy-plugin-list' })
     // 只有点击命令时才传入选择的文本，插件结果沿用编辑器的差异审阅。
     body.append(toolbar, el('p', { className: 'yy-plugin-note', text: '插件处理上方选定范围。修改经差异审阅后应用。' }), error, list)
-    dialog.append(header, body)
+    const market = this.marketPort ? createPluginMarket(this.marketPort, () => selectPage('installed', true)) : null
+    const installedTab = el('button', { className: 'yy-mode-btn', type: 'button', text: '已安装' })
+    const marketTab = el('button', { className: 'yy-mode-btn', type: 'button', text: '插件市场' })
+    function selectPage(next: PluginPage, focus = false) {
+      const showMarket = next === 'market' && !!market
+      body.hidden = showMarket
+      for (const [tab, selected] of [[installedTab, !showMarket], [marketTab, showMarket]] as const) {
+        tab.classList.toggle('is-active', selected)
+        tab.setAttribute('aria-pressed', String(selected))
+      }
+      if (market) {
+        market.panel.hidden = !showMarket
+        if (showMarket) market.show()
+      }
+      if (focus) (showMarket ? market!.search : install).focus()
+    }
+    dialog.append(header)
+    if (market) {
+      const tabBar = el('div', { className: 'yy-plugin-tabs' })
+      const tabs = el('div', { className: 'yy-mode-pill', attrs: { role: 'group', 'aria-label': '插件页面' } })
+      tabs.append(marketTab, installedTab)
+      tabBar.append(tabs)
+      dialog.append(tabBar, market.panel)
+      marketTab.addEventListener('click', () => selectPage('market', true))
+      installedTab.addEventListener('click', () => selectPage('installed', true))
+    }
+    dialog.append(body)
+    selectPage(page)
 
     const run = async (action: ShellAction) => {
       if (this.processing) return
@@ -68,7 +102,10 @@ export class PluginManager {
         void run({ type: 'plugin-enabled', id, enabled: pluginButton.dataset.operation === 'enable' })
       }
     })
-    this.modals.open(dialog, { initialFocus: install, onClose: () => { this.list = null } })
+    this.modals.open(dialog, {
+      initialFocus: page === 'market' && market ? market.search : install,
+      onClose: () => { this.list = null },
+    })
     this.list = list
     this.render()
   }
