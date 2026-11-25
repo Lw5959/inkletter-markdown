@@ -90,6 +90,11 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
 
   async function controlColors(control: Locator) {
     return control.evaluate(element => {
+      // 先应用当前悬停或按下选择器，再读取过渡完成后的颜色。
+      void getComputedStyle(element).backgroundColor
+      for (const animation of element.getAnimations()) {
+        if (animation instanceof CSSTransition) animation.finish()
+      }
       const context = (window as unknown as Record<string, any>).__test.contrastPixel as CanvasRenderingContext2D
       const read = (color: string) => {
         context.clearRect(0, 0, 1, 1)
@@ -336,7 +341,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     expect(await editorFont.evaluate(element => getComputedStyle(element).fontFamily)).not.toContain('monospace')
     await page.evaluate(() => (window as unknown as Record<string, any>).__test.editor.setMode('source'))
     expect(await editorFont.evaluate(element => getComputedStyle(element).fontFamily)).toContain('monospace')
-    expect(await page.locator('.yy-seg-tab.is-active').first().evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(237, 237, 237)')
+    await expect.poll(() => page.locator('.yy-seg-tab.is-active').first().evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(237, 237, 237)')
     await page.emulateMedia({ colorScheme: 'dark' })
     await expect.poll(() => page.locator('html').getAttribute('data-yeyu-appearance')).toBe('dark')
     expect(await paper.evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(32, 32, 32)')
