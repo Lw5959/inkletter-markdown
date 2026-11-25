@@ -87,6 +87,18 @@ Apple M1 Pro，32 GB 内存，macOS 27.2.1。本地 APFS 外置 SSD 上运行发
 | 10 MiB 首屏 DOM 行数 | 28 |
 | 页屿主进程 RSS（启动 / 10 MiB 往返后） | 113–114 MiB / 202–204 MiB |
 
+## 导出响应
+
+Chrome 158 使用 `node tests/export-browser.mjs` 的固定样本，比较导出 Markdown 渲染前后的界面响应。PDF、PNG 和 HTML 共用这一阶段。窗口生成图表 SVG，Worker 完成净化。下表的耗时包含生成 HTML，PDF 和 PNG 的排版与写盘另计。
+
+| 样本与指标 | 原实现 | Worker 实现 |
+|---|---:|---:|
+| 1 MiB 连续 5 次渲染，界面线程 ≥ 50 ms 的长任务 | 10 次，最长 254 ms | 0 次 |
+| 1 MiB 热渲染耗时中位数 | 328 ms | 376 ms |
+| 同一张本地图片在文档引用 8 次 | 读取 8 次，最长任务 136 ms | 读取 1 次，0 个长任务 |
+
+两组样本的 HTML 与原实现逐字节一致。macOS 通过相对图片、主题 CSS、MathML 和 Mermaid 的 HTML、A4 PDF、PNG 导出检查。
+
 ## 平台验收范围
 
 ### Android 原生服务
