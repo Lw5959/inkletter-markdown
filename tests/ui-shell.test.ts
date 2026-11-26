@@ -51,7 +51,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     await server?.close()
   })
 
-  async function mountTestHarness(macTitlebar = false) {
+  async function mountTestHarness(macTitlebar = false, discover = false) {
     await page.goto(`${baseUrl}/__ui_harness__`, { waitUntil: 'domcontentloaded' })
     await page.evaluate(`(async () => {
       localStorage.clear()
@@ -60,9 +60,15 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       const { builtinThemes } = await import('/src/builtin-themes.ts')
       const root = document.getElementById('app')
       const actions = []
+      const modelRequests = []
       const nativeThemes = []
       const shell = mountShell(root, {
         macTitlebar: ${macTitlebar},
+        listAiModels: ${discover} ? async request => {
+          modelRequests.push(request)
+          if (request.endpoint.includes('offline')) throw new Error('无法连接供应商')
+          return ['alpha-write', 'beta-code', 'alpha-write']
+        } : undefined,
         onWindowAppearance(theme) { nativeThemes.push(theme) },
         dispatch(action) {
           actions.push(action)
@@ -73,7 +79,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
         onSelectionChange() {},
       })
       editor.setMarkdown('# 页屿测试文档\\n\\n第一段正文。\\n\\n## 二级标题\\n\\n第二段正文。\\n')
-      window.__test = { shell, editor, actions, nativeThemes, builtinThemes }
+      window.__test = { shell, editor, actions, nativeThemes, builtinThemes, modelRequests }
     })()`)
   }
 
@@ -775,6 +781,38 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     await page.emulateMedia({ reducedMotion: 'no-preference' })
   })
 
+  it('从供应商读取模型，筛选后添加到配置，网络失败时可继续手动填写', async () => {
+    await mountTestHarness(false, true)
+    await page.locator('[data-toggle="ai"]').click()
+    await page.getByRole('button', { name: '模型配置', exact: true }).click()
+    const settings = page.getByRole('dialog', { name: '模型配置' })
+    await settings.getByLabel('供应商名称').fill('测试供应商')
+    const endpoint = settings.getByLabel('API 地址')
+    await endpoint.fill('http://models.example.test:8080/team/v1')
+    await settings.locator('input[type="password"]').fill('fixture-key')
+    await settings.getByRole('button', { name: '获取模型' }).click()
+    const options = settings.getByRole('group', { name: '可用模型' })
+    await options.getByRole('checkbox', { name: 'alpha-write' }).check()
+    const filter = settings.getByRole('searchbox', { name: '筛选可用模型' })
+    await filter.fill('beta')
+    await options.getByRole('checkbox', { name: 'beta-code' }).check()
+    await settings.getByRole('button', { name: '添加所选' }).click()
+    expect(await settings.getByRole('textbox', { name: /模型 ID/ }).count()).toBe(2)
+    expect(await settings.getByLabel('模型 ID 1').inputValue()).toBe('alpha-write')
+    expect(await settings.getByLabel('模型 ID 2').inputValue()).toBe('beta-code')
+
+    await endpoint.fill('https://offline.example.test/v1')
+    await settings.getByRole('button', { name: '获取模型' }).click()
+    await settings.getByText('无法连接供应商').waitFor()
+    expect(await settings.getByLabel('模型 ID 2').inputValue()).toBe('beta-code')
+    await endpoint.fill('http://models.example.test:8080/team/v1')
+    await settings.getByRole('button', { name: '保存配置' }).click()
+    expect(await page.evaluate('window.__test.modelRequests[0]')).toMatchObject({
+      endpoint: 'http://models.example.test:8080/team/v1', protocol: 'chat', key: 'fixture-key',
+    })
+    expect(await page.evaluate('window.__test.actions.at(-1).provider.models')).toEqual(['alpha-write', 'beta-code'])
+  }, 10000)
+
   it('AI 模型配置与提示词页面、上下文全文预览、流式会话和差异逐段应用', async () => {
     await mountTestHarness()
 
@@ -1070,6 +1108,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
         const writes = []
         const reads = []
         const installed = []
+        const modelRequests = []
         const bundled = { id: 'table-format', name: '表格排版', version: '1.0.0', apiVersion: 1, sha256: 'a'.repeat(64),
           description: '整理表格', author: '页屿', license: 'MIT' }
         const builtins = () => ({ name: '内置插件', source: null, plugins: [{ ...bundled,
@@ -1083,6 +1122,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
           if (cmd === 'android_insets') return { top: 26, bottom: 10, left: 0, right: 0 }
           if (cmd === 'plugin:app|version') return '0.2.8'
           if (cmd === 'ai_settings') return { providers: [], active: null }
+          if (cmd === 'ai_list_models') { modelRequests.push(payload.request); return ['local-edit'] }
           if (cmd === 'plugin_list') return installed
           if (cmd === 'plugin_market_list') return payload.source ? { name: '页屿插件市场', source: payload.source, plugins: [] } : builtins()
           if (cmd === 'plugin_market_install' && payload.source === null && payload.id === bundled.id && payload.sha256 === bundled.sha256) {
@@ -1092,6 +1132,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
           return null
         } }
         window.__mobileWrites = writes
+        window.__mobileModelRequests = modelRequests
         window.__mobileStartup = () => ({ picks, reads })
         await import('/src/mobile.ts')
       })()`)
@@ -1149,6 +1190,14 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       await writing.getByRole('button', { name: '模型配置', exact: true }).click()
       const models = page.getByRole('region', { name: '模型配置', exact: true })
       await models.waitFor()
+      await models.getByLabel('API 地址').fill('http://192.0.2.10:8080/v1')
+      await models.getByRole('button', { name: '获取模型' }).click()
+      await models.getByRole('checkbox', { name: 'local-edit' }).check()
+      await models.getByRole('button', { name: '添加所选' }).click()
+      expect(await models.getByLabel('模型 ID 1').inputValue()).toBe('local-edit')
+      expect(await page.evaluate('window.__mobileModelRequests[0]')).toMatchObject({
+        endpoint: 'http://192.0.2.10:8080/v1', protocol: 'chat',
+      })
       await back()
       await models.waitFor({ state: 'hidden' })
       expect(await writing.isVisible()).toBe(true)

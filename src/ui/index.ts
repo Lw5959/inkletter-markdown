@@ -396,6 +396,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
 
   const aiPanel = new AiPanel({
     dispatch: actions.dispatch,
+    listAiModels: actions.listAiModels,
     modals,
     onSuggestionFocus: () => {
       syncSuggestionBanner()

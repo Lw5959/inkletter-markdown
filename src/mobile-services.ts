@@ -1,4 +1,4 @@
-import { Writing } from './ai'
+import { listAiModels, Writing } from './ai'
 import { normalizePrompts } from './ai-prompts'
 import type { AiPrompts, Editor, McpServer, PluginCatalog, PluginInfo, ShellAction } from './contracts'
 import { reviewChanges } from './dialogs'
@@ -74,7 +74,7 @@ export function createMobileServices(options: Options) {
     const label = page === 'ai' ? 'AI 写作助手' : page === 'mcp' ? 'MCP 连接与工具' : '插件管理'
     detail.hidden = true
     if (page === 'ai') {
-      ai ??= new AiPanel({ dispatch, modals: pages.present('push') })
+      ai ??= new AiPanel({ dispatch, listAiModels, modals: pages.present('push') })
       body.replaceChildren(ai.element)
       pages.open(label, service, () => ai?.closePickers())
       ai.setView(writing.view)

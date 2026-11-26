@@ -1,6 +1,7 @@
 import { aiIntents, aiTasks, normalizePrompts } from '../ai-prompts'
 import type { AiIntent, AiPrompts, AiProtocol, AiProviderDraft, AiSettings, ShellActions } from '../contracts'
 import type { DialogPresenter } from './dialogs'
+import { modelDiscovery } from './ai-model-discovery'
 import { ChoicePicker } from './choice-picker'
 import { el } from './helpers'
 import { icons } from './icons'
@@ -15,7 +16,7 @@ const protocols: Record<AiProtocol, { name: string; endpoint: string }> = {
 
 type Draft = { provider: AiProviderDraft; key: string; clearKey: boolean }
 
-export function openModelSettings(modals: DialogPresenter, settings: () => AiSettings, dispatch: Dispatch) {
+export function openModelSettings(modals: DialogPresenter, settings: () => AiSettings, dispatch: Dispatch, listAiModels?: ShellActions['listAiModels']) {
   const body = el('div', { className: 'yy-ai-catalog' })
   const list = el('div', { className: 'yy-ai-provider-list', attrs: { 'aria-label': '供应商' } })
   const add = el('button', { className: 'yy-btn yy-btn-sm yy-btn-ghost yy-ai-add-provider', type: 'button' },
@@ -71,24 +72,26 @@ export function openModelSettings(modals: DialogPresenter, settings: () => AiSet
 
     const draft = getDraft()
     const saved = settings().providers.find(item => item.id === editing)
+    let discovery: ReturnType<typeof modelDiscovery> | undefined
     const name = el('input', { className: 'yy-input', type: 'text', attrs: { name: 'provider-name', required: '', autocomplete: 'off' } })
     name.value = draft.provider.name
     name.addEventListener('input', () => { draft.provider.name = name.value })
     const address = el('input', { className: 'yy-input', type: 'url', attrs: { required: '', spellcheck: 'false' } })
     address.value = draft.provider.endpoint
-    address.addEventListener('input', () => { draft.provider.endpoint = address.value; syncKey() })
+    address.addEventListener('input', () => { draft.provider.endpoint = address.value; syncKey(); discovery?.reset() })
     protocol = new ChoicePicker('API 协议', 'API 协议', value => {
       draft.provider.protocol = value as AiProtocol
       protocol?.setValue(value)
       syncKey()
+      discovery?.reset()
     }, { className: 'yy-input' })
     protocol.setItems(Object.entries(protocols).map(([value, item]) => ({ value, label: item.name })), draft.provider.protocol)
     const key = el('input', { className: 'yy-input', type: 'password', attrs: { autocomplete: 'new-password' } })
     key.value = draft.key
-    key.addEventListener('input', () => { draft.key = key.value })
+    key.addEventListener('input', () => { draft.key = key.value; discovery?.reset() })
     const clearKey = el('input', { type: 'checkbox' })
     clearKey.checked = draft.clearKey
-    clearKey.addEventListener('change', () => { draft.clearKey = clearKey.checked; syncKey() })
+    clearKey.addEventListener('change', () => { draft.clearKey = clearKey.checked; syncKey(); discovery?.reset() })
     const clearLabel = el('label', { className: 'yy-ai-delete-key' }, clearKey, '删除已存密钥')
     function syncKey() {
       address.placeholder = protocols[draft.provider.protocol].endpoint
@@ -126,8 +129,19 @@ export function openModelSettings(modals: DialogPresenter, settings: () => AiSet
     }
     addModel.addEventListener('click', () => { draft.provider.models.push(''); showModels(draft.provider.models.length - 1) })
     showModels()
+    if (listAiModels) discovery = modelDiscovery(listAiModels, () => ({
+      id: draft.provider.id, endpoint: draft.provider.endpoint.trim(), protocol: draft.provider.protocol,
+      key: draft.clearKey ? '' : draft.key.trim() || undefined,
+    }), () => draft.provider.models, ids => {
+      draft.provider.models = [...new Set([...draft.provider.models.map(model => model.trim()).filter(Boolean), ...ids])]
+      showModels()
+    })
+    const modelActions = el('div', { className: 'yy-ai-model-actions' })
+    if (discovery) modelActions.append(discovery.button)
+    modelActions.append(addModel)
     const modelFields = el('section', { className: 'yy-ai-models', attrs: { 'aria-label': '模型' } },
-      el('div', { className: 'yy-ai-models-head' }, el('span', { className: 'yy-field-label', text: '模型' }), addModel), models)
+      el('div', { className: 'yy-ai-models-head' }, el('span', { className: 'yy-field-label', text: '模型' }), modelActions), models)
+    if (discovery) modelFields.append(discovery.panel)
     const status = el('p', { className: 'yy-ai-setting-help', text: notice, attrs: { role: 'status' } })
     editor.replaceChildren(
       labelled('供应商名称', name),

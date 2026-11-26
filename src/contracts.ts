@@ -43,6 +43,7 @@ export type AiScope = 'selection' | 'paragraph' | 'document' | 'files'
 export type AiProtocol = 'chat' | 'anthropic' | 'responses'
 export type AiSelection = { providerId: string; model: string }
 export type AiProviderDraft = { id: string; name: string; endpoint: string; protocol: AiProtocol; models: string[] }
+export type AiModelDiscovery = Pick<AiProviderDraft, 'id' | 'endpoint' | 'protocol'> & { key?: string }
 export type AiProvider = AiProviderDraft & { hasKey: boolean }
 export type AiSettings = { providers: AiProvider[]; active: AiSelection | null; notice?: string }
 export type AiContext = { scope: AiScope; label: string; text: string }
@@ -133,6 +134,7 @@ export type ShellState = {
 }
 export type ShellActions = {
   dispatch: (action: ShellAction) => void | Promise<string | void>
+  listAiModels?: (request: AiModelDiscovery) => Promise<string[]>
   pluginMarket?: PluginMarketPort
   onWindowAppearance?: (appearance: Appearance | null) => void
   macTitlebar?: boolean

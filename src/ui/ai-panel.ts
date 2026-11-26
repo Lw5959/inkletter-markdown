@@ -15,6 +15,7 @@ const scopes: Record<AiScope, string> = {
 
 interface AiPanelOptions {
   dispatch: ShellActions['dispatch']
+  listAiModels?: ShellActions['listAiModels']
   modals: DialogPresenter
   onSuggestionFocus?: () => void
 }
@@ -116,7 +117,7 @@ export class AiPanel {
   }
 
   private openModels() {
-    openModelSettings(this.options.modals, () => this.view.settings, this.options.dispatch)
+    openModelSettings(this.options.modals, () => this.view.settings, this.options.dispatch, this.options.listAiModels)
   }
 
   private async selectModel(value: string) {

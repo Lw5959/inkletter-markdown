@@ -348,17 +348,45 @@ pub(super) fn target(
     let settings = read_catalog(store, &models.credentials)?.target(selection)?;
     let endpoint = model_endpoint(&settings.endpoint, settings.protocol)?;
     // 在同一把锁内读取配置和凭据，避免开始请求时引用已被并发保存删除。
-    let key = match settings.credential.as_deref() {
-        None => None,
-        Some(account) => match models.credentials.get(account) {
-            #[cfg(not(target_os = "android"))]
-            Err(_) if endpoint.scheme() == "http" => None,
-            #[cfg(target_os = "android")]
-            Ok(None) => return Err("系统中已找不到此 API 密钥，请重新填写".into()),
-            result => result?,
-        },
-    };
+    let key = credential_key(models, settings.credential.as_deref(), &endpoint)?;
     Ok((settings, endpoint, key))
+}
+
+fn credential_key(
+    models: &Models,
+    account: Option<&str>,
+    _endpoint: &Url,
+) -> Result<Option<String>, String> {
+    let Some(account) = account else {
+        return Ok(None);
+    };
+    match models.credentials.get(account) {
+        #[cfg(not(target_os = "android"))]
+        Err(_) if _endpoint.scheme() == "http" && super::is_loopback(_endpoint) => Ok(None),
+        #[cfg(target_os = "android")]
+        Ok(None) => Err("系统中已找不到此 API 密钥，请重新填写".into()),
+        result => result,
+    }
+}
+
+pub(super) fn discovery_key(
+    store: &Store,
+    models: &Models,
+    id: &str,
+    protocol: Protocol,
+    endpoint: &Url,
+) -> Result<Option<String>, String> {
+    let _guard = models.lock.lock().map_err(err)?;
+    let catalog = read_catalog(store, &models.credentials)?;
+    let Ok(provider) = catalog.provider(id) else {
+        return Ok(None);
+    };
+    if provider.draft.protocol != protocol
+        || model_endpoint(&provider.draft.endpoint, protocol)? != *endpoint
+    {
+        return Ok(None);
+    }
+    credential_key(models, provider.credential.as_deref(), endpoint)
 }
 
 #[cfg(test)]

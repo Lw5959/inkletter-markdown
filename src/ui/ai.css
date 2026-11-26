@@ -423,10 +423,37 @@
 }
 
 .yy-shell .yy-ai-models-head { justify-content: space-between; margin-bottom: 5px; }
+.yy-shell .yy-ai-models-head, .yy-shell .yy-ai-model-actions { flex-wrap: wrap; }
+.yy-shell .yy-ai-model-actions { display: flex; gap: 6px; }
 .yy-shell .yy-ai-model-list { display: grid; gap: 5px; }
 .yy-shell .yy-ai-model-entry input { min-width: 0; flex: 1; }
 .yy-shell .yy-ai-model-entry button { flex: none; }
 .yy-shell .yy-ai-provider-remove { flex-wrap: wrap; font-size: 12px; color: var(--yy-ink-muted); }
+
+.yy-shell .yy-ai-discovery {
+  display: grid;
+  gap: 8px;
+  margin-block-start: 8px;
+  padding: 8px;
+  border: 1px solid var(--yy-border);
+  border-radius: 8px;
+}
+.yy-shell .yy-ai-discovery > p { margin: 0; }
+.yy-shell .yy-ai-discovery-picker { display: grid; gap: 8px; }
+.yy-shell .yy-ai-discovery-picker > button { justify-self: start; }
+.yy-shell .yy-ai-discovered-list { max-height: 184px; overflow: auto; }
+.yy-shell .yy-ai-discovered-model {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.yy-shell .yy-ai-discovered-model:has(input:checked) { background: var(--yy-accent-soft); }
+.yy-shell.yy-mobile .yy-ai-discovered-model { min-height: 44px; }
 
 @media (max-width: 660px) {
   .yy-shell .yy-ai-catalog { gap: 11px; grid-template-columns: 125px minmax(0, 1fr); }

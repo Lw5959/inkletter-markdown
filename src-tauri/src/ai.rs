@@ -8,7 +8,11 @@ use futures_util::StreamExt;
 use reqwest::{Client, RequestBuilder, Url, header::HeaderValue};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{collections::HashMap, sync::Mutex, time::Duration};
+use std::{
+    collections::{BTreeSet, HashMap},
+    sync::Mutex,
+    time::Duration,
+};
 use tauri::{State, ipc::Channel};
 use tokio::sync::oneshot;
 use url::Host;
@@ -49,27 +53,41 @@ pub enum Event {
     Cancelled,
 }
 
-pub fn safe_endpoint(value: &str) -> Result<Url, String> {
+fn http_endpoint(value: &str) -> Result<Url, String> {
     let url = Url::parse(value.trim()).map_err(err)?;
-    let loopback = match url.host() {
-        Some(Host::Domain(domain)) => domain == "localhost",
-        Some(Host::Ipv4(address)) => address.is_loopback(),
-        Some(Host::Ipv6(address)) => address.is_loopback(),
-        None => false,
-    };
-    if !(url.scheme() == "https" || (url.scheme() == "http" && loopback))
+    if !matches!(url.scheme(), "http" | "https")
         || !url.username().is_empty()
         || url.password().is_some()
         || url.fragment().is_some()
         || url.host().is_none()
     {
-        return Err("地址须使用 HTTPS 或本机回环 HTTP，且不能包含用户名、密码或片段".into());
+        return Err("地址须使用 HTTP 或 HTTPS，且不能包含用户名、密码或片段".into());
+    }
+    Ok(url)
+}
+
+fn is_loopback(url: &Url) -> bool {
+    match url.host() {
+        Some(Host::Domain(domain)) => domain == "localhost",
+        Some(Host::Ipv4(address)) => address.is_loopback(),
+        Some(Host::Ipv6(address)) => address.is_loopback(),
+        None => false,
+    }
+}
+
+pub fn safe_endpoint(value: &str) -> Result<Url, String> {
+    let url = http_endpoint(value)?;
+    if url.scheme() == "http" && !is_loopback(&url) {
+        return Err("地址须使用 HTTPS 或本机回环 HTTP".into());
     }
     Ok(url)
 }
 
 pub fn configured_endpoint(value: &str) -> Result<Url, String> {
-    let url = safe_endpoint(value)?;
+    direct_endpoint(safe_endpoint(value)?)
+}
+
+fn direct_endpoint(url: Url) -> Result<Url, String> {
     // Android 会保存这些地址，查询参数可能包含密钥或访问令牌。
     #[cfg(target_os = "android")]
     if url.query().is_some() {
@@ -79,7 +97,8 @@ pub fn configured_endpoint(value: &str) -> Result<Url, String> {
 }
 
 fn model_endpoint(endpoint: &str, protocol: Protocol) -> Result<Url, String> {
-    let mut url = configured_endpoint(endpoint)?;
+    // AI 按供应商手动配置的地址连接，模型列表和生成请求共用同一地址规则。
+    let mut url = direct_endpoint(http_endpoint(endpoint)?)?;
     let path = url.path().trim_end_matches('/');
     if path.ends_with(protocol.path()) {
         return Ok(url);
@@ -95,6 +114,146 @@ fn model_endpoint(endpoint: &str, protocol: Protocol) -> Result<Url, String> {
     };
     url.set_path(&format!("{prefix}{}", protocol.path()));
     Ok(url)
+}
+
+fn authorize(
+    request: RequestBuilder,
+    protocol: Protocol,
+    key: Option<&str>,
+) -> Result<RequestBuilder, String> {
+    if protocol == Protocol::Anthropic {
+        let request = request.header("anthropic-version", "2023-06-01");
+        if let Some(key) = key {
+            let mut value = HeaderValue::from_str(key).map_err(|_| "API 密钥含有无法发送的字符")?;
+            value.set_sensitive(true);
+            return Ok(request.header("x-api-key", value));
+        }
+        return Ok(request);
+    }
+    if let Some(key) = key {
+        HeaderValue::from_str(key).map_err(|_| "API 密钥含有无法发送的字符")?;
+        Ok(request.bearer_auth(key))
+    } else {
+        Ok(request)
+    }
+}
+
+#[derive(Deserialize)]
+pub struct Discovery {
+    id: String,
+    endpoint: String,
+    protocol: Protocol,
+    key: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ModelsPage {
+    data: Vec<ModelId>,
+    #[serde(default)]
+    has_more: bool,
+    last_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ModelId {
+    id: String,
+}
+
+fn models_endpoint(mut endpoint: Url, protocol: Protocol) -> Url {
+    let path = endpoint.path().trim_end_matches('/');
+    let prefix = path.strip_suffix(protocol.path()).unwrap_or(path);
+    endpoint.set_path(&format!("{prefix}/models"));
+    endpoint
+}
+
+async fn discover_models(
+    http: &Client,
+    endpoint: Url,
+    protocol: Protocol,
+    key: Option<&str>,
+) -> Result<Vec<String>, String> {
+    let mut models = BTreeSet::new();
+    let mut after_id: Option<String> = None;
+    for _ in 0..16 {
+        let mut url = endpoint.clone();
+        if let Some(after_id) = &after_id {
+            url.query_pairs_mut().append_pair("after_id", after_id);
+        }
+        let request = http
+            .get(url)
+            .timeout(Duration::from_secs(12))
+            .header("Accept", "application/json");
+        let mut response = authorize(request, protocol, key)?
+            .send()
+            .await
+            .map_err(|error| {
+                if error.is_timeout() {
+                    "获取模型超时，请重试"
+                } else {
+                    "无法连接供应商，请检查 API 地址和网络"
+                }
+            })?;
+        match response.status().as_u16() {
+            200..=299 => {}
+            401 | 403 => return Err("当前密钥无法读取模型列表，请检查密钥和权限".into()),
+            404 | 405 | 501 => return Err("供应商未提供模型列表，请手动添加模型 ID".into()),
+            status => return Err(format!("供应商获取模型失败（HTTP {status}）")),
+        }
+        let mut data = Vec::new();
+        while let Some(bytes) = response
+            .chunk()
+            .await
+            .map_err(|_| "模型列表读取中断，请重试")?
+        {
+            if data.len() + bytes.len() > 2 * 1024 * 1024 {
+                return Err("模型列表过大，请手动添加需要的模型 ID".into());
+            }
+            data.extend_from_slice(&bytes);
+        }
+        let page: ModelsPage =
+            serde_json::from_slice(&data).map_err(|_| "供应商返回的模型列表格式无法识别")?;
+        models.extend(
+            page.data
+                .into_iter()
+                .map(|item| item.id.trim().to_owned())
+                .filter(|id| !id.is_empty() && !id.chars().any(char::is_control)),
+        );
+        if !page.has_more {
+            return Ok(models.into_iter().collect());
+        }
+        // 分页只更新已验证地址的游标，凭据始终发送到同一个服务。
+        if page.last_id.is_none() || page.last_id == after_id {
+            return Err("供应商模型列表的分页游标无效".into());
+        }
+        after_id = page.last_id;
+    }
+    Err("供应商模型列表分页过多，请手动添加需要的模型 ID".into())
+}
+
+#[tauri::command]
+pub async fn ai_list_models(
+    request: Discovery,
+    store: State<'_, Store>,
+    models: State<'_, Models>,
+    http: State<'_, Client>,
+) -> Result<Vec<String>, String> {
+    let endpoint = model_endpoint(&request.endpoint, request.protocol)?;
+    let key = match request.key.as_deref().map(str::trim) {
+        Some("") => None,
+        Some(key) => Some(key.to_owned()),
+        None => config::discovery_key(&store, &models, &request.id, request.protocol, &endpoint)?,
+    };
+    tokio::time::timeout(
+        Duration::from_secs(25),
+        discover_models(
+            &http,
+            models_endpoint(endpoint, request.protocol),
+            request.protocol,
+            key.as_deref(),
+        ),
+    )
+    .await
+    .map_err(|_| "获取模型超时，请重试")?
 }
 
 fn model_request(
@@ -133,19 +292,7 @@ fn model_request(
         .timeout(Duration::from_secs(300))
         .header("Accept", "text/event-stream")
         .json(&body);
-    if protocol == Protocol::Anthropic {
-        let request = request.header("anthropic-version", "2023-06-01");
-        if let Some(key) = key {
-            let mut value = HeaderValue::from_str(&key).map_err(err)?;
-            value.set_sensitive(true);
-            return Ok(request.header("x-api-key", value));
-        }
-        return Ok(request);
-    }
-    Ok(match key {
-        Some(key) => request.bearer_auth(key),
-        None => request,
-    })
+    authorize(request, protocol, key.as_deref())
 }
 
 fn model_event<'a>(
@@ -342,8 +489,155 @@ mod tests {
                 .as_str(),
             "https://example.org/v1/messages"
         );
-        assert!(model_endpoint("http://example.org", Protocol::Anthropic).is_err());
+        assert_eq!(
+            model_endpoint("http://192.0.2.10:8080/team/v1", Protocol::Anthropic)
+                .unwrap()
+                .as_str(),
+            "http://192.0.2.10:8080/team/v1/messages"
+        );
+        assert!(safe_endpoint("http://192.0.2.10:8080/team/v1").is_err());
+        assert!(model_endpoint("file:///v1", Protocol::Chat).is_err());
         assert!(model_endpoint("https://user@example.org", Protocol::Responses).is_err());
+    }
+
+    #[tokio::test]
+    async fn remote_http_lists_models_and_streams_with_provider_auth() {
+        use std::{
+            io::{BufRead, BufReader, Read, Write},
+            net::TcpListener,
+        };
+        let bind = std::env::var("YEYU_TEST_AI_BIND").unwrap_or_else(|_| "127.0.0.1".into());
+        let listener = TcpListener::bind((bind.as_str(), 0)).unwrap();
+        let addr = listener.local_addr().unwrap();
+        let root = format!("http://models.example.test:{}/team/v1", addr.port());
+        let server = std::thread::spawn(move || {
+            let answers = [
+                (
+                    "GET",
+                    "/team/v1/models",
+                    "authorization: bearer fixture",
+                    r#"{"data":[{"id":"text-2"},{"id":"text-1"},{"id":"text-2"}]}"#,
+                ),
+                (
+                    "GET",
+                    "/team/v1/models",
+                    "x-api-key: fixture",
+                    r#"{"data":[{"id":"claude-1"}],"has_more":true,"last_id":"claude-1"}"#,
+                ),
+                (
+                    "GET",
+                    "/team/v1/models?after_id=claude-1",
+                    "x-api-key: fixture",
+                    r#"{"data":[{"id":"claude-2"}],"has_more":false}"#,
+                ),
+                (
+                    "POST",
+                    "/team/v1/chat/completions",
+                    "authorization: bearer fixture",
+                    "data: {\"choices\":[{\"delta\":{\"content\":\"远端可用\"}}]}\n\n",
+                ),
+            ];
+            for (method, path, auth, body) in answers {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut request = String::new();
+                let mut reader = BufReader::new(&stream);
+                loop {
+                    let length = request.len();
+                    if reader.read_line(&mut request).unwrap() == 0 || &request[length..] == "\r\n"
+                    {
+                        break;
+                    }
+                }
+                assert!(request.starts_with(&format!("{method} {path} HTTP/1.1\r\n")));
+                let headers = request.to_ascii_lowercase();
+                assert!(headers.contains(auth));
+                if auth.starts_with("x-api-key") {
+                    assert!(headers.contains("anthropic-version: 2023-06-01"));
+                }
+                let content_type = if method == "POST" {
+                    let length = headers
+                        .lines()
+                        .find_map(|line| line.strip_prefix("content-length: "))
+                        .unwrap()
+                        .parse::<usize>()
+                        .unwrap();
+                    let mut payload = vec![0; length];
+                    reader.read_exact(&mut payload).unwrap();
+                    let payload: Value = serde_json::from_slice(&payload).unwrap();
+                    assert_eq!(payload["model"], "text-1");
+                    assert_eq!(payload["stream"], true);
+                    "text/event-stream"
+                } else {
+                    "application/json"
+                };
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .unwrap();
+            }
+        });
+        // 固定测试域名解析到夹具。在有网卡的机器上也可绑定真实非回环地址。
+        let http = Client::builder()
+            .no_proxy()
+            .resolve("models.example.test", addr)
+            .build()
+            .unwrap();
+        let responses = models_endpoint(
+            model_endpoint(&root, Protocol::Responses).unwrap(),
+            Protocol::Responses,
+        );
+        assert_eq!(
+            discover_models(&http, responses, Protocol::Responses, Some("fixture"))
+                .await
+                .unwrap(),
+            ["text-1", "text-2"]
+        );
+        let anthropic = models_endpoint(
+            model_endpoint(&root, Protocol::Anthropic).unwrap(),
+            Protocol::Anthropic,
+        );
+        assert_eq!(
+            discover_models(&http, anthropic, Protocol::Anthropic, Some("fixture"))
+                .await
+                .unwrap(),
+            ["claude-1", "claude-2"]
+        );
+        let settings = Target {
+            protocol: Protocol::Chat,
+            model: "text-1".into(),
+            ..Default::default()
+        };
+        let mut events = model_request(
+            &http,
+            model_endpoint(&root, settings.protocol).unwrap(),
+            &settings,
+            &[Message {
+                role: "user".into(),
+                text: "测试流式响应".into(),
+            }],
+            Some("fixture".into()),
+        )
+        .unwrap()
+        .timeout(Duration::from_secs(5))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .bytes_stream()
+        .eventsource();
+        let event = events.next().await.unwrap().unwrap();
+        let data = serde_json::from_str(&event.data).unwrap();
+        assert_eq!(
+            model_event(settings.protocol, &event.event, &data).unwrap(),
+            (Some("远端可用"), false)
+        );
+        server.join().unwrap();
     }
 
     #[test]

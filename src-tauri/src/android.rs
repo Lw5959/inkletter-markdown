@@ -315,6 +315,7 @@ pub fn run() {
             ai::config::ai_provider_save,
             ai::config::ai_provider_remove,
             ai::config::ai_model_select,
+            ai::ai_list_models,
             ai::ai_stream,
             ai::ai_cancel,
             plugins::plugin_list,

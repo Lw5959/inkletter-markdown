@@ -16,7 +16,7 @@ import type { Relocated } from './images'
 import { importTheme } from './themes'
 import { builtinThemes } from './builtin-themes'
 import { readTyporaProfiles, typoraThemeKey } from './typora'
-import { Writing } from './ai'
+import { listAiModels, Writing } from './ai'
 import { normalizePrompts } from './ai-prompts'
 import { Protocol } from './mcp'
 import { bind, chooseHunks, relocate, suggestion } from './suggestions'
@@ -81,6 +81,7 @@ const state: ShellState = {
 const macTitlebar = detectMac()
 const shell = mountShell(document.querySelector<HTMLElement>('#app')!, {
   dispatch: act,
+  listAiModels,
   pluginMarket: {
     official: officialPluginMarket,
     source: pluginMarketSource,

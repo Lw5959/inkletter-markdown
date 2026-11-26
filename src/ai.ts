@@ -1,4 +1,4 @@
-import type { AiContext, AiIntent, AiMessage, AiPrompts, AiSettings, AiSelection, AiView, Editor, ShellAction } from './contracts'
+import type { AiContext, AiIntent, AiMessage, AiModelDiscovery, AiPrompts, AiSettings, AiSelection, AiView, Editor, ShellAction } from './contracts'
 import { aiTasks, systemPrompt } from './ai-prompts'
 import { interval, paragraph } from './document-tools'
 import { Channel, invoke, reason } from './native'
@@ -10,6 +10,8 @@ type Context = { view: AiContext; binding: Binding | null }
 type Run = { id: string; selection: AiSelection; intent: AiIntent; messages: WireMessage[]; binding: Binding | null }
 type WireMessage = { role: 'system' | AiMessage['role']; text: string }
 type ModelAction = Extract<ShellAction, { type: 'ai-provider-save' | 'ai-provider-remove' | 'ai-model-select' }>
+
+export const listAiModels = (request: AiModelDiscovery) => invoke<string[]>('ai_list_models', { request })
 
 export class Writing {
   view: AiView = {
