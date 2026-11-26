@@ -6,6 +6,7 @@ import type { EditorState, Extension, Range } from '@codemirror/state'
 import type { EditorOptions, OutlineEntry } from '../contracts'
 import { renderMarkdown, safeUrl } from './render'
 import { frontMatter } from './front-matter'
+import { LiveBlock } from './live-block'
 import { cellEdit, editingTable, LiveTable, refreshTable } from './live-table'
 
 const marks: Record<string, string> = {
@@ -23,7 +24,7 @@ const previewLimits: Record<string, number> = {
 }
 type PreviewKind = 'inline' | 'block' | 'metadata'
 
-class Preview extends WidgetType {
+class Preview extends LiveBlock {
   constructor(readonly source: string, readonly options: EditorOptions, readonly kind: PreviewKind, readonly editOffset?: number) { super() }
   eq(other: Preview) { return other.source === this.source && other.kind === this.kind && other.editOffset === this.editOffset }
   toDOM(view: EditorView) {
@@ -32,6 +33,7 @@ class Preview extends WidgetType {
     element.className = inline ? 'live-inline-preview' : 'live-block-preview'
     if (this.kind === 'metadata') element.classList.add('live-metadata-preview')
     element.contentEditable = 'false'
+    if (!inline) this.reserveHeight(element)
     const offset = this.editOffset
     if (!inline && offset !== undefined) {
       element.tabIndex = 0
@@ -50,14 +52,21 @@ class Preview extends WidgetType {
     void renderMarkdown(this.source, this.options).then(html => {
       if (!element.isConnected) return
       element.innerHTML = html
-      view.requestMeasure()
-    }).catch(() => { if (element.isConnected) element.textContent = '暂时无法渲染此内容' })
+      if (inline) view.requestMeasure()
+      else this.measureHeight(view, element)
+    }).catch(() => {
+      if (!element.isConnected) return
+      element.textContent = '暂时无法渲染此内容'
+      if (!inline) this.measureHeight(view, element)
+    })
     return element
   }
   ignoreEvent(event: Event) { return event.type !== 'click' }
 }
 
 class LargePreview extends WidgetType {
+  eq() { return true }
+
   toDOM(view: EditorView) {
     const element = view.dom.ownerDocument.createElement('div')
     element.className = 'live-block-preview live-large-preview'
@@ -169,19 +178,24 @@ function visibleBlocks(view: EditorView, options: EditorOptions, cellInline: Ext
   const start = doc.lineAt(view.viewport.from)
   const end = doc.lineAt(view.viewport.to)
   const yamlEnd = frontMatterEnd(doc, start.from)
+  const previous = state.field(blockPreviews)
   const pinned = state.readOnly ? null : editingTable(view)
-  if (pinned) {
-    // 输入期间映射现有表格，等编辑结束再刷新 HTML，排版变化不会卸载系统输入法。
-    state.field(blockPreviews).between(pinned.from, pinned.to, (from, to, decoration) => {
-      if (from === pinned.from && to === pinned.to && decoration.spec.widget instanceof LiveTable) {
-        ranges.push(decoration.range(from, to))
-      }
-    })
-  }
+  let projectedFrom = start.from
+  let projectedTo = end.to
   function insert(from: number, to: number, widget: WidgetType, editAsLines = false) {
-    if (from < to && !(editAsLines && overlapsSelection(state, from, to))) {
-      ranges.push(Decoration.replace({ block: true, widget, editAsLines }).range(from, to))
+    if (from >= to || (editAsLines && overlapsSelection(state, from, to))) return
+    let existing: Decoration | undefined
+    previous.between(from, to, (start, end, decoration) => {
+      const old = decoration.spec.widget
+      if (start === from && end === to && decoration.spec.editAsLines === editAsLines
+        && old?.constructor === widget.constructor && old.eq(widget)) existing = decoration
+    })
+    if (!existing && widget instanceof LiveBlock) {
+      widget.height = Math.ceil(view.lineBlockAt(to).bottom - view.lineBlockAt(from).top)
     }
+    projectedFrom = Math.min(projectedFrom, from)
+    projectedTo = Math.max(projectedTo, to)
+    ranges.push((existing ?? Decoration.replace({ block: true, widget, editAsLines })).range(from, to))
   }
   // 区块复用导出的语义标签，让主题的边框和留白按整个区块排版。
   if (yamlEnd > start.from) {
@@ -236,7 +250,16 @@ function visibleBlocks(view: EditorView, options: EditorOptions, cellInline: Ext
     insert(first.from, last.to, new Preview(doc.sliceString(first.from, last.to), options, 'block'))
     line = last.number
   }
-  return Decoration.set(ranges, true)
+  // 视窗移动时保留已投影的区块。CodeMirror 会回收离屏 DOM，同时保留量过的高度，
+  // 避免表格离屏后变回多行源码，导致后续正文的位置反复变化。
+  return previous.update({
+    filterFrom: projectedFrom,
+    filterTo: projectedTo,
+    // 正在输入的表格保持原来的 DOM，避免卸载系统输入法。
+    filter: (from, to, decoration) => from === pinned?.from && to === pinned?.to && decoration.spec.widget instanceof LiveTable,
+    add: ranges,
+    sort: true,
+  })
 }
 
 function blockProjection(options: EditorOptions, cellInline: Extension) {

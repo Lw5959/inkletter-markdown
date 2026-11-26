@@ -1,8 +1,9 @@
 import { defaultKeymap, redo, undo } from '@codemirror/commands'
 import { markdown } from '@codemirror/lang-markdown'
 import { Annotation, EditorState, StateEffect, type Extension } from '@codemirror/state'
-import { EditorView, WidgetType, keymap } from '@codemirror/view'
+import { EditorView, keymap } from '@codemirror/view'
 import type { EditorOptions } from '../contracts'
+import { LiveBlock } from './live-block'
 import { renderMarkdown } from './render'
 import { markdownSyntax } from './syntax'
 
@@ -42,7 +43,7 @@ function cellText(text: string) {
   return text.replace(/\r\n|[\r\n]/g, ' ').replace(/(?<!\\)\|/g, '\\|')
 }
 
-export class LiveTable extends WidgetType {
+export class LiveTable extends LiveBlock {
   constructor(readonly source: string, readonly options: EditorOptions, readonly readOnly: boolean, readonly inline: Extension) { super() }
   eq(other: LiveTable) { return other.source === this.source && other.readOnly === this.readOnly }
 
@@ -50,6 +51,7 @@ export class LiveTable extends WidgetType {
     const element = view.dom.ownerDocument.createElement('div')
     element.className = 'live-block-preview live-table-preview'
     element.contentEditable = 'false'
+    this.reserveHeight(element)
     mounts.set(element, { generation: 0, length: this.source.length })
     const start = (event: MouseEvent | KeyboardEvent) => {
       const cell = (event.target as HTMLElement | null)?.closest?.<HTMLTableCellElement>('td, th')
@@ -86,9 +88,11 @@ export class LiveTable extends WidgetType {
       if (!view.state.readOnly) {
         for (const cell of element.querySelectorAll<HTMLTableCellElement>('td, th')) cell.tabIndex = 0
       }
-      view.requestMeasure()
+      this.measureHeight(view, element)
     }).catch(() => {
-      if (element.isConnected && mount.generation === generation && !mount.close && !element.firstChild) element.textContent = '表格暂时无法渲染'
+      if (!element.isConnected || mount.generation !== generation || mount.close) return
+      if (!element.firstChild) element.textContent = '表格暂时无法渲染'
+      this.measureHeight(view, element)
     })
   }
 

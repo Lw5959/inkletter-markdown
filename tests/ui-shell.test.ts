@@ -1802,6 +1802,59 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     }
   }, 15000)
 
+  it('Android 实时编辑滚离长表格再返回时保留区块高度', async () => {
+    const phone = await browser.newPage({ viewport: { width: 360, height: 740 }, isMobile: true, hasTouch: true })
+    const rows = Array.from({ length: 30 }, (_, index) => `| 项目 ${index + 1} | ${'这是可以换行的单元格说明。'.repeat(4)} |`)
+    const tail = Array.from({ length: 120 }, (_, index) => `后续正文 ${index + 1}`).join('\n\n')
+    const markdown = ['# 长表格笔记', '', '| 项目 | 说明 |', '| --- | --- |', ...rows, '', tail].join('\n')
+    try {
+      await phone.addInitScript(text => {
+        const uri = 'content://qa/document/table-scroll'
+        const native = window as unknown as Record<string, unknown>
+        native.__TAURI_INTERNALS__ = { invoke: async (command: string) => {
+          if (command === 'android_pick') return uri
+          if (command === 'android_read') return { uri, text, name: '长表格.md', version: '1', bom: false, writable: true }
+          return null
+        } }
+      }, markdown)
+      await phone.goto(`${baseUrl}/mobile.html`)
+      await phone.getByRole('button', { name: '打开文件', exact: true }).tap()
+      const table = phone.getByRole('table')
+      await table.waitFor()
+      const height = await phone.evaluate(`(async () => {
+        const { EditorView } = await import('/node_modules/@codemirror/view/dist/index.js')
+        const view = EditorView.findFromDOM(document.querySelector('#write > .cm-editor'))
+        const paper = document.querySelector('.yy-paper')
+        const pos = view.posAtDOM(paper.querySelector('.live-table-preview'))
+        window.__tableScroll = { view, paper, pos }
+        await new Promise(requestAnimationFrame)
+        return view.lineBlockAt(pos).height
+      })()`) as number
+      expect(height).toBeGreaterThan(1000)
+
+      await phone.locator('.yy-paper').evaluate(paper => { paper.scrollTop = paper.scrollHeight })
+      await table.waitFor({ state: 'detached' })
+      const away = await phone.evaluate('window.__tableScroll.view.lineBlockAt(window.__tableScroll.pos).height') as number
+      expect(Math.abs(away - height)).toBeLessThan(2)
+
+      const heights = await phone.evaluate(`(async () => {
+        const { view, paper, pos } = window.__tableScroll
+        const block = view.lineBlockAt(pos)
+        paper.scrollTop = block.bottom - paper.clientHeight / 2
+        const heights = []
+        for (let frame = 0; frame < 10; frame++) {
+          await new Promise(requestAnimationFrame)
+          heights.push(view.lineBlockAt(pos).height)
+        }
+        return heights
+      })()`) as number[]
+      await table.waitFor()
+      expect(Math.max(...heights.map(value => Math.abs(value - height)))).toBeLessThan(2)
+    } finally {
+      await phone.close()
+    }
+  }, 15000)
+
   it('Android 在窄屏、横屏和大字号下保持工具可点，宽表格只在块内横向滚动', async () => {
     const title = '记录与分析_' + 'LONG_DOCUMENT_FILENAME_'.repeat(9) + '.md'
     const columns = Array.from({ length: 24 }, (_, i) => '独立配置说明第' + (i + 1) + '列')
