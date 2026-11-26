@@ -7,7 +7,7 @@ RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.l
     && apt-get install -y --no-install-recommends \
         libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev \
         patchelf cmake build-essential pkg-config file dbus-x11 xvfb xauth xdotool fonts-noto-cjk \
-        ca-certificates curl xz-utils appstream gpg squashfs-tools desktop-file-utils \
+        ca-certificates curl xz-utils appstream gpg squashfs-tools desktop-file-utils zsync \
     && rm -rf /var/lib/apt/lists/*
 
 # 使用已有的 Debian 基础镜像时，安装与前端声明一致的 Node.js。

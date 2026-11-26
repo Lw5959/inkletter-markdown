@@ -131,13 +131,14 @@ def package(deb, output):
         metadata = appdir / 'usr/share/metainfo/io.yeyu.markdown.appdata.xml'
         subprocess.run(['appstreamcli', 'validate', '--no-net', '--pedantic', str(metadata)], check=True)
 
-        # xz 把两种架构的完整安装包压缩至 Gitee 普通仓库的单附件规格内。
+        # appimagetool 的 xz 默认块只有 16 KiB。较大的块让 WebKitGTK 的重复数据参与同一次压缩。
         runtime = os.environ.get('YEYU_APPIMAGE_RUNTIME')
         tool = os.environ.get('YEYU_APPIMAGETOOL', 'appimagetool')
         arguments = ['--runtime-file', runtime] if runtime else []
         pending = stage / output.name
         # 已用 AppStream 严格离线校验元数据，打包器无需再向外站访问说明链接。
-        subprocess.run([tool, '--no-appstream', '--comp', 'xz', *arguments, str(appdir), str(pending)], check=True,
+        subprocess.run([tool, '--no-appstream', '--comp', 'xz', '--mksquashfs-opt=-b', '--mksquashfs-opt=1M',
+                        *arguments, str(appdir), str(pending)], check=True,
                        env=os.environ | {'ARCH': machine})
         pending.replace(output)
 
