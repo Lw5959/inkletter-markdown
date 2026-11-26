@@ -1,6 +1,6 @@
 [package]
 name = "yeyu"
-version = "0.2.22"
+version = "0.2.23"
 edition = "2024"
 description = "A Markdown editor for desktop and Android"
 license = "MIT"
