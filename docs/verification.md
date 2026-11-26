@@ -105,6 +105,15 @@ Chrome 158 使用 `node tests/export-browser.mjs` 的固定样本，比较导出
 
 ## 平台验收范围
 
+### 0.2.22
+
+- macOS Apple Silicon 原生窗口从屏幕边缘打开插件中心，窗口外框与预期位置的横纵偏差均为 0。移开文档窗口 128 像素时，插件窗口保持原位，页面占满自己的视口。确认、更新、多文件保存和逐窗恢复也通过。
+- Linux ARM64 的原生窗口通过插件中心、确认和更新开窗。Linux ARM64 与 x64 的 DEB 和 AppImage 在 X11 环境完成文档打开、编辑、保存和 BOM 检查。
+- Chat Completions、Anthropic Messages 和 Responses 在 macOS 原生界面用本地流式服务走通。Rust 检查 OpenCode Go 新旧地址的会话请求头，WebKit 和 Chromium 检查重试、压缩和智能体多轮的会话标识。已读取 Go 公共模型目录，付费账号的模型推理待验收。
+- Rust 22 项、WebKit 49 项和 Chromium 4 项针对性测试通过。六种目标架构的发布构建记录均为零警告。macOS Intel、Windows x64 和 Android ARM64 完成打包与校验，设备实测待做。
+- 扩展验收运行到插件表格排版时，等待预期源码对齐结果超时。上面的窗口验收及三种流式协议检查已单独确认。
+- 安装包构建源为 `7ed4502`。 [GitHub 发布](https://github.com/Lw5959/yeyu/releases/tag/v0.2.22) · [Gitee 发布](https://gitee.com/Lw5959/yeyu/releases/tag/v0.2.22)
+
 ### 0.2.21
 
 - macOS Apple Silicon 用真实 Finder 打开 Markdown 和 TXT。Launch Services 将页屿列为 TXT 的可用打开方式。两份文档分别编辑保存，重复打开聚焦已有窗口。强制结束后，两份草稿和源码模式分别恢复。
