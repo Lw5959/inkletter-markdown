@@ -504,6 +504,8 @@ export class ModalManager {
         }
         listWrap.append(group)
       }
+      // 重绘会移除刚点击的按钮。把键盘焦点交给新按钮，让独立窗口继续接收录制按键。
+      if (recordingId) listWrap.querySelector<HTMLButtonElement>('button.is-active[data-shortcut-id]')?.focus({ preventScroll: true })
     }
 
     const recordKeyHandler = (event: KeyboardEvent) => {
