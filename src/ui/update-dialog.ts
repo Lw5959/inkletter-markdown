@@ -3,6 +3,7 @@ import '../dialogs.css'
 import './update-dialog.css'
 import { el } from './helpers'
 import { dismissOnBackdrop } from './dialog-dismiss'
+import type { createPages } from './pages'
 
 export type UpdateProgress =
   | { kind: 'download'; downloaded: number; total: number | null }
@@ -20,11 +21,13 @@ function formatBytes(bytes: number) {
   return (bytes / 1024 ** 2).toFixed(1) + ' MiB'
 }
 
-/** 打开更新窗口并立即检查，用户点击确认后才调用 apply。 */
-export function showUpdateDialog(check: (installedVersion: string) => Promise<UpdateOffer | null>) {
-  if (document.querySelector('dialog.yy-update-dialog[open]')) return
+/** 打开更新界面并立即检查，用户点击确认后才调用 apply。 */
+export function showUpdate(check: (installedVersion: string) => Promise<UpdateOffer | null>, pages?: ReturnType<typeof createPages>) {
+  if (!pages && document.querySelector('dialog.yy-update-dialog[open]')) return
 
-  const dialog = el('dialog', { className: 'app-dialog yy-update-dialog', attrs: { 'aria-label': '软件更新' } })
+  const dialog = pages ? null : el('dialog', { className: 'app-dialog yy-update-dialog', attrs: { 'aria-label': '软件更新' } })
+  const panel = dialog ?? el('div', { className: 'yy-mobile-brief-page yy-update-page' })
+  const active = () => dialog?.open ?? panel.isConnected
   const current = el('p', { className: 'yy-update-version', text: '正在读取当前版本…' })
   const headline = el('h3', { attrs: { tabindex: '-1' } })
   const detail = el('p', { className: 'yy-update-detail', attrs: { hidden: '' } })
@@ -37,7 +40,9 @@ export function showUpdateDialog(check: (installedVersion: string) => Promise<Up
   const download = el('div', { className: 'yy-update-download', attrs: { hidden: '' } }, meter, bytes)
   const dismiss = el('button', { type: 'button', text: '关闭', attrs: { autofocus: '' } })
   const primary = el('button', { type: 'button', className: 'app-dialog-primary', attrs: { hidden: '' } })
-  dialog.append(el('h2', { text: '软件更新' }), current, status, notes, download,
+  if (dialog) dialog.append(el('h2', { text: '软件更新' }))
+  dismiss.hidden = !dialog
+  panel.append(current, status, notes, download,
     el('div', { className: 'app-dialog-actions' }, dismiss, primary))
 
   let installedVersion: string | undefined
@@ -56,7 +61,7 @@ export function showUpdateDialog(check: (installedVersion: string) => Promise<Up
   }
 
   function report(progress: UpdateProgress) {
-    if (!applying || !dialog.open) return
+    if (!applying || !active()) return
     if (progress.kind === 'install') {
       download.hidden = true
       showStatus('正在校验签名并安装…')
@@ -77,7 +82,7 @@ export function showUpdateDialog(check: (installedVersion: string) => Promise<Up
   }
 
   async function apply(release: UpdateOffer) {
-    if (applying || !dialog.open) return
+    if (applying || !active()) return
     applying = true
     primary.hidden = true
     dismiss.disabled = true
@@ -87,16 +92,16 @@ export function showUpdateDialog(check: (installedVersion: string) => Promise<Up
     try {
       if (release.kind === 'install') {
         if (await release.apply(report) === false) {
-          dialog.close()
+          dialog?.close()
           return
         }
-        if (dialog.open) showStatus('更新已安装', '页屿正在重新启动。')
+        if (active()) showStatus('更新已安装', '页屿正在重新启动。')
       } else {
         await release.apply()
-        if (dialog.open) showStatus('已将下载链接交给系统', '请在浏览器或系统下载界面查看进度。')
+        if (active()) showStatus('已将下载链接交给系统', '请在浏览器或系统下载界面查看进度。')
       }
     } catch {
-      if (!dialog.open) return
+      if (!active()) return
       // 原生及网络错误可能带有下载 URL，界面只展示可操作的提示。
       showStatus(release.kind === 'install' ? '更新未完成' : '无法打开下载链接', '请重新检查更新后重试。')
       showAction('重试', checkForUpdate)
@@ -104,23 +109,23 @@ export function showUpdateDialog(check: (installedVersion: string) => Promise<Up
       applying = false
       download.hidden = true
       dismiss.disabled = false
-      if (dialog.open) dismiss.focus()
+      if (active() && dialog) dismiss.focus()
     }
   }
 
   async function checkForUpdate() {
-    dismiss.focus()
+    if (dialog) dismiss.focus()
     primary.hidden = true
     notes.hidden = true
     if (!installedVersion) current.textContent = '正在读取当前版本…'
     showStatus('正在检查更新…')
     try {
       installedVersion ??= await getVersion()
-      if (!dialog.open) return
+      if (!active()) return
       current.textContent = '当前版本 ' + installedVersion
       const release = await check(installedVersion)
-      // IPC 的检查可能在用户关窗后才返回，只允许本次打开的窗口消费结果。
-      if (!dialog.open) return
+      // 检查可能在用户离开后才返回，此时丢弃结果。
+      if (!active()) return
       if (!release) {
         showStatus('已是最新版本')
         return
@@ -134,19 +139,21 @@ export function showUpdateDialog(check: (installedVersion: string) => Promise<Up
       notes.hidden = false
       showAction(installs ? '安装更新' : '下载更新', () => apply(release))
     } catch {
-      if (!dialog.open) return
+      if (!active()) return
       if (!installedVersion) current.textContent = '无法读取当前版本'
       showStatus('检查更新失败', '请检查网络连接，或稍后重试。')
       showAction('重试', checkForUpdate)
     }
   }
 
-  dismiss.onclick = () => dialog.close()
-  dismissOnBackdrop(dialog)
-  dialog.addEventListener('keydown', event => event.stopPropagation())
-  dialog.addEventListener('cancel', event => { if (applying) event.preventDefault() })
-  dialog.addEventListener('close', () => dialog.remove(), { once: true })
-  document.body.append(dialog)
-  dialog.showModal()
+  if (dialog) {
+    dismiss.onclick = () => dialog.close()
+    dismissOnBackdrop(dialog)
+    dialog.addEventListener('keydown', event => event.stopPropagation())
+    dialog.addEventListener('cancel', event => { if (applying) event.preventDefault() })
+    dialog.addEventListener('close', () => dialog.remove(), { once: true })
+    document.body.append(dialog)
+    dialog.showModal()
+  } else pages?.open('软件更新', panel)
   void checkForUpdate()
 }

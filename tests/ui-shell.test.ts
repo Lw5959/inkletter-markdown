@@ -418,8 +418,12 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       await page.keyboard.press('Escape')
       await page.getByRole('menuitem', { name: '编辑', exact: true }).click()
       await page.getByRole('menuitem', { name: /插件管理/ }).click()
+      const plugins = page.getByRole('region', { name: '插件管理' })
+      await plugins.getByRole('button', { name: '从文件安装…' }).waitFor()
+      expect(await page.getByRole('dialog', { name: '插件管理' }).count()).toBe(0)
       await tint('.yy-plugin-manager')
       await page.keyboard.press('Escape')
+      await plugins.waitFor({ state: 'hidden' })
       await page.getByRole('menuitem', { name: '编辑', exact: true }).click()
       await page.getByRole('menuitem', { name: /快捷键设置/ }).click()
       await tint('.yy-modal-shortcuts')
@@ -1054,32 +1058,44 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     }
   }, 15000)
 
-  it('Android 窄屏可打开和保存、切换源码，宽屏菜单留在视口内', async () => {
+  it('Android 从首页手动打开文档，工具使用独立页面并支持系统返回', async () => {
     await page.setViewportSize({ width: 390, height: 736 })
+    const updates = 'https://api.github.com/repos/Lw5959/yeyu/releases/latest'
     try {
+      await page.route(updates, route => route.fulfill({ json: { tag_name: 'v0.2.8', assets: [] } }))
       await page.goto(`${baseUrl}/__ui_harness__`)
       await page.evaluate(`(async () => {
         const path = 'content://qa/document/01'
         const document = { uri: path, name: '移动笔记.md', text: '# 标题\\r\\n\\r\\n正文\\n', bom: true, version: '1', writable: true }
         const writes = []
         const reads = []
+        const installed = []
+        const bundled = { id: 'table-format', name: '表格排版', version: '1.0.0', apiVersion: 1, sha256: 'a'.repeat(64),
+          description: '整理表格', author: '页屿', license: 'MIT' }
+        const builtins = () => ({ name: '内置插件', source: null, plugins: [{ ...bundled,
+          availability: installed.length ? 'installed' : 'install', installedVersion: installed[0]?.version ?? null }] })
         let picks = 0
         window.__TAURI_INTERNALS__ = { invoke: async (cmd, payload) => {
-          if (cmd === 'android_pick') { picks++; return picks > 1 ? path : null }
+          if (cmd === 'android_pick') { picks++; return path }
           if (cmd === 'android_read') { reads.push(payload.uri); return document }
           if (cmd === 'android_write') { writes.push(payload); return { ...document, text: payload.text, version: '2' } }
           if (cmd === 'android_load_session') return { uri: 'content://qa/last-note', theme: 'default', animations: true, mode: 'live' }
           if (cmd === 'android_insets') return { top: 26, bottom: 10, left: 0, right: 0 }
+          if (cmd === 'plugin:app|version') return '0.2.8'
           if (cmd === 'ai_settings') return { providers: [], active: null }
-          if (cmd === 'plugin_list') return []
-          if (cmd === 'plugin_market_list') return { name: '页屿插件市场', source: payload.source, plugins: [] }
+          if (cmd === 'plugin_list') return installed
+          if (cmd === 'plugin_market_list') return payload.source ? { name: '页屿插件市场', source: payload.source, plugins: [] } : builtins()
+          if (cmd === 'plugin_market_install' && payload.source === null && payload.id === bundled.id && payload.sha256 === bundled.sha256) {
+            installed.push({ id: bundled.id, name: bundled.name, version: bundled.version, enabled: false, commands: [] })
+            return { installed, catalog: builtins() }
+          }
           return null
         } }
         window.__mobileWrites = writes
         window.__mobileStartup = () => ({ picks, reads })
         await import('/src/mobile.ts')
       })()`)
-      await expect.poll(() => page.evaluate('window.__mobileStartup()')).toEqual({ picks: 1, reads: [] })
+      await expect.poll(() => page.evaluate('window.__mobileStartup()')).toEqual({ picks: 0, reads: [] })
       expect(await page.locator('.yy-paper').isVisible()).toBe(false)
       expect(await page.getByRole('button', { name: '新建 Markdown' }).isVisible()).toBe(true)
       const open = page.getByRole('button', { name: '打开文件' })
@@ -1109,45 +1125,42 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       expect(saved.text).toBe('# 标题\r\n\r\n正文\nAndroid')
 
       await page.getByRole('button', { name: '文档主题', exact: true }).click()
-      const phoneDialog = page.getByRole('dialog', { name: '文档主题' })
-      const phoneBox = (await phoneDialog.boundingBox())!
-      expect(Math.abs(phoneBox.y + phoneBox.height / 2 - 368)).toBeLessThan(32)
-      await phoneDialog.getByRole('button', { name: '关闭', exact: true }).click()
+      const themePage = page.getByRole('region', { name: '文档主题' })
+      const themeTitle = themePage.getByRole('heading', { name: '文档主题' })
+      expect((await themeTitle.boundingBox())!.y).toBeGreaterThanOrEqual(26)
+      await themePage.getByRole('button', { name: '返回', exact: true }).click()
 
       await page.setViewportSize({ width: 820, height: 420 })
       await page.getByRole('button', { name: '文档主题', exact: true }).click()
-      const dialog = page.getByRole('dialog', { name: '文档主题' })
-      const box = (await dialog.boundingBox())!
-      expect(box.x).toBeGreaterThan(0)
+      const box = (await themePage.boundingBox())!
       expect(box.y + box.height).toBeLessThanOrEqual(420)
-      await dialog.getByRole('button', { name: '石墨' }).click()
+      await themePage.getByRole('button', { name: '石墨' }).click()
       expect(await page.locator('html').getAttribute('data-yeyu-appearance')).toBe('dark')
 
       await page.getByRole('button', { name: '文档主题', exact: true }).click()
-      expect(await dialog.getByRole('button', { name: '石墨' }).getAttribute('aria-pressed')).toBe('true')
-      await page.mouse.click(5, 5)
-      await dialog.waitFor({ state: 'hidden' })
-      await page.getByRole('button', { name: '更多操作' }).click()
-      expect(await page.evaluate(() => window.dispatchEvent(new Event('yeyu:android-back', { cancelable: true })))).toBe(false)
-      await page.getByRole('dialog', { name: '文档操作' }).waitFor({ state: 'hidden' })
-      expect(await page.getByRole('heading', { name: '移动笔记.md' }).isVisible()).toBe(true)
-
       const more = page.getByRole('button', { name: '更多操作' })
       const back = () => page.evaluate(() => window.dispatchEvent(new Event('yeyu:android-back', { cancelable: true })))
+      expect(await themePage.getByRole('button', { name: '石墨' }).getAttribute('aria-pressed')).toBe('true')
+      expect(await back()).toBe(false)
+      await themePage.waitFor({ state: 'hidden' })
       await more.click()
       await page.getByRole('button', { name: 'AI 写作', exact: true }).click()
-      const writing = page.getByRole('dialog', { name: 'AI 写作助手' })
+      const writing = page.getByRole('region', { name: 'AI 写作助手' })
       await writing.getByRole('button', { name: '模型配置', exact: true }).click()
-      await page.getByRole('dialog', { name: '模型配置', exact: true }).waitFor()
+      const models = page.getByRole('region', { name: '模型配置', exact: true })
+      await models.waitFor()
       await back()
-      await page.getByRole('dialog', { name: '模型配置', exact: true }).waitFor({ state: 'hidden' })
+      await models.waitFor({ state: 'hidden' })
       expect(await writing.isVisible()).toBe(true)
+      await writing.getByRole('button', { name: '默认提示词', exact: true }).click()
+      const prompts = page.getByRole('region', { name: '默认提示词', exact: true })
+      await prompts.getByRole('button', { name: '返回' }).click()
       await back()
       await writing.waitFor({ state: 'hidden' })
 
       await more.click()
       await page.getByRole('button', { name: 'MCP 工具', exact: true }).click()
-      const protocol = page.getByRole('dialog', { name: 'MCP 连接与工具' })
+      const protocol = page.getByRole('region', { name: 'MCP 连接与工具' })
       await protocol.getByRole('button', { name: '添加服务' }).click()
       expect(await protocol.getByRole('textbox', { name: '远端 HTTP 地址 (URL)' }).isVisible()).toBe(true)
       expect(await protocol.getByRole('button', { name: '授权工作区' }).count()).toBe(0)
@@ -1155,12 +1168,31 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
 
       await more.click()
       await page.getByRole('button', { name: '插件市场', exact: true }).click()
-      const market = page.getByRole('button', { name: '内置插件', exact: true })
+      const plugins = page.getByRole('region', { name: '插件管理', exact: true })
+      const market = plugins.getByRole('button', { name: '内置插件', exact: true })
       await market.click()
       expect(await market.getAttribute('aria-pressed')).toBe('true')
+      expect(await plugins.getByRole('group', { name: '插件页面' }).getByRole('button').allTextContents()).toEqual(['在线市场', '内置插件', '已安装'])
+      expect(await page.locator('dialog[open], .yy-modal-backdrop').count()).toBe(0)
+      expect(await plugins.getByRole('heading', { name: '插件管理', exact: true }).count()).toBe(1)
+      expect(await plugins.getByRole('searchbox', { name: '搜索插件' }).evaluate(input => input === document.activeElement)).toBe(false)
+      const tablePlugin = plugins.getByRole('article', { name: '表格排版' })
+      await tablePlugin.getByRole('button', { name: '安装', exact: true }).click()
+      await tablePlugin.getByRole('button', { name: '已安装', exact: true }).click()
+      await tablePlugin.getByRole('button', { name: '启用', exact: true }).waitFor()
+      expect(await back()).toBe(false)
+      await plugins.waitFor({ state: 'hidden' })
+      expect(await page.getByRole('heading', { name: '移动笔记.md' }).isVisible()).toBe(true)
+      expect(await page.locator('.cm-content').innerText()).toContain('Android')
+      await more.click()
+      await page.getByRole('button', { name: '检查更新', exact: true }).click()
+      const update = page.getByRole('region', { name: '软件更新' })
+      await update.getByText('已是最新版本').waitFor()
+      expect(await page.locator('dialog[open], .yy-modal-backdrop').count()).toBe(0)
       await back()
-      await back()
+      await update.waitFor({ state: 'hidden' })
     } finally {
+      await page.unroute(updates)
       await page.setViewportSize({ width: 1360, height: 860 })
     }
   })
@@ -1186,10 +1218,26 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
             if (cmd === 'android_pick') return uri
             if (cmd === 'android_read') return { uri, name: title, text, bom: false, version: '1', writable: true }
             if (cmd === 'android_insets') return { top: 24, bottom: 10, left, right }
+          if (cmd === 'plugin_list') return []
+          if (cmd === 'plugin_market_list') return { name: '内置插件', source: null, plugins: [] }
             return null
           } }
         }, { title, text, left, right })
         await phone.goto(`${baseUrl}/mobile.html`)
+        const home = phone.getByRole('main', { name: '文件入口' })
+        await home.getByRole('region', { name: '最近打开' }).getByText('暂无最近打开的文档').waitFor()
+        const launch = await home.locator('.yy-mobile-launch-actions > button:not([hidden])').evaluateAll(buttons =>
+          buttons.map(button => {
+            const { left, width, top, bottom } = button.getBoundingClientRect()
+            return { left, width, top, bottom }
+          }))
+        expect(launch).toHaveLength(3)
+        for (const [index, button] of launch.entries()) {
+          expect(button.left).toBe(launch[0].left)
+          expect(button.width).toBe(launch[0].width)
+          if (index > 0) expect(button.top).toBeGreaterThanOrEqual(launch[index - 1].bottom)
+        }
+        await phone.getByRole('button', { name: '打开文件', exact: true }).click()
         await phone.getByRole('heading', { name: title, exact: true }).waitFor()
         if (enlarged) await phone.addStyleTag({ content: 'html { -webkit-text-size-adjust: 150%; } .yy-mobile-mode { font-size: 21px; } .document-theme { font-size: 24px; }' })
         const geometry = await phone.evaluate(() => {
@@ -1221,11 +1269,116 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
         const box = (await close.boundingBox())!
         expect(box.x + box.width).toBeLessThanOrEqual(width - right)
         await close.click()
+
+        await phone.emulateMedia({ reducedMotion: 'reduce' })
+        await phone.getByRole('button', { name: '更多操作' }).click()
+        const menu = phone.getByRole('region', { name: '文档操作' })
+        const baseline = await menu.evaluate(page => {
+          const title = page.querySelector('header')!.getBoundingClientRect()
+          const list = page.querySelector<HTMLElement>('.yy-mobile-file-list')!
+          const body = list.getBoundingClientRect()
+          list.scrollTop = list.scrollHeight
+          return { title: title.toJSON(), body: body.toJSON(), scroll: list.scrollTop, outerScroll: page.scrollTop,
+            stable: title.top === page.querySelector('header')!.getBoundingClientRect().top }
+        })
+        expect(baseline.title.top).toBeGreaterThanOrEqual(24)
+        expect(baseline.title.left).toBeGreaterThanOrEqual(left)
+        expect(baseline.body.top).toBeGreaterThanOrEqual(baseline.title.bottom)
+        expect(baseline.body.bottom).toBeLessThanOrEqual(height - 10)
+        expect(baseline.body.right).toBeLessThanOrEqual(width - right)
+        expect(baseline.outerScroll).toBe(0)
+        expect(baseline.stable).toBe(true)
+        if (width > height) expect(baseline.scroll).toBeGreaterThan(0)
+
+        await menu.getByRole('button', { name: '插件市场', exact: true }).click()
+        const plugins = phone.getByRole('region', { name: '插件管理' })
+        await plugins.getByRole('button', { name: '内置插件', exact: true }).click()
+        expect(await phone.locator('dialog[open]').count()).toBe(0)
+        const pageTitle = (await plugins.getByRole('heading', { name: '插件管理' }).boundingBox())!
+        expect(pageTitle.y).toBeGreaterThanOrEqual(24)
+        const search = (await plugins.getByRole('searchbox', { name: '搜索插件' }).boundingBox())!
+        expect(search.x).toBeGreaterThanOrEqual(left)
+        expect(search.x + search.width).toBeLessThanOrEqual(width - right)
+        await plugins.getByRole('button', { name: '返回' }).click()
+        expect(await phone.getByRole('heading', { name: title, exact: true }).isVisible()).toBe(true)
       } finally {
         await phone.close()
       }
     }
   }, 30000)
+
+  it('Android 在首页恢复最近记录，可重新打开或移出失效项，保留未保存的编辑', async () => {
+    const phone = await browser.newPage({ viewport: { width: 320, height: 640 }, isMobile: true, hasTouch: true })
+    phone.setDefaultTimeout(5000)
+    try {
+      await phone.addInitScript(() => {
+        const first = 'content://qa/document/first'
+        const second = 'content://qa/document/second'
+        const workspace = 'content://qa/tree/notes'
+        const choices = [first, second]
+        const native = window as unknown as Record<string, unknown>
+        native.__TAURI_INTERNALS__ = { invoke: async (cmd: string, args: { uri?: string; session?: unknown }) => {
+          if (cmd === 'android_pick') {
+            localStorage.setItem('picks', String(Number(localStorage.getItem('picks')) + 1))
+            return choices.shift() ?? null
+          }
+          if (cmd === 'android_read') {
+            if (args.uri === localStorage.getItem('revoked')) throw new Error('已撤销文件访问权限')
+            const name = args.uri === first ? '第一份.md' : '第二份.md'
+            return { uri: args.uri, name, text: `${name} 的正文\n`, version: '1', writable: true, bom: false }
+          }
+          if (cmd === 'android_load_session') return JSON.parse(localStorage.getItem('session') ?? 'null')
+          if (cmd === 'android_save_session') localStorage.setItem('session', JSON.stringify(args.session))
+          if (cmd === 'android_pick_workspace') return workspace
+          if (cmd === 'android_workspace') return { entries: [{ uri: first, name: '第一份.md', path: '笔记/第一份.md' }] }
+          return null
+        } }
+      })
+      await phone.goto(`${baseUrl}/mobile.html`)
+      expect(await phone.evaluate(() => localStorage.getItem('picks'))).toBeNull()
+      await phone.getByRole('button', { name: '打开文件', exact: true }).click()
+      await phone.getByRole('heading', { name: '第一份.md' }).waitFor()
+      await phone.getByRole('button', { name: '打开文件', exact: true }).click()
+      await phone.getByRole('heading', { name: '第二份.md' }).waitFor()
+      expect(await phone.getByRole('main', { name: '文件入口' }).isVisible()).toBe(false)
+      await expect.poll(() => phone.evaluate(() => JSON.parse(localStorage.getItem('session') ?? '{}').recent?.length)).toBe(2)
+
+      await phone.reload()
+      const landing = phone.getByRole('main', { name: '文件入口' })
+      const latest = landing.getByRole('region', { name: '最近打开' })
+      await latest.waitFor()
+      expect(await latest.getByRole('button').allTextContents()).toEqual(['第二份.md', '第一份.md'])
+      expect(await phone.evaluate(() => localStorage.getItem('picks'))).toBe('2')
+      await latest.getByRole('button', { name: '第二份.md' }).click()
+      await phone.getByRole('heading', { name: '第二份.md' }).waitFor()
+      await phone.getByRole('button', { name: '更多操作' }).click()
+      await phone.getByRole('region', { name: '文档操作' }).getByRole('button', { name: '工作区', exact: true }).click()
+      const workspace = phone.getByRole('region', { name: '工作区', exact: true })
+      await workspace.getByRole('searchbox', { name: '筛选或检索工作区' }).fill('第一份')
+      await workspace.getByRole('button', { name: '笔记/第一份.md' }).click()
+      await phone.getByRole('heading', { name: '第一份.md' }).waitFor()
+      await phone.locator('.cm-content .cm-line').first().click()
+      await phone.keyboard.insertText('本地草稿')
+
+      await phone.getByRole('button', { name: '更多操作' }).click()
+      await phone.getByRole('region', { name: '文档操作' }).getByRole('button', { name: '最近打开' }).click()
+      const recent = phone.getByRole('region', { name: '最近打开' })
+      expect(await recent.locator('.yy-mobile-recent-list button').allTextContents()).toEqual(['第一份.md', '第二份.md'])
+      await recent.getByRole('button', { name: '第二份.md' }).click()
+      await phone.getByRole('region', { name: '未保存的编辑' }).getByRole('button', { name: '继续编辑' }).click()
+      await phone.evaluate(() => localStorage.setItem('revoked', 'content://qa/document/second'))
+      await recent.getByRole('button', { name: '第二份.md' }).click()
+      await phone.getByRole('region', { name: '无法打开最近文件' }).getByRole('button', { name: '移出记录' }).click()
+      await recent.getByRole('button', { name: '第二份.md' }).waitFor({ state: 'detached' })
+      await recent.getByRole('button', { name: '返回' }).click()
+      await phone.getByRole('heading', { name: '第一份.md' }).waitFor()
+      expect(await phone.locator('.cm-content').innerText()).toContain('本地草稿')
+      await expect.poll(() => phone.evaluate(() => JSON.parse(localStorage.getItem('session') ?? '{}').recent?.map((item: { name: string }) => item.name)))
+        .toEqual(['第一份.md'])
+    } finally {
+      await phone.close()
+    }
+  }, 15000)
 
   it('导入主题的标题底线占满实时编辑行，内边距不会盖住随后正文', async () => {
     await mountTestHarness()

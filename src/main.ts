@@ -21,7 +21,7 @@ import { normalizePrompts } from './ai-prompts'
 import { Protocol } from './mcp'
 import { bind, chooseHunks, relocate, suggestion } from './suggestions'
 import { checkPublishedPackage, type ReleaseInfo } from './release-updates'
-import { showUpdateDialog, type UpdateProgress } from './ui/update-dialog'
+import { showUpdate, type UpdateProgress } from './ui/update-dialog'
 
 const markdownFilter = { name: 'Markdown', extensions: ['md', 'markdown', 'mdown', 'mkd', 'mkdn', 'mdwn', 'mdtxt', 'mdtext', 'text', 'txt', 'rmd', 'qmd', 'mdx'] }
 const imageFilter = { name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif', 'tiff', 'heic', 'ico'] }
@@ -697,7 +697,7 @@ async function applyTitlebar(material: TitlebarMaterial) {
 }
 
 function checkAppUpdate() {
-  showUpdateDialog(async installedVersion => {
+  showUpdate(async installedVersion => {
     const standalone = await invoke<string | null>('update_package')
     if (standalone) {
       const release = await checkPublishedPackage(standalone, installedVersion)

@@ -1,10 +1,9 @@
 import type { PluginInfo, PluginMarketPort, ShellAction, ShellActions } from '../contracts'
-import type { ModalManager } from './dialogs'
 import { el, selectWithIcon } from './helpers'
-import { icons } from './icons'
-import { createPluginMarket } from './plugin-market'
+import type { createPages } from './pages'
+import { createPluginMarket, type MarketChannel } from './plugin-market'
 
-type PluginPage = 'installed' | 'market'
+type PluginPage = 'installed' | MarketChannel
 
 export class PluginManager {
   private installed: PluginInfo[] = []
@@ -12,7 +11,7 @@ export class PluginManager {
   private processing = false
 
   constructor(
-    private modals: ModalManager,
+    private pages: Pick<ReturnType<typeof createPages>, 'open' | 'back'>,
     private dispatch: ShellActions['dispatch'],
     private marketPort?: PluginMarketPort,
   ) {}
@@ -27,14 +26,7 @@ export class PluginManager {
   }
 
   open(page: PluginPage = 'installed') {
-    const dialog = el('section', {
-      className: 'yy-modal yy-plugin-manager',
-      attrs: { role: 'dialog', 'aria-modal': 'true', 'aria-label': '插件管理' },
-    })
-    const header = el('header', { className: 'yy-modal-header' })
-    const close = el('button', { className: 'yy-icon-btn', type: 'button', html: icons.close, attrs: { 'aria-label': '关闭' } })
-    close.addEventListener('click', () => this.modals.close())
-    header.append(el('h2', { text: '插件管理' }), close)
+    const panel = el('div', { className: 'yy-tool-page-panel yy-plugin-manager' })
     const body = el('div', { className: 'yy-modal-body yy-plugin-body' })
     const toolbar = el('div', { className: 'yy-plugin-toolbar' })
     const install = el('button', { className: 'yy-btn yy-btn-primary', type: 'button', text: '从文件安装…' })
@@ -49,33 +41,46 @@ export class PluginManager {
     const list = el('div', { className: 'yy-plugin-list' })
     // 只有点击命令时才传入选择的文本，插件结果沿用编辑器的差异审阅。
     body.append(toolbar, el('p', { className: 'yy-plugin-note', text: '插件修改经差异审阅后应用。' }), error, list)
-    const market = this.marketPort ? createPluginMarket(this.marketPort, () => selectPage('installed', true)) : null
-    const installedTab = el('button', { className: 'yy-mode-btn', type: 'button', text: '已安装' })
-    const marketTab = el('button', { className: 'yy-mode-btn', type: 'button', text: '插件市场' })
-    function selectPage(next: PluginPage, focus = false) {
-      const showMarket = next === 'market' && !!market
+    const tabs = ([['online', '在线市场'], ['bundled', '内置插件'], ['installed', '已安装']] as const)
+      .map(([id, label]) => ({ id, button: el('button', { className: 'yy-plugin-tab', type: 'button', text: label }) }))
+    const installedTab = tabs[2].button
+    let active: PluginPage = 'installed'
+    let marketBusy = false
+    const market = this.marketPort ? createPluginMarket(this.marketPort, {
+      manage() { selectPage('installed'); installedTab.focus({ preventScroll: true }) },
+      onChannel(next, busy) {
+        marketBusy = busy
+        // 在线目录失败可切到内置目录。用户进入已安装页面后，迟到的结果只更新市场状态。
+        if (active !== 'installed') active = next
+        renderPage()
+      },
+    }) : null
+    function renderPage() {
+      const showMarket = active !== 'installed'
       body.hidden = showMarket
-      for (const [tab, selected] of [[installedTab, !showMarket], [marketTab, showMarket]] as const) {
-        tab.classList.toggle('is-active', selected)
-        tab.setAttribute('aria-pressed', String(selected))
+      for (const { id, button } of tabs) {
+        button.disabled = id !== 'installed' && marketBusy
+        button.setAttribute('aria-pressed', String(id === active))
       }
-      if (market) {
-        market.panel.hidden = !showMarket
-        if (showMarket) market.show()
-      }
-      if (focus) (showMarket ? market!.search : install).focus()
+      if (market) market.panel.hidden = !showMarket
     }
-    dialog.append(header)
+    function selectPage(next: PluginPage) {
+      if (next === 'installed') {
+        active = next
+        renderPage()
+      } else if (market && !marketBusy) {
+        active = next
+        renderPage()
+        market.show(next)
+      }
+    }
     if (market) {
-      const tabBar = el('div', { className: 'yy-plugin-tabs' })
-      const tabs = el('div', { className: 'yy-mode-pill', attrs: { role: 'group', 'aria-label': '插件页面' } })
-      tabs.append(marketTab, installedTab)
-      tabBar.append(tabs)
-      dialog.append(tabBar, market.panel)
-      marketTab.addEventListener('click', () => selectPage('market', true))
-      installedTab.addEventListener('click', () => selectPage('installed', true))
+      const tabBar = el('div', { className: 'yy-plugin-tabs', attrs: { role: 'group', 'aria-label': '插件页面' } },
+        ...tabs.map(tab => tab.button))
+      panel.append(tabBar, market.panel)
+      for (const { id, button } of tabs) button.addEventListener('click', () => selectPage(id))
     }
-    dialog.append(body)
+    panel.append(body)
     selectPage(page)
 
     const run = async (action: ShellAction) => {
@@ -85,7 +90,7 @@ export class PluginManager {
       try {
         const detail = await this.dispatch(action)
         if (detail) throw new Error(detail)
-        if (action.type === 'plugin-run' && dialog.isConnected) this.modals.close()
+        if (action.type === 'plugin-run' && panel.isConnected) this.pages.back()
       } catch (failure) {
         error.textContent = failure instanceof Error ? failure.message : String(failure)
         error.hidden = false
@@ -103,7 +108,7 @@ export class PluginManager {
         const command = this.installed.find(plugin => plugin.id === id)?.commands.find(item => item.id === pluginButton.value)
         if (!command) return
         if (command.workflow) {
-          this.modals.close()
+          this.pages.back()
           void this.dispatch({ type: 'plugin-run', id, command: command.id, scope: 'document' })
           return
         }
@@ -115,10 +120,7 @@ export class PluginManager {
         void run({ type: 'plugin-enabled', id, enabled: pluginButton.dataset.operation === 'enable' })
       }
     })
-    this.modals.open(dialog, {
-      initialFocus: page === 'market' && market ? market.search : install,
-      onClose: () => { this.list = null },
-    })
+    this.pages.open('插件管理', panel, () => { this.list = null })
     this.list = list
     this.render()
   }

@@ -2,7 +2,7 @@ import { aiIntents, aiTasks } from '../ai-prompts'
 import type { AiContext, AiIntent, AiMessage, AiScope, AiSelection, AiSettings, AiView, ShellAction, ShellActions, Suggestion } from '../contracts'
 import { openModelSettings, openPromptSettings } from './ai-settings'
 import { ChoicePicker } from './choice-picker'
-import type { ModalManager } from './dialogs'
+import type { DialogPresenter } from './dialogs'
 import { el, groupDiffParts } from './helpers'
 import { icons } from './icons'
 
@@ -15,7 +15,7 @@ const scopes: Record<AiScope, string> = {
 
 interface AiPanelOptions {
   dispatch: ShellActions['dispatch']
-  modals: ModalManager
+  modals: DialogPresenter
   onSuggestionFocus?: () => void
 }
 

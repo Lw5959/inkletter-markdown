@@ -7,11 +7,9 @@ import { Protocol } from './mcp'
 import { invoke, reason } from './native'
 import { bind, chooseHunks, relocate, suggestion } from './suggestions'
 import { AiPanel } from './ui/ai-panel'
-import { dismissOnBackdrop } from './ui/dialog-dismiss'
-import { ModalManager } from './ui/dialogs'
 import { el } from './ui/helpers'
-import { icons } from './ui/icons'
 import { McpPanel } from './ui/mcp-panel'
+import type { createPages } from './ui/pages'
 import { PluginManager } from './ui/plugins'
 import './ui/ai.css'
 
@@ -23,6 +21,7 @@ export type MobileServicePage = 'ai' | 'mcp' | 'plugins'
 type Snapshot = { uri: string; name: string; text: string; version: string; bom: boolean; writable: boolean }
 type Options = {
   editor: Editor
+  pages: ReturnType<typeof createPages>
   settings: MobileServiceSettings
   state: () => { id: number; revision: number; title: string; uri: string | null; open: boolean; readonly: boolean }
   persist: () => Promise<void>
@@ -32,23 +31,10 @@ type Options = {
 }
 
 export function createMobileServices(options: Options) {
-  const { editor, settings, notify } = options
-  const close = el('button', { className: 'yy-mobile-icon', type: 'button', html: icons.close, attrs: { 'aria-label': '关闭' } })
-  const title = el('h2')
+  const { editor, pages, settings, notify } = options
   const detail = el('p', { className: 'yy-mobile-service-detail', attrs: { role: 'status', hidden: '' } })
   const body = el('div', { className: 'yy-mobile-service-body' })
-  const host = el('dialog', { className: 'yy-shell yy-mobile-sheet yy-mobile-workbench yy-chrome' },
-    el('div', { className: 'yy-mobile-sheet-title' }, title, close), body, detail)
-  // 系统返回先关设置或插件页，再关外层协作窗口。
-  const modals = new ModalManager(host, () => close.focus())
-  dismissOnBackdrop(host)
-  host.addEventListener('cancel', event => {
-    if (!modals.isOpen) return
-    event.preventDefault()
-    modals.close()
-  })
-  close.addEventListener('click', () => host.close())
-  document.body.append(host)
+  const service = el('div', { className: 'yy-mobile-service' }, body, detail)
 
   let ai: AiPanel | undefined
   const writing = new Writing(view => ai?.setView(view))
@@ -57,7 +43,7 @@ export function createMobileServices(options: Options) {
   const protocol = new Protocol(view => mcp?.setView(view))
   protocol.configure((settings.mcp ?? []).filter(server => server.transport === 'http'))
   let plugins: PluginInfo[] = []
-  const pluginManager = new PluginManager(modals, dispatch, {
+  const pluginManager = new PluginManager(pages, dispatch, {
     official: officialMarket,
     source: () => settings.marketSource ?? officialMarket,
     bundled: () => invoke<PluginCatalog>('plugin_market_list', { source: null, refresh: false }),
@@ -85,15 +71,12 @@ export function createMobileServices(options: Options) {
   }
 
   async function open(page: MobileServicePage) {
-    if (modals.isOpen) modals.close(false)
     const label = page === 'ai' ? 'AI 写作助手' : page === 'mcp' ? 'MCP 连接与工具' : '插件管理'
-    title.textContent = label
-    host.setAttribute('aria-label', label)
     detail.hidden = true
-    if (!host.open) host.showModal()
     if (page === 'ai') {
-      ai ??= new AiPanel({ dispatch, modals })
+      ai ??= new AiPanel({ dispatch, modals: pages.present('push') })
       body.replaceChildren(ai.element)
+      pages.open(label, service, () => ai?.closePickers())
       ai.setView(writing.view)
       if (!writingLoaded) {
         await writing.load()
@@ -102,11 +85,15 @@ export function createMobileServices(options: Options) {
     } else if (page === 'mcp') {
       mcp ??= new McpPanel({ dispatch: action => { void dispatch(action) }, remoteOnly: true })
       body.replaceChildren(mcp.element)
+      pages.open(label, service)
       mcp.setView(protocol.view)
     } else {
-      body.replaceChildren()
-      setPlugins(await invoke<PluginInfo[]>('plugin_list'))
-      pluginManager.open('market')
+      const status = el('p', { className: 'yy-mobile-page-message', text: '正在读取插件…', attrs: { role: 'status' } })
+      pages.open(label, status)
+      try {
+        setPlugins(await invoke<PluginInfo[]>('plugin_list'))
+        if (status.isConnected) pluginManager.open('online')
+      } catch (error) { status.textContent = reason(error) }
     }
   }
 
@@ -115,6 +102,7 @@ export function createMobileServices(options: Options) {
     catch (error) {
       detail.textContent = reason(error)
       detail.hidden = false
+      if (action.type === 'plugin-run' && !detail.isConnected) notify(detail.textContent)
       return detail.textContent
     }
   }
@@ -166,7 +154,7 @@ export function createMobileServices(options: Options) {
         if (!target) throw new Error('原文已经变化，请基于当前内容重新生成')
         editor.replace(target.from, target.to, chooseHunks(item.view.parts, action.hunks))
         writing.review(null)
-        host.close()
+        pages.back()
         notify('建议已应用，可撤销')
         break
       }
@@ -238,7 +226,7 @@ export function createMobileServices(options: Options) {
       notify(issues.length ? '没有可写回的文件，请检查文件权限或在编辑器中处理当前文档' : '所选文件格式已符合要求')
       return
     }
-    const selected = await reviewChanges('审阅批量格式化', '应用后保存到选中的原文件。', changes, '应用并保存', true, issues)
+    const selected = await reviewChanges('审阅批量格式化', '应用后保存到选中的原文件。', changes, '应用并保存', true, issues, pages)
     let applied = 0
     let failed = 0
     for (const file of changes.filter(item => selected.has(item.uri))) {

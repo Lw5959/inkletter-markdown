@@ -1,6 +1,6 @@
 import { aiIntents, aiTasks, normalizePrompts } from '../ai-prompts'
 import type { AiIntent, AiPrompts, AiProtocol, AiProviderDraft, AiSettings, ShellActions } from '../contracts'
-import type { ModalManager } from './dialogs'
+import type { DialogPresenter } from './dialogs'
 import { ChoicePicker } from './choice-picker'
 import { el } from './helpers'
 import { icons } from './icons'
@@ -15,7 +15,7 @@ const protocols: Record<AiProtocol, { name: string; endpoint: string }> = {
 
 type Draft = { provider: AiProviderDraft; key: string; clearKey: boolean }
 
-export function openModelSettings(modals: ModalManager, settings: () => AiSettings, dispatch: Dispatch) {
+export function openModelSettings(modals: DialogPresenter, settings: () => AiSettings, dispatch: Dispatch) {
   const body = el('div', { className: 'yy-ai-catalog' })
   const list = el('div', { className: 'yy-ai-provider-list', attrs: { 'aria-label': '供应商' } })
   const add = el('button', { className: 'yy-btn yy-btn-sm yy-btn-ghost yy-ai-add-provider', type: 'button' },
@@ -183,7 +183,7 @@ export function openModelSettings(modals: ModalManager, settings: () => AiSettin
   })
 }
 
-export function openPromptSettings(modals: ModalManager, prompts: AiPrompts, initial: AiIntent, dispatch: Dispatch) {
+export function openPromptSettings(modals: DialogPresenter, prompts: AiPrompts, initial: AiIntent, dispatch: Dispatch) {
   const drafts = { ...prompts }
   let intent = initial
   const body = el('div', { className: 'yy-ai-prompt-settings' })
@@ -243,7 +243,7 @@ function labelled(title: string, input: HTMLElement, description?: string) {
   return field
 }
 
-function openSettings(modals: ModalManager, options: {
+function openSettings(modals: DialogPresenter, options: {
   title: string
   description?: string
   body: HTMLElement

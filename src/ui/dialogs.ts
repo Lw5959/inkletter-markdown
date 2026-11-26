@@ -557,3 +557,5 @@ export class ModalManager {
     this.backdrop.remove()
   }
 }
+
+export type DialogPresenter = Pick<ModalManager, 'open' | 'close'>

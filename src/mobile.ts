@@ -1,18 +1,18 @@
 import { invoke } from '@tauri-apps/api/core'
 import { builtinThemes } from './builtin-themes'
 import type { EditorFormat, EditorMode, Presentation, Selection } from './contracts'
-import { choose } from './dialogs'
 import { count, find, lineOffset } from './document-tools'
 import { createEditor } from './editor'
 import type { MobileServicePage, MobileServiceSettings, createMobileServices } from './mobile-services'
 import { installMobileViewport } from './mobile-viewport'
 import { checkPublishedPackage } from './release-updates'
 import { createAppearance } from './ui/appearance'
-import { cancelDialog, dismissOnBackdrop } from './ui/dialog-dismiss'
+import { cancelDialog } from './ui/dialog-dismiss'
 import { FindBar } from './ui/find-bar'
 import { el } from './ui/helpers'
 import { icons } from './ui/icons'
-import { showUpdateDialog } from './ui/update-dialog'
+import { createPages } from './ui/pages'
+import { showUpdate } from './ui/update-dialog'
 import './ui/shell.css'
 import './ui/motion.css'
 import './mobile.css'
@@ -21,9 +21,12 @@ type Origin = { uri: string; name: string; bom: boolean; version: string; writab
 type Document = Origin & { text: string }
 type Draft = { origin: Origin | null; text: string; selection: Selection }
 type WorkspaceFile = { uri: string; name: string; path: string }
+type RecentFile = { uri: string; name: string }
 type Session = { theme: string; animations: boolean; mode: EditorMode; draft?: Draft; recoveries?: Draft[];
-  workspace?: string; presentation?: Presentation; services?: MobileServiceSettings }
-type SheetRow = { label: string; icon?: string; checked?: boolean; action: () => void | Promise<void> }
+  recent?: RecentFile[]; workspace?: string; presentation?: Presentation; services?: MobileServiceSettings }
+type PageRow = { label: string; icon?: string; checked?: boolean; action: (button: HTMLButtonElement) => void }
+
+const recentLimit = 12
 
 let origin: Origin | null = null
 let saved = ''
@@ -32,6 +35,7 @@ let theme = 'default'
 let animations = true
 let hasDocument = false
 let recoveries: Draft[] = []
+let recent: RecentFile[] = []
 let workspace: string | undefined
 let presentation: Presentation = { focus: false, typewriter: false, spellcheck: false }
 let serviceSettings: MobileServiceSettings = {}
@@ -101,11 +105,17 @@ const chooseFile = launchButton('打开文件', icons.folderOpen, () => operate(
 const createFile = launchButton('新建 Markdown', icons.filePlus, () => operate(newDocument))
 const workspaceButton = launchButton('打开工作区', icons.folder, () => operate(showWorkspace))
 const recoverFiles = launchButton('恢复草稿', icons.undo, showRecoveries)
+const landingList = el('div', { className: 'yy-mobile-recent-list' })
+const landingRecent = el('section', { className: 'yy-mobile-landing-recent', attrs: { 'aria-labelledby': 'yy-mobile-recent-title' } },
+  el('h2', { text: '最近打开', attrs: { id: 'yy-mobile-recent-title' } }), landingList)
 const landing = el('main', { className: 'yy-mobile-landing yy-chrome', attrs: { 'aria-label': '文件入口' } },
-  el('div', { className: 'yy-mobile-launch-actions' }, chooseFile, createFile, workspaceButton, recoverFiles))
+  el('div', { className: 'yy-mobile-launch-content' },
+    el('div', { className: 'yy-mobile-launch-actions' }, chooseFile, createFile, workspaceButton, recoverFiles), landingRecent))
 const fileActions = [fileOpen, fileSave, themes, more, chooseFile, createFile, workspaceButton, recoverFiles]
+const editorScreen = el('div', { className: 'yy-mobile-editor' }, header, stage, landing, footer)
+const pages = createPages(editorScreen)
 document.body.classList.add('yy-android')
-document.querySelector('#app')!.replaceChildren(el('div', { className: 'yy-shell yy-mobile' }, header, stage, landing, footer))
+document.querySelector('#app')!.replaceChildren(el('div', { className: 'yy-shell yy-mobile' }, editorScreen, pages.element))
 installMobileViewport(paper)
 
 function iconButton(label: string, icon: string, onClick: () => void) {
@@ -140,6 +150,7 @@ function refresh(message?: string) {
   fileOpen.hidden = fileSave.hidden = stage.hidden = footer.hidden = !hasDocument
   landing.hidden = hasDocument
   recoverFiles.hidden = !recoveries.length
+  landingList.inert = busy
   for (const button of fileActions) button.disabled = busy
 }
 
@@ -183,6 +194,7 @@ function showDocument(value: Document | null, draft?: Draft, opened = true) {
       const { text, ...metadata } = value
       origin = metadata
       saved = text
+      rememberOpened(metadata)
     } else {
       origin = null
       saved = ''
@@ -202,7 +214,7 @@ function showDocument(value: Document | null, draft?: Draft, opened = true) {
 function checkpoint() {
   window.clearTimeout(timer)
   timer = 0
-  const session: Session = { theme, animations, mode, recoveries, workspace, presentation, services: serviceSettings }
+  const session: Session = { theme, animations, mode, recoveries, recent, workspace, presentation, services: serviceSettings }
   if (dirty) session.draft = { origin, text: editor.getMarkdown(), selection: editor.getSelection() }
   const next = pending.then(() => invoke<void>('android_save_session', { session }))
   pending = next.catch(() => {})
@@ -220,6 +232,7 @@ function operate(action: () => Promise<unknown>) {
   refresh()
   void action().catch(report).finally(() => {
     busy = false
+    landingList.inert = false
     for (const button of fileActions) button.disabled = false
   })
 }
@@ -229,7 +242,7 @@ const pick = (name?: string, mime?: string) => invoke<string | null>('android_pi
 
 async function canLeave() {
   if (!dirty || editor.getMarkdown() === saved) return true
-  const answer = await choose('未保存的编辑', '离开当前文档前要保存吗？', [
+  const answer = await choosePage('未保存的编辑', '离开当前文档前要保存吗？', [
     { label: '继续编辑', value: 'cancel' }, { label: '放弃更改', value: 'discard' }, { label: '保存', value: 'save', primary: true },
   ])
   return answer === 'discard' || (answer === 'save' && await writeDocument(false))
@@ -237,19 +250,71 @@ async function canLeave() {
 
 async function openFile() {
   const uri = await pick()
-  if (uri) await openUri(uri)
+  return uri ? openUri(uri) : false
 }
 
 async function openUri(uri: string, line?: number) {
-  if (uri === origin?.uri && !line) return
-  if (uri === origin?.uri || await canLeave()) {
-    if (uri !== origin?.uri) showDocument(await read(uri))
-    if (line) {
-      const offset = lineOffset(editor.getMarkdown(), line)
-      editor.select({ anchor: offset, head: offset })
-    }
+  if (uri === origin?.uri && !line) return true
+  if (uri !== origin?.uri) {
+    if (!await canLeave()) return false
+    showDocument(await read(uri))
+  }
+  if (line) {
+    const offset = lineOffset(editor.getMarkdown(), line)
+    editor.select({ anchor: offset, head: offset })
+  }
+  await checkpoint()
+  return true
+}
+
+function renderRecent(list: HTMLElement) {
+  list.replaceChildren(...recent.map(item => {
+    const button = el('button', { className: 'yy-mobile-row', type: 'button' },
+      el('span', { className: 'yy-mobile-row-icon', html: icons.file }), el('span', { text: item.name }))
+    button.addEventListener('click', () => operate(() => openRecent(item, list)))
+    return button
+  }))
+  if (!recent.length) list.append(el('p', { className: 'yy-mobile-page-message', text: '暂无最近打开的文档' }))
+}
+
+function rememberOpened({ uri, name }: RecentFile) {
+  if (recent[0]?.uri === uri && recent[0].name === name) return
+  // 只记录成功打开、保存的文档。重开仍由 Android 检查原有的系统授权。
+  recent = [{ uri, name }, ...recent.filter(item => item.uri !== uri)].slice(0, recentLimit)
+  renderRecent(landingList)
+}
+
+async function openRecent(item: RecentFile, list: HTMLElement) {
+  if (item.uri === origin?.uri) { pages.back(); return }
+  const value = await read(item.uri).catch(() => null)
+  if (!list.isConnected) return
+  if (value) {
+    if (!await canLeave()) return
+    showDocument(value)
+    pages.back()
+    await checkpoint()
+    return
+  }
+  const answer = await choosePage('无法打开最近文件', `「${item.name}」可能已移动、删除或授权失效。`, [
+    { label: '取消', value: 'cancel' }, { label: '移出记录', value: 'forget' }, { label: '选择文件', value: 'pick', primary: true },
+  ])
+  const reopened = answer === 'pick' && await openFile()
+  if (answer === 'forget' || (reopened && origin?.uri !== item.uri)) {
+    recent = recent.filter(entry => entry.uri !== item.uri)
+    renderRecent(landingList)
+    if (list !== landingList) renderRecent(list)
     await checkpoint()
   }
+  if (reopened) pages.back()
+}
+
+function showRecents() {
+  const list = el('div', { className: 'yy-mobile-recent-list yy-mobile-file-list' })
+  renderRecent(list)
+  pages.open('最近打开', el('div', { className: 'yy-mobile-file-page' }, list,
+    el('div', { className: 'yy-mobile-file-actions' }, launchButton('打开文件', icons.folderOpen, () => operate(async () => {
+      if (await openFile()) pages.back()
+    })))))
 }
 
 async function newDocument() {
@@ -259,17 +324,18 @@ async function newDocument() {
 }
 
 async function recoverDraft(draft: Draft) {
-  if (!await canLeave()) return
+  if (!await canLeave()) return false
   const original = draft.origin ? await read(draft.origin.uri).catch(() => null) : null
   recoveries = recoveries.filter(item => item !== draft)
   if (original?.text === draft.text) showDocument(original)
   else showDocument(original?.version === draft.origin?.version ? original : null, { ...draft, origin: original ? draft.origin : null })
   await checkpoint()
+  return true
 }
 
 function showRecoveries() {
-  showSheet('恢复草稿', recoveries.map(draft => ({ label: draft.origin?.name ?? '未命名.md', icon: icons.file,
-    action: () => operate(() => recoverDraft(draft)) })))
+  showListPage('恢复草稿', recoveries.map(draft => ({ label: draft.origin?.name ?? '未命名.md', icon: icons.file,
+    action: () => operate(async () => { if (await recoverDraft(draft)) pages.back() }) })))
 }
 
 async function writeDocument(copy: boolean): Promise<boolean> {
@@ -285,6 +351,7 @@ async function writeDocument(copy: boolean): Promise<boolean> {
   try {
     const { text: savedText, ...metadata } = await invoke<Document>('android_write', { uri, text, bom, expected: existing?.version ?? null })
     origin = metadata
+    rememberOpened(metadata)
     saved = savedText
     dirty = request !== revision
     refresh(dirty ? '已保存上一版，仍有新编辑' : '已保存')
@@ -292,7 +359,7 @@ async function writeDocument(copy: boolean): Promise<boolean> {
     return true
   } catch (error) {
     if (!existing || (error as { kind?: string })?.kind !== 'conflict') throw error
-    const answer = await choose('文件已被其他应用修改', '可以载入磁盘上的版本，或把当前编辑另存为副本。', [
+    const answer = await choosePage('文件已被其他应用修改', '可以载入磁盘上的版本，或把当前编辑另存为副本。', [
       { label: '继续编辑', value: 'cancel' }, { label: '载入磁盘', value: 'reload' }, { label: '另存副本', value: 'copy', primary: true },
     ])
     if (answer === 'copy') return writeDocument(true)
@@ -304,42 +371,47 @@ async function writeDocument(copy: boolean): Promise<boolean> {
   }
 }
 
-function sheet(label: string) {
-  const dialog = el('dialog', { className: 'yy-mobile-sheet', attrs: { 'aria-label': label } })
-  dismissOnBackdrop(dialog)
-  dialog.append(el('div', { className: 'yy-mobile-sheet-title' }, el('h2', { text: label }), iconButton('关闭', icons.close, () => dialog.close())))
-  dialog.addEventListener('close', () => dialog.remove(), { once: true })
-  return dialog
+function setRowChecked(button: HTMLButtonElement, checked: boolean) {
+  button.setAttribute('aria-pressed', String(checked))
+  button.querySelector('.yy-mobile-row-check')?.remove()
+  if (checked) button.append(el('span', { className: 'yy-mobile-row-check', html: icons.check }))
 }
 
-function present(dialog: HTMLDialogElement) {
-  document.body.append(dialog)
-  dialog.showModal()
+function actionRow(row: PageRow) {
+  const button = el('button', { className: 'yy-mobile-row', type: 'button' },
+    ...(row.icon ? [el('span', { className: 'yy-mobile-row-icon', html: row.icon })] : []),
+    el('span', { text: row.label }))
+  if (row.checked !== undefined) setRowChecked(button, row.checked)
+  button.addEventListener('click', () => row.action(button))
+  return button
 }
 
-function showSheet(label: string, rows: SheetRow[]) {
-  const dialog = sheet(label)
-  for (const row of rows) {
-    const button = el('button', { className: 'yy-mobile-row', type: 'button' },
-      ...(row.icon ? [el('span', { className: 'yy-mobile-row-icon', html: row.icon })] : []),
-      el('span', { text: row.label }))
-    if (row.checked !== undefined) {
-      button.setAttribute('aria-pressed', String(row.checked))
-      if (row.checked) button.append(el('span', { className: 'yy-mobile-row-check', html: icons.check }))
+function choosePage(title: string, message: string, choices: { label: string; value: string; primary?: boolean }[]) {
+  return new Promise<string>(resolve => {
+    let answer = ''
+    const actions = el('div', { className: 'yy-mobile-brief-actions' })
+    for (const choice of choices) {
+      const button = el('button', { type: 'button', text: choice.label, className: choice.primary ? 'yy-btn yy-btn-primary' : 'yy-btn' })
+      button.addEventListener('click', () => {
+        answer = choice.value
+        pages.back()
+      })
+      actions.append(button)
     }
-    button.addEventListener('click', () => {
-      dialog.close()
-      void row.action()
-    })
-    dialog.append(button)
-  }
-  present(dialog)
+    pages.push(title, el('div', { className: 'yy-mobile-brief-page' }, el('p', { text: message }), actions), () => resolve(answer))
+  })
+}
+
+function showListPage(label: string, rows: PageRow[]) {
+  const list = el('div', { className: 'yy-mobile-file-list' }, ...rows.map(actionRow))
+  pages.open(label, el('div', { className: 'yy-mobile-file-page' }, list))
 }
 
 function showOutline() {
   const entries = editor.getOutline()
   if (!entries.length) { refresh('大纲为空'); return }
-  showSheet('文档大纲', entries.map(entry => ({ label: entry.title, icon: icons.outline, action: () => {
+  showListPage('文档大纲', entries.map(entry => ({ label: entry.title, icon: icons.outline, action: () => {
+    pages.back()
     editor.select({ anchor: entry.from, head: entry.from })
   } })))
 }
@@ -360,9 +432,10 @@ function setPresentation(value: Presentation) {
 }
 
 function showPresentation() {
-  showSheet('阅读与编辑', ([['focus', '专注'], ['typewriter', '打字机'], ['spellcheck', '拼写检查'], ['readonly', '只读']] as const)
-    .map(([key, label]) => ({ label, checked: !!presentation[key], action: () => {
+  showListPage('阅读与编辑', ([['focus', '专注'], ['typewriter', '打字机'], ['spellcheck', '拼写检查'], ['readonly', '只读']] as const)
+    .map(([key, label]) => ({ label, checked: !!presentation[key], action: button => {
       setPresentation({ ...presentation, [key]: !presentation[key] })
+      setRowChecked(button, !!presentation[key])
       scheduleCheckpoint()
     } })))
 }
@@ -385,20 +458,20 @@ async function exportDocument(format: 'html' | 'pdf') {
 }
 
 function showMobileUpdate() {
-  showUpdateDialog(async version => {
+  showUpdate(async version => {
     const release = await checkPublishedPackage('android-arm64.apk', version)
     if (!release) return null
     return { ...release, kind: 'external', async apply() {
       await checkpoint()
       await invoke('android_open_update', { url: release.url })
     } }
-  })
+  }, pages)
 }
 
 async function openService(page: MobileServicePage) {
   if (!services) {
     const { createMobileServices } = await import('./mobile-services')
-    services = createMobileServices({ editor, settings: serviceSettings, persist: checkpoint, notify: refresh, read, pick,
+    services = createMobileServices({ editor, pages, settings: serviceSettings, persist: checkpoint, notify: refresh, read, pick,
       state: () => ({ id: documentId, revision, title: origin?.name ?? '未命名.md', uri: origin?.uri ?? null,
         open: hasDocument, readonly: !!presentation.readonly }),
     })
@@ -412,15 +485,18 @@ async function showWorkspace(reselect = false) {
   const { entries } = await invoke<{ entries: WorkspaceFile[] }>('android_workspace', { uri: root })
   workspace = root
   scheduleCheckpoint()
-  const dialog = sheet('工作区')
-  dialog.classList.add('yy-mobile-workspace')
   const search = el('input', { className: 'yy-mobile-search', type: 'search', attrs: { 'aria-label': '筛选或检索工作区', placeholder: '文件名或正文' } })
   const searchText = el('button', { className: 'yy-mobile-row', type: 'button', text: '全文检索' })
-  const results = el('div', { className: 'yy-mobile-workspace-rows' })
+  const results = el('div', { className: 'yy-mobile-workspace-rows yy-mobile-file-list' })
   const notice = el('p', { className: 'yy-mobile-workspace-notice', attrs: { role: 'status' } })
+  const content = el('div', { className: 'yy-mobile-workspace yy-mobile-file-page' },
+    el('div', { className: 'yy-mobile-workspace-tools' }, search, searchText), notice, results,
+    el('div', { className: 'yy-mobile-file-actions' }, launchButton('更换文件夹', icons.folderOpen, () => operate(() => showWorkspace(true)))))
   const row = (file: WorkspaceFile, preview?: string, line?: number) => {
     const button = el('button', { className: 'yy-mobile-row', type: 'button', text: preview ? `${file.path} · ${preview}` : file.path })
-    button.addEventListener('click', () => { dialog.close(); operate(() => openUri(file.uri, line)) })
+    button.addEventListener('click', () => operate(async () => {
+      if (await openUri(file.uri, line) && content.isConnected) pages.back()
+    }))
     return button
   }
   let searching = false
@@ -442,7 +518,7 @@ async function showWorkspace(reselect = false) {
       let matches = 0
       let skipped = 0
       for (const file of entries) {
-        if (!dialog.open || matches >= 100) break
+        if (!content.isConnected || matches >= 100) break
         const value = await read(file.uri).catch(() => null)
         if (!value) { skipped++; continue }
         const lines = value.text.split(/\r\n|[\r\n]/)
@@ -455,43 +531,56 @@ async function showWorkspace(reselect = false) {
   search.addEventListener('input', filter)
   search.addEventListener('keydown', event => { if (event.key === 'Enter' && !event.isComposing) runSearch() })
   searchText.addEventListener('click', runSearch)
-  dialog.append(el('div', { className: 'yy-mobile-workspace-tools' }, search, searchText), notice, results,
-    launchButton('更换文件夹', icons.folderOpen, () => { dialog.close(); operate(() => showWorkspace(true)) }))
   filter()
-  present(dialog)
+  pages.open('工作区', content)
 }
 
 function showThemes() {
-  showSheet('文档主题', [{ id: 'default', name: '跟随系统' }, ...builtinThemes].map(item => ({
+  showListPage('文档主题', [{ id: 'default', name: '跟随系统' }, ...builtinThemes].map(item => ({
     label: item.name, checked: item.id === theme,
-    action: () => { setTheme(item.id); scheduleCheckpoint() },
+    action: () => {
+      setTheme(item.id)
+      scheduleCheckpoint()
+      pages.back()
+    },
   })))
 }
 
 function showActions() {
-  showSheet('文档操作', [
-    { label: '新建文档', icon: icons.filePlus, action: () => operate(newDocument) },
+  const returnToEditor = (action: () => Promise<unknown>) => () => {
+    pages.back()
+    operate(action)
+  }
+  showListPage('文档操作', [
+    { label: '新建文档', icon: icons.filePlus, action: returnToEditor(newDocument) },
+    { label: '最近打开', icon: icons.history, action: showRecents },
     { label: '工作区', icon: icons.folder, action: () => operate(showWorkspace) },
     ...(hasDocument ? [
-      { label: '另存副本', icon: icons.copy, action: () => operate(() => writeDocument(true)) },
-      { label: 'Markdown 格式', icon: icons.edit, action: () => showSheet('Markdown 格式', formats.map(([format, label]) => ({
-        label, action: () => { editor.format(format); editor.focus() },
+      { label: '另存副本', icon: icons.copy, action: returnToEditor(() => writeDocument(true)) },
+      { label: 'Markdown 格式', icon: icons.edit, action: () => showListPage('Markdown 格式', formats.map(([format, label]) => ({
+        label, action: () => { pages.back(); editor.format(format); editor.focus() },
       }))) },
       { label: '阅读与编辑', icon: icons.settings, action: showPresentation },
       { label: '字数统计', icon: icons.outline, action: () => {
         const stats = count(editor.getMarkdown())
-        return choose('字数统计', `${stats.words} 词 · ${stats.characters} 字符`, [{ label: '关闭', value: 'close' }]).then(() => {})
+        pages.open('字数统计', el('dl', { className: 'yy-mobile-brief-page yy-mobile-stats' },
+          el('dt', { text: '词数' }), el('dd', { text: String(stats.words) }),
+          el('dt', { text: '字符数' }), el('dd', { text: String(stats.characters) })))
       } },
-      { label: '导出与打印', icon: icons.save, action: () => showSheet('导出与打印', [
-        { label: '导出 HTML', action: () => operate(() => exportDocument('html')) },
-        { label: '打印或保存 PDF', action: () => operate(() => exportDocument('pdf')) },
+      { label: '导出与打印', icon: icons.save, action: () => showListPage('导出与打印', [
+        { label: '导出 HTML', action: returnToEditor(() => exportDocument('html')) },
+        { label: '打印或保存 PDF', action: returnToEditor(() => exportDocument('pdf')) },
       ]) },
     ] : []),
     ...(recoveries.length ? [{ label: '恢复草稿', icon: icons.undo, action: showRecoveries }] : []),
     { label: 'AI 写作', icon: icons.sparkles, action: () => operate(() => openService('ai')) },
     { label: 'MCP 工具', icon: icons.plug, action: () => operate(() => openService('mcp')) },
     { label: '插件市场', icon: icons.settings, action: () => operate(() => openService('plugins')) },
-    { label: '界面动画', icon: icons.settings, checked: animations, action: () => { setAnimations(!animations); scheduleCheckpoint() } },
+    { label: '界面动画', icon: icons.settings, checked: animations, action: button => {
+      setAnimations(!animations)
+      setRowChecked(button, animations)
+      scheduleCheckpoint()
+    } },
     { label: '检查更新', icon: icons.refresh, action: showMobileUpdate },
   ])
 }
@@ -504,20 +593,35 @@ async function start() {
   if (session?.presentation) setPresentation(session.presentation)
   workspace = session?.workspace
   serviceSettings = session?.services ?? {}
-  // 启动时总是由用户选文件。旧会话里的未保存草稿保留在入口中，直到用户主动恢复。
+  if (Array.isArray(session?.recent)) {
+    const seen = new Set<string>()
+    recent = session.recent.filter(item => {
+      if (typeof item?.uri !== 'string' || !item.uri.startsWith('content://') || typeof item.name !== 'string' || !item.name || seen.has(item.uri)) return false
+      seen.add(item.uri)
+      return true
+    }).slice(0, recentLimit)
+  }
+  renderRecent(landingList)
+  // 首页只恢复入口与记录，由用户主动挑选文件或恢复草稿。
   recoveries = [...(session?.recoveries ?? []), ...(session?.draft ? [session.draft] : [])]
   refresh()
-  await openFile()
 }
 
 setMode('live')
 setAnimations(false)
 operate(start)
+window.addEventListener('keydown', event => {
+  if (event.defaultPrevented || event.key !== 'Escape' || document.querySelector('dialog[open]')) return
+  if (event.target instanceof Element && event.target.closest('[role="combobox"][aria-expanded="true"]')) return
+  if (pages.back()) event.preventDefault()
+})
 window.addEventListener('yeyu:android-back', event => {
   const modal = Array.from(document.querySelectorAll<HTMLDialogElement>('dialog[open]')).at(-1)
   if (modal) {
     event.preventDefault()
     cancelDialog(modal)
+  } else if (pages.back()) {
+    event.preventDefault()
   } else if (finder.visible) {
     event.preventDefault()
     finder.close()

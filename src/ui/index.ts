@@ -23,6 +23,7 @@ import { icons } from './icons'
 import { LeftPanel, type LeftTab } from './left-panel'
 import { McpPanel } from './mcp-panel'
 import { MenuBar } from './menus'
+import { createPages } from './pages'
 import { PluginManager } from './plugins'
 import { ShortcutRegistry, detectMac, type ShortcutCommandId } from './shortcuts'
 import './shell.css'
@@ -145,7 +146,9 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   }
 
   const modals = new ModalManager(shellEl, focusEditor)
-  const plugins = new PluginManager(modals, actions.dispatch, actions.pluginMarket)
+  const bodyEl = el('div', { className: 'yy-body' })
+  const pages = createPages(bodyEl, focusEditor)
+  const plugins = new PluginManager(pages, actions.dispatch, actions.pluginMarket)
 
   const openQuickOpen = () => {
     modals.openQuickOpen({
@@ -176,6 +179,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   }
 
   const toggleRightPanel = (tab: RightTab) => {
+    pages.back()
     rightOpen = !rightOpen || rightTab !== tab
     rightTab = tab
     syncLayout()
@@ -209,7 +213,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
     onOpenShortcuts: openShortcuts,
     getEnabledPlugins: () => plugins.enabledPlugins(),
     onOpenPlugins: () => plugins.open(),
-    onOpenPluginMarket: actions.pluginMarket ? () => plugins.open('market') : undefined,
+    onOpenPluginMarket: actions.pluginMarket ? () => plugins.open('online') : undefined,
     getTitlebar: () => titlebar,
     onToggleLeftSidebar: toggleLeftSidebar,
     onToggleRightPanel: toggleRightPanel,
@@ -286,9 +290,6 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
 
   topRight.append(modeGroup, aiToggleBtn)
   topbar.append(topLeft, topCenter, topRight)
-
-  // Body 3-column layout
-  const bodyEl = el('div', { className: 'yy-body' })
 
   const leftPanel = new LeftPanel({
     dispatch,
@@ -449,7 +450,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   statusRight.append(cursorPosEl, countEl)
 
   statusBar.append(statusDetailEl, statusCenter, statusRight)
-  shellEl.append(topbar, bodyEl, statusBar)
+  shellEl.append(topbar, bodyEl, pages.element, statusBar)
 
   function syncSuggestionBanner() {
     const showBanner = Boolean(aiSuggestionSource) && (!rightOpen || rightTab !== 'ai')
@@ -511,6 +512,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
 
   function applyState(next: ShellState) {
     document.documentElement.dataset.yeyuMotion = next.animations === false ? 'off' : 'on'
+    if (next.path !== state.path) pages.back()
     if (next.workspace !== state.workspace && next.workspace !== null && window.innerWidth >= 880) {
       leftPanel.setTab('files')
       leftOpen = true
@@ -605,7 +607,11 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
 
   const onWindowKeyDown = (event: KeyboardEvent) => {
     if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return
-    if (modals.isOpen) return
+    if (modals.isOpen || document.querySelector('dialog[open]')) return
+    if (event.key === 'Escape' && pages.back()) {
+      event.preventDefault()
+      return
+    }
     // WebKit 中点击查找按钮可能让焦点离开输入框，Esc 仍可关闭查找栏。
     if (event.key === 'Escape' && findBar.visible) {
       event.preventDefault()
@@ -700,6 +706,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
       leftPanel.destroy()
       aiPanel.closePickers()
       modals.destroy()
+      pages.back()
       if (actions.macTitlebar) delete document.documentElement.dataset.yeyuTitlebar
       delete document.documentElement.dataset.yeyuMotion
       themeStyle.remove()

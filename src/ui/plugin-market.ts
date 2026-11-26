@@ -2,9 +2,12 @@ import type { MarketPlugin, PluginCatalog, PluginMarketPort } from '../contracts
 import { el } from './helpers'
 import { icons } from './icons'
 
-type MarketChannel = 'online' | 'bundled'
+export type MarketChannel = 'online' | 'bundled'
 
-export function createPluginMarket(port: PluginMarketPort, manage: () => void) {
+export function createPluginMarket(port: PluginMarketPort, options: {
+  manage: () => void
+  onChannel: (channel: MarketChannel, busy: boolean) => void
+}) {
   const panel = el('div', { className: 'yy-modal-body yy-plugin-body yy-plugin-market', attrs: { hidden: '' } })
   const search = el('input', {
     className: 'yy-input', type: 'search',
@@ -27,19 +30,12 @@ export function createPluginMarket(port: PluginMarketPort, manage: () => void) {
   const saveSource = el('button', { className: 'yy-btn yy-btn-primary', type: 'submit', text: '连接' })
   const sourceButtons = el('div', { className: 'yy-plugin-controls' })
   sourceButtons.append(useOfficial, saveSource)
-  sourceForm.append(address, sourceButtons)
-
-  const sourceName = el('p', { className: 'yy-plugin-note yy-market-source-name', attrs: { hidden: '' } })
-  const onlineTab = el('button', { className: 'yy-mode-btn', type: 'button', text: '在线市场' })
-  const bundledTab = el('button', { className: 'yy-mode-btn', type: 'button', text: '内置插件' })
-  const channels = el('div', { className: 'yy-mode-pill', attrs: { role: 'group', 'aria-label': '插件来源' } })
-  channels.append(onlineTab, bundledTab)
-  const channelBar = el('div', { className: 'yy-market-channels' })
-  channelBar.append(channels, sourceName)
+  sourceForm.append(el('label', { className: 'yy-field' },
+    el('span', { className: 'yy-field-label', text: '市场目录' }), address), sourceButtons)
   const status = el('p', { className: 'yy-plugin-note', attrs: { role: 'status', hidden: '' } })
   const error = el('p', { className: 'yy-plugin-error', attrs: { role: 'alert', hidden: '' } })
-  const list = el('div', { className: 'yy-plugin-list' })
-  panel.append(channelBar, toolbar, sourceForm, status, error, list)
+  const list = el('div', { className: 'yy-market-list' })
+  panel.append(toolbar, sourceForm, status, error, list)
 
   let catalog: PluginCatalog | undefined
   let channel: MarketChannel = 'online'
@@ -49,13 +45,8 @@ export function createPluginMarket(port: PluginMarketPort, manage: () => void) {
 
   function render() {
     for (const control of [refresh, settings, address, useOfficial, saveSource]) control.disabled = busy || loading
-    for (const [tab, selected] of [[onlineTab, channel === 'online'], [bundledTab, channel === 'bundled']] as const) {
-      tab.disabled = busy
-      tab.classList.toggle('is-active', selected)
-      tab.setAttribute('aria-pressed', String(selected))
-    }
-    sourceName.hidden = !catalog?.source
-    if (catalog?.source) sourceName.textContent = catalog.name + ' · ' + new URL(catalog.source).host
+    options.onChannel(channel, busy)
+    panel.dataset.marketHost = catalog?.source ? new URL(catalog.source).host : ''
     list.replaceChildren()
     if (!catalog) return
     const words = search.value.trim().toLowerCase().split(/\s+/)
@@ -66,7 +57,7 @@ export function createPluginMarket(port: PluginMarketPort, manage: () => void) {
     for (const plugin of matches) {
       list.append(pluginCard(plugin, busy || loading, async () => {
         if (plugin.availability === 'installed') {
-          manage()
+          options.manage()
           return
         }
         if (!catalog) return
@@ -171,8 +162,6 @@ export function createPluginMarket(port: PluginMarketPort, manage: () => void) {
   }
 
   search.addEventListener('input', render)
-  onlineTab.addEventListener('click', () => { void browse('online') })
-  bundledTab.addEventListener('click', () => { void browse('bundled') })
   refresh.addEventListener('click', () => { void browse(channel, true) })
   settings.addEventListener('click', () => showSource(sourceForm.hasAttribute('hidden')))
   useOfficial.addEventListener('click', () => { void connect(port.official) })
@@ -180,7 +169,9 @@ export function createPluginMarket(port: PluginMarketPort, manage: () => void) {
     event.preventDefault()
     void connect(address.value.trim())
   })
-  return { panel, search, show: () => { void browse(channel) } }
+  return { panel, show: (next: MarketChannel) => {
+    if (next !== channel || !catalog) void browse(next)
+  } }
 }
 
 function iconButton(label: string, svg: string) {
@@ -188,19 +179,18 @@ function iconButton(label: string, svg: string) {
 }
 
 function pluginCard(plugin: MarketPlugin, busy: boolean, onSelect: () => Promise<void>) {
-  const row = el('article', { className: 'yy-plugin-row yy-market-card', attrs: { 'aria-label': plugin.name } })
+  const row = el('article', { className: 'yy-market-card', attrs: { 'aria-label': plugin.name } })
   const info = el('div', { className: 'yy-market-info' })
   const version = plugin.installedVersion && plugin.installedVersion !== plugin.version
     ? `已安装 ${plugin.installedVersion} · 市场 ${plugin.version}` : `版本 ${plugin.version}`
   info.append(
-    el('strong', { text: plugin.name }),
-    el('p', { className: 'yy-market-description', text: plugin.description }),
+    el('h3', { text: plugin.name }),
     el('p', { className: 'yy-plugin-note', text: `${plugin.author} · ${version} · ${plugin.license}` }),
   )
   const labels = { install: '安装', update: '更新', installed: '已安装', incompatible: '接口不兼容' }
   const operation = plugin.availability
   const action = el('button', {
-    className: 'yy-btn yy-btn-sm' + (operation === 'install' || operation === 'update' ? ' yy-btn-primary' : ''),
+    className: 'yy-btn yy-market-action' + (operation === 'install' || operation === 'update' ? ' yy-btn-primary' : ''),
     type: 'button',
     text: labels[operation],
     attrs: {
@@ -210,6 +200,6 @@ function pluginCard(plugin: MarketPlugin, busy: boolean, onSelect: () => Promise
   })
   action.disabled = busy || operation === 'incompatible'
   action.addEventListener('click', () => { void onSelect() })
-  row.append(info, action)
+  row.append(info, action, el('p', { className: 'yy-market-description', text: plugin.description }))
   return row
 }

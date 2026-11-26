@@ -791,7 +791,59 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
   display: flex;
   min-height: 0;
   overflow: hidden;
+  grid-area: 2 / 1;
 }
+
+.yy-shell .yy-editor-covered { visibility: hidden; }
+
+.yy-shell .yy-tool-page {
+  grid-area: 2 / 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--yy-chrome-bg);
+  overflow: hidden;
+}
+
+.yy-shell .yy-tool-page-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--yy-border);
+}
+
+.yy-shell .yy-tool-page-header h2 {
+  margin: 0;
+  color: var(--yy-ink);
+  font-size: 16px;
+  font-weight: 620;
+  overflow-wrap: anywhere;
+}
+
+.yy-shell .yy-tool-page-back { flex: none; }
+.yy-shell .yy-tool-page-back > svg { width: 18px; height: 18px; }
+.yy-shell .yy-tool-page-body { flex: 1; min-height: 0; min-width: 0; overflow: auto; }
+
+.yy-shell .yy-tool-page .yy-tool-page-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  min-height: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--yy-chrome-bg);
+}
+
+.yy-shell .yy-tool-page-panel > .yy-plugin-tabs { flex: none; }
+.yy-shell .yy-tool-page-panel > .yy-plugin-body { flex: 1; min-height: 0; overscroll-behavior: contain; }
+.yy-shell .yy-tool-page-panel > :is(.yy-plugin-tabs, .yy-plugin-body) { width: min(100%, 960px); margin-inline: auto; }
 
 /* Left Panel -------------------------------------------------------------- */
 
@@ -1793,28 +1845,48 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
   overflow: auto;
 }
 
-.yy-shell .yy-plugin-manager {
-  width: min(650px, 100%);
-}
-
 .yy-shell .yy-plugin-tabs {
-  padding: 10px 16px 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding-inline: 16px;
+  border-bottom: 1px solid var(--yy-border);
 }
 
-.yy-shell .yy-market-channels {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
+.yy-shell .yy-plugin-tab {
+  min-height: 42px;
+  padding: 6px;
+  border: 0;
+  border-block-end: 2px solid transparent;
+  background: transparent;
+  color: var(--yy-ink-muted);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
 }
+
+.yy-shell .yy-plugin-tab:where([aria-pressed="true"]) {
+  border-block-end-color: var(--yy-accent);
+  color: var(--yy-ink);
+  font-weight: 650;
+}
+
+.yy-shell .yy-plugin-tab:hover:not(:disabled) { background: var(--yy-accent-soft); }
+.yy-shell .yy-plugin-tab:active:not(:disabled) { background: var(--yy-accent-soft-pressed); }
+.yy-shell .yy-plugin-tab:disabled { opacity: .55; }
 
 .yy-shell .yy-market-tools {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 6px;
+  gap: 5px;
 }
+
+.yy-shell .yy-market-tools > button {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 9px;
+}
+.yy-shell .yy-market-tools > button > svg { width: 17px; height: 17px; }
 
 .yy-shell .yy-market-search {
   position: relative;
@@ -1831,7 +1903,10 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 }
 
 .yy-shell .yy-market-search > input {
-  padding-inline-start: 32px;
+  height: 100%;
+  padding-inline-start: 34px;
+  border-radius: 9px;
+  background: var(--yy-chrome-subtle);
 }
 
 .yy-shell .yy-market-source {
@@ -1847,23 +1922,44 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
   justify-content: flex-end;
 }
 
-.yy-shell .yy-market-source-name {
+.yy-shell .yy-market-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 310px), 1fr));
+  column-gap: 24px;
+  border-block-start: 1px solid var(--yy-border);
+}
+
+.yy-shell .yy-market-list > .yy-plugin-empty { grid-column: 1 / -1; }
+.yy-shell .yy-market-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  align-content: start;
+  gap: 5px 14px;
+  padding-block: 11px 13px;
+  border-block-end: 1px solid var(--yy-border);
   overflow-wrap: anywhere;
 }
 
-.yy-shell .yy-market-card {
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-  column-gap: 16px;
+.yy-shell .yy-market-info h3 {
+  margin: 0 0 3px;
+  font-size: 16px;
+  font-weight: 640;
+  line-height: 1.3;
 }
 
-.yy-shell .yy-market-info {
-  min-width: 0;
+.yy-shell .yy-market-action {
+  min-width: 62px;
+  min-height: 34px;
+  border-radius: 999px;
+  font-weight: 620;
 }
 
 .yy-shell .yy-market-description {
-  margin: 5px 0;
-  color: var(--yy-ink);
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--yy-ink-muted);
+  font-size: 14px;
   line-height: 1.55;
 }
 
@@ -1891,9 +1987,8 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 .yy-shell .yy-plugin-row {
   display: grid;
   gap: 8px;
-  padding: 12px;
-  border: 1px solid var(--yy-border);
-  border-radius: var(--yy-radius-md);
+  padding: 9px 0 12px;
+  border-block-end: 1px solid var(--yy-border);
   font-size: 13px;
   overflow-wrap: anywhere;
 }

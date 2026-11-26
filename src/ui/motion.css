@@ -54,7 +54,7 @@
 .yy-sidebar-slot-right > aside { right: 0; transform: translateX(100%); }
 .yy-sidebar-slot[data-open="true"] > aside { transform: none; }
 
-.yy-shell :is(.yy-menu-popover, .yy-submenu-panel, .yy-picker-list, .yy-pane, .yy-ai-context, .yy-suggestion-host) {
+.yy-shell :is(.yy-menu-popover, .yy-submenu-panel, .yy-picker-list, .yy-pane, .yy-ai-context, .yy-suggestion-host, .yy-tool-page) {
   animation: var(--yy-motion-disabled, yy-reveal var(--yy-motion-fast) var(--yy-motion-ease));
 }
 
@@ -73,7 +73,7 @@
 }
 
 /* 只过渡颜色和视觉反馈，菜单、侧栏与文档在悬停和按下时都不需要重新排版。 */
-:where(.yy-chrome, .app-dialog, .yy-mobile-sheet) :is(button, a[href], input, textarea, [role="option"], summary) {
+:where(.yy-chrome, .app-dialog) :is(button, a[href], input, textarea, [role="option"], summary) {
   transition: var(--yy-motion-disabled,
     background-color var(--yy-motion-fast) ease,
     border-color var(--yy-motion-fast) ease,
@@ -84,7 +84,7 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  :root:not([data-yeyu-motion="off"]) :where(.yy-chrome, .app-dialog, .yy-mobile-sheet)
+  :root:not([data-yeyu-motion="off"]) :where(.yy-chrome, .app-dialog)
   :is(button, a[href], [role="option"], summary):active:not(:disabled, [aria-disabled="true"]) {
     scale: .97;
   }

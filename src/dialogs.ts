@@ -2,12 +2,14 @@ import './dialogs.css'
 import { markdownDiff } from './suggestions'
 import { el } from './ui/helpers'
 import { dismissOnBackdrop } from './ui/dialog-dismiss'
+import type { createPages } from './ui/pages'
 
 type Choice = { label: string; value: string; primary?: boolean; autofocus?: boolean }
 
 function dialog(title: string, detail: string) {
   const element = document.createElement('dialog')
   element.className = 'app-dialog'
+  element.setAttribute('aria-label', title)
   const heading = document.createElement('h2')
   heading.textContent = title
   const description = document.createElement('p')
@@ -70,15 +72,15 @@ type ReviewDocument = { path: string; name: string; text: string; replacement: s
 export async function reviewChanges(
   title: string, description: string, entries: ReviewDocument[],
   apply: string, selectFiles: boolean, issues: string[] = [],
+  pages?: Pick<ReturnType<typeof createPages>, 'open' | 'back'>,
 ): Promise<Set<string>> {
   const { element, form, controls } = dialog(title, description)
   element.classList.add('app-review-dialog')
-  element.setAttribute('aria-label', title)
   const selected = new Set(entries.map(entry => entry.path))
   const list = el('div', { className: 'app-review-files', attrs: { 'aria-label': '待修改文件' } })
   const preview = el('div', { className: 'app-review-preview', attrs: { 'aria-label': '修改预览', tabindex: '0' } })
   const cancel = addButton(controls, '取消', 'cancel')
-  cancel.autofocus = true
+  cancel.autofocus = !pages
   const confirm = addButton(controls, apply, 'apply', true)
   let active: HTMLButtonElement | undefined
   function show(entry: ReviewDocument, button?: HTMLButtonElement) {
@@ -123,5 +125,18 @@ export async function reviewChanges(
     form.append(details)
   }
   form.append(controls)
-  return await present(element) === 'apply' ? selected : new Set()
+  if (!pages) return await present(element) === 'apply' ? selected : new Set()
+
+  form.querySelector('h2')?.remove()
+  form.removeAttribute('method')
+  form.classList.add('yy-mobile-brief-page', 'yy-mobile-review-page')
+  return new Promise<Set<string>>(resolve => {
+    let confirmed = false
+    form.addEventListener('submit', event => {
+      event.preventDefault()
+      confirmed = event.submitter === confirm && !confirm.disabled
+      pages.back()
+    })
+    pages.open(title, form, () => resolve(confirmed ? selected : new Set()))
+  })
 }

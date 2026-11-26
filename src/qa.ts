@@ -664,7 +664,7 @@ async function verifyPluginMarket(ports: Ports, scenario: Case) {
   const find = (id: string) => panel.querySelector<HTMLButtonElement>(`[data-market-plugin="${id}"]`)
   if (publicMarket) {
     const expectedHost = new URL(publicMarket).host
-    const online = () => panel.querySelector('.yy-market-source-name')?.textContent?.includes(expectedHost) === true
+    const online = () => panel.dataset.marketHost === expectedHost
     const marketStatus = panel.querySelector<HTMLElement>('[role="status"]')!
     await until(() => online() || !!marketStatus.title, 22_000)
     check(online(), '首次打开连接公网目录 ' + marketStatus.title)
@@ -678,7 +678,7 @@ async function verifyPluginMarket(ports: Ports, scenario: Case) {
       await ports.action({ type: 'plugin-remove', id })
     }
   }
-  button(panel, '内置插件').click()
+  button(dialog, '内置插件').click()
   await until(() => !!find('yeyu.heading-levels'))
   const bundledCount = panel.querySelectorAll('.yy-market-card').length
   check(bundledCount === 9, '内置市场提供九款插件')
@@ -728,7 +728,7 @@ async function verifyPluginMarket(ports: Ports, scenario: Case) {
     button(management.querySelector(`[aria-label="${name}"]`)!, '启用').click()
     await until(() => !!management.querySelector(`[data-plugin="${id}"][data-operation="run"]`))
   }
-  button(management, '插件市场').click()
+  button(management, '在线市场').click()
   const market = management.querySelector<HTMLElement>('.yy-plugin-market')!
   const sourceToggle = market.querySelector<HTMLButtonElement>('[aria-label="市场源"]')!
   await until(() => !sourceToggle.disabled)
@@ -749,7 +749,7 @@ async function verifyPluginMarket(ports: Ports, scenario: Case) {
   await ports.action({ type: 'plugin-remove', id: 'yeyu.heading-levels' })
   market.querySelector<HTMLButtonElement>('[aria-label="刷新市场"]')!.click()
   check(market.querySelector('[role="status"]')?.textContent?.includes('正在连接在线市场'), '正在刷新已经配置的在线市场')
-  button(market, '内置插件').click()
+  button(management, '内置插件').click()
   const bundled = () => market.querySelector<HTMLButtonElement>('[data-market-plugin="yeyu.heading-levels"]')
   await until(() => bundled()?.textContent === '安装' && !bundled()?.disabled, 3_000)
   bundled()!.click()
@@ -758,10 +758,10 @@ async function verifyPluginMarket(ports: Ports, scenario: Case) {
   if (publicMarket) {
     sourceToggle.click()
     button(form, '恢复官方市场').click()
-    await until(() => market.querySelector('.yy-market-source-name')?.textContent?.includes(new URL(publicMarket).host) === true, 22_000)
+    await until(() => market.dataset.marketHost === new URL(publicMarket).host, 22_000)
     check((await native.preferences())?.pluginMarketSource === '', '恢复官方市场清除自定义源')
   }
-  management.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click()
+  management.closest('.yy-tool-page')!.querySelector<HTMLButtonElement>('[aria-label="返回"]')!.click()
   const workflows = await verifyPluginWorkflows(ports)
   const newWorkflows = await verifyDocumentPlugins(ports, scenario)
   return {

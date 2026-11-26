@@ -10,12 +10,7 @@
   overflow-y: auto;
 }
 
-.yy-android .app-dialog.yy-update-dialog {
-  inset-block-start: calc(var(--yy-safe-top) + 12px);
-  inset-block-end: calc(max(0px, 100dvh - var(--yy-viewport-height, 100dvh)) + var(--yy-safe-bottom) + 12px);
-}
-
-.yy-update-dialog .yy-update-version {
+:is(.yy-update-dialog, .yy-update-page) .yy-update-version {
   color: var(--yy-ink-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -26,21 +21,21 @@
   background: var(--yy-chrome-subtle);
 }
 
-.yy-update-dialog h3 {
+:is(.yy-update-dialog, .yy-update-page) h3 {
   margin: 0;
   font-size: 14px;
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
 
-.yy-update-dialog .yy-update-detail {
+:is(.yy-update-dialog, .yy-update-page) .yy-update-detail {
   margin: 4px 0 0;
   color: var(--yy-ink-muted);
 }
 
 .yy-update-notes,
 .yy-update-download,
-.yy-update-dialog .app-dialog-actions {
+:is(.yy-update-dialog, .yy-update-page) .app-dialog-actions {
   margin-top: 16px;
 }
 
