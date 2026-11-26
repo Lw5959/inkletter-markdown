@@ -1210,6 +1210,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     ]
     for (const { width, height, density, left, right, enlarged } of cases) {
       const phone = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: density, isMobile: true, hasTouch: true })
+      phone.setDefaultTimeout(5000)
       try {
         await phone.addInitScript(({ title, text, left, right }) => {
           const uri = 'content://qa/long-document'
@@ -1257,6 +1258,8 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
           expect(button.width, label).toBeGreaterThanOrEqual(44)
           expect(button.height, label).toBeGreaterThanOrEqual(44)
         }
+        // 大字号的长标题可能把表格推出视窗，先像用户一样滚到表格所在的文末。
+        await phone.locator('.yy-paper').evaluate(paper => { paper.scrollTop = paper.scrollHeight })
         const table = phone.locator('.live-block-preview').filter({ has: phone.locator('table') })
         await table.waitFor()
         expect(await table.evaluate(element => {
