@@ -2,6 +2,8 @@
 
 页屿使用 [Lw5959/yeyu](https://github.com/Lw5959/yeyu) 发布安装包。macOS 的 Apple Silicon 和 Intel 各有一个 DMG，各自的签名应用归档也独立，更新按当前运行架构选择。
 
+每次提升应用版本都在本机生成对应的安装包，并以 `v<版本号>` 发布 GitHub Release。发布说明写明本版改动、可下载的平台和实际验收范围。
+
 ## 准备签名
 
 - 桌面更新的 Minisign 公钥位于 `src-tauri/tauri.conf.json`。本机签名通过 `TAURI_SIGNING_PRIVATE_KEY` 指定私钥，可用 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` 解锁。macOS 公证和 Windows Authenticode 使用各平台的签名流程。
@@ -23,6 +25,11 @@
 
 Android 构建安装 Android SDK 37、Build Tools 37.0.0、NDK 28.2.13676358 和可供 bindgen 使用的 libclang。为 `BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android` 指定所选 NDK 的 `--sysroot`。在 `src-tauri/gen/android/app/build/outputs/apk` 找到未签名 APK，签名后用 `apksigner verify` 核对。
 
-将安装包归入 `release/<版本号>/`，保留架构及扩展名。需要将本地构建发布到 GitHub Releases 时，用 `node scripts/stage-desktop-release.mjs <bundle目录> <平台> <产物目录>` 整理桌面包。Android 包命名为 `Yeyu_<版本号>_android-arm64.apk`。所有包就绪后运行 `node scripts/release-manifest.mjs <产物目录> v<版本号> Lw5959/yeyu`，核对生成的 `latest.json`、`SHA256SUMS` 和签名，再手动上传。只交付本地包时可直接用 `shasum -a 256` 生成校验文件。
+## 发布到 GitHub
+
+1. 将安装包归入 `release/<版本号>/`，保留架构及扩展名。用 `node scripts/stage-desktop-release.mjs <bundle目录> <平台> <产物目录>` 整理桌面包。Android 包命名为 `Yeyu_<版本号>_android-arm64.apk`。
+2. 所有平台就绪后，用 `node scripts/release-manifest.mjs <产物目录> v<版本号> Lw5959/yeyu` 生成 `latest.json` 与 `SHA256SUMS`。在产物目录执行 `shasum -a 256 -c SHA256SUMS`，并用配置中的公钥验证五个桌面更新包的签名。
+3. 推送源码并将标签指向实际构建提交。在 GitHub 创建对应标签的 Release 草稿，上传安装包、更新包、签名和两个清单。核对远端资产列表和 SHA-256 后再公开发布。
+4. 将安装包和更新包齐全的稳定版本设为最新，并从公开的 `releases/latest/download/latest.json` 读回版本和下载地址。
 
 应用查询 GitHub 最新稳定 Release。桌面原生更新使用 `latest.json` 并验证产物签名。DEB 和 Android 在用户确认后交给系统安装器。用户仍可从 Releases 页面下载对应系统和架构的安装包。
