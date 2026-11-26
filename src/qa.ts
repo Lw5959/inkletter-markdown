@@ -1081,7 +1081,6 @@ async function verifyDocumentPlugins(ports: Ports, scenario: Case) {
 export async function runNativeQa(ports: Ports) {
   try {
     const scenario = await config()
-    await frame()
     const main = getCurrentWindow().label === 'main'
     if (scenario.phase === 'recover-windows') {
       const expected = main ? '主窗口恢复草稿' : '第二窗口恢复草稿'
@@ -1094,6 +1093,8 @@ export async function runNativeQa(ports: Ports) {
       if (scenario.phase === 'windows' && ports.state.path?.endsWith('纯文本.txt')) await testWindowDraft(ports, false)
       return
     }
+    // 后台文档窗口的动画帧可能暂停。读写与恢复验收只等待已载入的数据。
+    if (scenario.phase !== 'windows') await frame()
     if (scenario.phase === 'measure') await measure(ports, scenario)
     else if (scenario.phase === 'titlebar') await mark('titlebar', await verifyTitlebarResize())
     else if (scenario.phase === 'opencode') {
