@@ -683,7 +683,7 @@ async function verifyFull(ports: Ports, scenario: Case) {
     const name = modelPage.querySelector<HTMLInputElement>('input[aria-label="模型 ID 1"]')!
     setInput(name, model.name)
     setInput(modelPage.querySelector<HTMLInputElement>('[name="provider-name"]')!, '本地 Chat')
-    setInput(endpoint, 'http://model.example.invalid/v1')
+    setInput(endpoint, 'https://model.example.invalid/v1#fragment')
     modelPage.requestSubmit()
     await until(() => !modelPage.querySelector<HTMLElement>('[role="alert"]')!.hidden)
     check(modelPage.isConnected && name.value === model.name, '模型配置失败后保留字段')
