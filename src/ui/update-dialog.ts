@@ -22,7 +22,7 @@ function formatBytes(bytes: number) {
 }
 
 /** 打开更新界面并立即检查，用户点击确认后才调用 apply。 */
-export function showUpdate(check: (installedVersion: string) => Promise<UpdateOffer | null>, pages?: ReturnType<typeof createPages>) {
+export function showUpdate(check: (installedVersion: string) => Promise<UpdateOffer | null>, pages?: Pick<ReturnType<typeof createPages>, 'open'>) {
   if (!pages && document.querySelector('dialog.yy-update-dialog[open]')) return
 
   const dialog = pages ? null : el('dialog', { className: 'app-dialog yy-update-dialog', attrs: { 'aria-label': '软件更新' } })

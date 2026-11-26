@@ -43,7 +43,7 @@ export function createMobileServices(options: Options) {
   const protocol = new Protocol(view => mcp?.setView(view))
   protocol.configure((settings.mcp ?? []).filter(server => server.transport === 'http'))
   let plugins: PluginInfo[] = []
-  const pluginManager = new PluginManager(pages, dispatch, {
+  const pluginManager = new PluginManager({ open: pages.replace, back: pages.closeAll }, dispatch, {
     official: officialMarket,
     source: () => settings.marketSource ?? officialMarket,
     bundled: () => invoke<PluginCatalog>('plugin_market_list', { source: null, refresh: false }),
@@ -76,7 +76,7 @@ export function createMobileServices(options: Options) {
     if (page === 'ai') {
       ai ??= new AiPanel({ dispatch, listAiModels, modals: pages.present('push') })
       body.replaceChildren(ai.element)
-      pages.open(label, service, () => ai?.closePickers())
+      pages.push(label, service, () => ai?.closePickers())
       ai.setView(writing.view)
       if (!writingLoaded) {
         await writing.load()
@@ -85,11 +85,11 @@ export function createMobileServices(options: Options) {
     } else if (page === 'mcp') {
       mcp ??= new McpPanel({ dispatch: action => { void dispatch(action) }, remoteOnly: true })
       body.replaceChildren(mcp.element)
-      pages.open(label, service)
+      pages.push(label, service)
       mcp.setView(protocol.view)
     } else {
       const status = el('p', { className: 'yy-mobile-page-message', text: '正在读取插件…', attrs: { role: 'status' } })
-      pages.open(label, status)
+      pages.push(label, status)
       try {
         setPlugins(await invoke<PluginInfo[]>('plugin_list'))
         if (status.isConnected) pluginManager.open('online')
@@ -154,7 +154,7 @@ export function createMobileServices(options: Options) {
         if (!target) throw new Error('原文已经变化，请基于当前内容重新生成')
         editor.replace(target.from, target.to, chooseHunks(item.view.parts, action.hunks))
         writing.review(null)
-        pages.back()
+        pages.closeAll()
         notify('建议已应用，可撤销')
         break
       }

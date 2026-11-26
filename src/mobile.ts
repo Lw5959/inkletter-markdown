@@ -324,13 +324,13 @@ function rememberOpened({ uri, name }: RecentFile) {
 }
 
 async function openRecent(item: RecentFile, list: HTMLElement) {
-  if (item.uri === origin?.uri) { pages.back(); return }
+  if (item.uri === origin?.uri) { pages.closeAll(); return }
   const value = await read(item.uri).catch(() => null)
   if (!list.isConnected) return
   if (value) {
     if (!await canLeave()) return
     showDocument(value)
-    pages.back()
+    pages.closeAll()
     await checkpoint()
     return
   }
@@ -344,15 +344,15 @@ async function openRecent(item: RecentFile, list: HTMLElement) {
     if (list !== landingList) renderRecent(list)
     await checkpoint()
   }
-  if (reopened) pages.back()
+  if (reopened) pages.closeAll()
 }
 
 function showRecents() {
-  const list = el('div', { className: 'yy-mobile-recent-list yy-mobile-file-list' })
+  const list = el('div', { className: 'yy-mobile-recent-list yy-mobile-file-list', attrs: { 'data-page-scroll': '' } })
   renderRecent(list)
-  pages.open('最近打开', el('div', { className: 'yy-mobile-file-page' }, list,
+  pages.push('最近打开', el('div', { className: 'yy-mobile-file-page' }, list,
     el('div', { className: 'yy-mobile-file-actions' }, launchButton('打开文件', icons.folderOpen, () => operate(async () => {
-      if (await openFile()) pages.back()
+      if (await openFile()) pages.closeAll()
     })))))
 }
 
@@ -374,7 +374,7 @@ async function recoverDraft(draft: Draft) {
 
 function showRecoveries() {
   showListPage('恢复草稿', recoveries.map(draft => ({ label: draft.origin?.name ?? '未命名.md', icon: icons.file,
-    action: () => operate(async () => { if (await recoverDraft(draft)) pages.back() }) })))
+    action: () => operate(async () => { if (await recoverDraft(draft)) pages.closeAll() }) })))
 }
 
 async function writeDocument(copy: boolean): Promise<boolean> {
@@ -442,8 +442,8 @@ function choosePage(title: string, message: string, choices: { label: string; va
 }
 
 function showListPage(label: string, rows: PageRow[]) {
-  const list = el('div', { className: 'yy-mobile-file-list' }, ...rows.map(actionRow))
-  pages.open(label, el('div', { className: 'yy-mobile-file-page' }, list))
+  const list = el('div', { className: 'yy-mobile-file-list', attrs: { 'data-page-scroll': '' } }, ...rows.map(actionRow))
+  pages.push(label, el('div', { className: 'yy-mobile-file-page' }, list))
 }
 
 function showOutline() {
@@ -504,12 +504,14 @@ function showMobileUpdate() {
       await checkpoint()
       await invoke('android_open_update', { url: release.url })
     } }
-  }, pages)
+  }, { open: pages.push })
 }
 
 async function openService(page: MobileServicePage) {
   if (!services) {
+    const parent = pages.active
     const { createMobileServices } = await import('./mobile-services')
+    if (pages.active !== parent) return
     services = createMobileServices({ editor, pages, settings: serviceSettings, persist: checkpoint, notify: refresh, read, pick,
       state: () => ({ id: documentId, revision, title: origin?.name ?? '未命名.md', uri: origin?.uri ?? null,
         open: hasDocument, readonly: !!presentation.readonly }),
@@ -519,14 +521,16 @@ async function openService(page: MobileServicePage) {
 }
 
 async function showWorkspace(reselect = false) {
+  const parent = pages.active
   const root = !workspace || reselect ? await invoke<string | null>('android_pick_workspace') : workspace
-  if (!root) return
+  if (!root || pages.active !== parent) return
   const { entries } = await invoke<{ entries: WorkspaceFile[] }>('android_workspace', { uri: root })
+  if (pages.active !== parent) return
   workspace = root
   scheduleCheckpoint()
   const search = el('input', { className: 'yy-mobile-search', type: 'search', attrs: { 'aria-label': '筛选或检索工作区', placeholder: '文件名或正文' } })
   const searchText = el('button', { className: 'yy-mobile-row', type: 'button', text: '全文检索' })
-  const results = el('div', { className: 'yy-mobile-workspace-rows yy-mobile-file-list' })
+  const results = el('div', { className: 'yy-mobile-workspace-rows yy-mobile-file-list', attrs: { 'data-page-scroll': '' } })
   const notice = el('p', { className: 'yy-mobile-workspace-notice', attrs: { role: 'status' } })
   const content = el('div', { className: 'yy-mobile-workspace yy-mobile-file-page' },
     el('div', { className: 'yy-mobile-workspace-tools' }, search, searchText), notice, results,
@@ -534,7 +538,7 @@ async function showWorkspace(reselect = false) {
   const row = (file: WorkspaceFile, preview?: string, line?: number) => {
     const button = el('button', { className: 'yy-mobile-row', type: 'button', text: preview ? `${file.path} · ${preview}` : file.path })
     button.addEventListener('click', () => operate(async () => {
-      if (await openUri(file.uri, line) && content.isConnected) pages.back()
+      if (await openUri(file.uri, line) && content.isConnected) pages.closeAll()
     }))
     return button
   }
@@ -571,7 +575,8 @@ async function showWorkspace(reselect = false) {
   search.addEventListener('keydown', event => { if (event.key === 'Enter' && !event.isComposing) runSearch() })
   searchText.addEventListener('click', runSearch)
   filter()
-  pages.open('工作区', content)
+  if (reselect) pages.replace('工作区', content)
+  else pages.push('工作区', content)
 }
 
 function showThemes() {
@@ -587,7 +592,7 @@ function showThemes() {
 
 function showActions() {
   const returnToEditor = (action: () => Promise<unknown>) => () => {
-    pages.back()
+    pages.closeAll()
     operate(action)
   }
   showListPage('文档操作', [
@@ -597,12 +602,12 @@ function showActions() {
     ...(hasDocument ? [
       { label: '另存副本', icon: icons.copy, action: returnToEditor(() => writeDocument(true)) },
       { label: 'Markdown 格式', icon: icons.edit, action: () => showListPage('Markdown 格式', formats.map(([format, label]) => ({
-        label, action: () => { pages.back(); editor.format(format); editor.focus() },
+        label, action: () => { pages.closeAll(); editor.format(format); editor.focus() },
       }))) },
       { label: '阅读与编辑', icon: icons.settings, action: showPresentation },
       { label: '字数统计', icon: icons.outline, action: () => {
         const stats = count(editor.getMarkdown())
-        pages.open('字数统计', el('dl', { className: 'yy-mobile-brief-page yy-mobile-stats' },
+        pages.push('字数统计', el('dl', { className: 'yy-mobile-brief-page yy-mobile-stats' },
           el('dt', { text: '词数' }), el('dd', { text: String(stats.words) }),
           el('dt', { text: '字符数' }), el('dd', { text: String(stats.characters) })))
       } },
