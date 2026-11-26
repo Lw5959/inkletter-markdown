@@ -5,7 +5,7 @@
 ## 使用
 
 1. 在文件菜单打开 Markdown 文件，或选择文件夹来使用文件树、快速打开和跨文件检索。
-2. 用顶栏的「实时」「源码」切换视图。macOS 可用 `⌘/`，Windows、Linux 可用 `Ctrl+/`。
+2. 「实时」视图在输入、选中文本和大纲跳转时保持渲染，点击表格单元格即可修改。切换到「源码」可编辑完整的 Markdown。macOS 可用 `⌘/`，Windows、Linux 可用 `Ctrl+/`。
 3. 从「视图 → 文档主题」选择默认、白纸、青瓷、石墨、松夜或本机 Typora 的主题。白纸是纯白底的衬线主题。本机款式首次选择时保存一份可离线使用的副本，也可以用「导入本机 Typora 主题」一次导入，或用「导入主题 CSS…」选择主文件。相对字体、图片、子目录以及 `base.user.css` 和同名覆盖样式一并导入。
 4. 文件菜单可导出 HTML、PDF、PNG 和常见办公文档。PDF 与 PNG 使用本机的 Chrome、Chromium 或 Edge。DOCX、EPUB、ODT、LaTeX 等需要安装 Pandoc。
 
@@ -35,7 +35,9 @@ AI 写作沿用桌面端的供应商、模型、提示词和差异审阅，API �
 
 ## AI 写作
 
-在 AI 侧栏打开「模型配置」，点击「添加供应商」。每个供应商有自己的 API 地址、协议和密钥，可添加多个模型 ID。协议支持 Chat Completions、Anthropic Messages 和 Responses。地址支持远程 HTTPS、本机回环 HTTP、API 前缀或完整接口地址。密钥保存到系统的 Keychain、Credential Manager 或 Secret Service。已有单模型配置会自动显示为一个供应商。
+在 AI 侧栏打开「模型配置」，点击「添加供应商」。每个供应商有自己的 API 地址、协议和密钥，可添加多个模型 ID。协议支持 Chat Completions、Anthropic Messages 和 Responses。地址可填 HTTP 或 HTTPS 的服务根地址、API 前缀或完整接口地址。密钥保存到系统的 Keychain、Credential Manager 或 Secret Service。HTTP 会明文传输密钥及请求内容。已有单模型配置会自动显示为一个供应商。
+
+填写供应商的地址和所需密钥后，点「获取模型」读取列表。可以筛选、勾选多个模型，点「添加所选」后保存配置。供应商没有提供模型列表时，可用「添加模型」填写 ID。[OpenAI 模型列表](https://developers.openai.com/api/reference/typescript/resources/models/methods/list) · [Anthropic 模型列表](https://platform.claude.com/docs/en/api/typescript/models/list)
 
 保存后，在对话顶部的模型菜单选择供应商和模型。下次启动时沿用最后选择。切换供应商会切换到对应的会话，原供应商的对话保留在当前应用会话中。
 

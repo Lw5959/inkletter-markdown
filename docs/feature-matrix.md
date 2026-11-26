@@ -17,7 +17,7 @@
 | 高亮、上下标、Emoji 与自动替换 | Typora 的可选语法与平台输入设置 | 实时模式和格式菜单 | 键入标记，切换模式并检查导出 | 高亮、上下标和 Emoji 已接入，补全与自动替换待做 |
 | 有序、无序、嵌套列表及续行 | CommonMark / GFM | 实时模式，格式菜单 | 继续列表，缩进和撤销 | 自动化，复杂列表键位待逐项核对 |
 | 可点击任务列表 | GFM | 文档中的任务复选框 | 切换完成状态，检查写回源码和导出 | 自动化 |
-| 表格 | GFM，复杂布局需平台验证 | 实时预览，格式 → 表格 | 插入、一字编辑、导出、验证对齐和移动行列 | 已接入，图形化行列编辑仍待实现 |
+| 表格 | GFM，复杂布局需平台验证 | 实时编辑，格式 → 表格 | 大纲跳转后保持渲染，触屏点单元格，核对源码、转义、保存和撤销 | 自动化，图形化行列编辑待实现 |
 | 代码高亮和语言识别 | 依赖 bundled 词法器 | 源码/实时视图，HTML 导出 | TS、Python、Shell 等常见语言 | 自动化 |
 | 脚注 | 文档范围内引用 | 格式 → 插入脚注，HTML/PDF | 写入定义和多次引用，检查编号及返回链接 | 导出通过，实时编号和导航部分实现 |
 | `[TOC]` 与标题锚点 | 中文标题保留，重名追加序号 | 目录和大纲项 | 中文标题跳转、重名标题跳转 | 自动化 |
@@ -84,6 +84,8 @@
 |---|---|---|---|
 | AI 流式对话与九类写作操作 | AI 侧栏，选区/段落/全文/文件预览 | 使用 llama.cpp 的兼容接口改写真实选区 | macOS 真实改写、差异审阅和撤销通过 |
 | 模型配置与默认提示词 | AI 侧栏 → 模型配置、模型菜单、默认提示词 | 迁移旧配置，新增供应商及模型，切换发送请求，保存并恢复默认提示词 | Chromium、WebKit 通过键盘导航。macOS 原生窗口通过旧配置迁移、三种协议流式请求、不同供应商会话隔离及重启保留选择 |
+| 获取供应商模型 | AI → 模型配置 → 获取模型 | 读取 Chat、Responses 或 Anthropic 模型列表，筛选、多选并保存，断网时手动填写 | 本地 HTTP 鉴权和分页测试、桌面及 Android 浏览器流程通过 |
+| AI 远端 HTTP | AI → 模型配置 → API 地址 | 使用非回环 HTTP 地址，验证模型列表和流式对话 | Rust 测试使用非回环网卡地址通过，Android 真机待验 |
 | 凭据、取消、重试，选区变化检查 | AI 配置与建议卡 | 系统凭据读写，取消长生成，编辑后尝试应用陈旧建议 | macOS 钥匙串鉴权通过。Windows、Linux 凭据及取消专项待验 |
 | 本地插件热插拔 | 编辑 → 插件管理、运行插件 | 安装 JavaScript 和 WebAssembly 包，启用或替换后直接执行命令，审阅、应用及撤销 | macOS 原生窗口通过 |
 | 表格转换、中文排版和文档目录 | 编辑 → 插件市场 → 内置插件 | CSV 往返，保护代码的中文排版，目录生成、锚点跳转和移除 | macOS 原生窗口通过 |
@@ -100,12 +102,13 @@
 | 功能 | Android 原生命令 | 接入约束 |
 |---|---|---|
 | 模型配置 | `ai_settings`、`ai_provider_save({ provider, key })`、`ai_provider_remove({ id })`、`ai_model_select({ selection })` | 使用桌面供应商和模型类型。新增供应商 ID 须为 UUID。省略 `key` 时，同地址同协议保留旧密钥。传空串清除。更换地址或协议时重新填写密钥。Android Keystore 保护凭据，前端仅接收 `hasKey` |
+| 获取模型列表 | `ai_list_models({ request: { id, endpoint, protocol, key } })` | 调用供应商 API 前缀下的 `/models`，返回去重的模型 ID。省略 `key` 时在同地址同协议沿用存储的密钥。获取时传入的密钥仅用于本次请求 |
 | AI 流式写作 | `ai_stream({ id, selection, messages, event })`、`ai_cancel({ id })` | 支持 `chat`、`anthropic`、`responses`。`id` 每次生成使用新 UUID。`messages` 的元素为 `{ role, text }`。Tauri Channel 发送 `delta`、`done` 或 `cancelled`，出错时 invoke 拒绝。等 `done` 后进入差异审阅 |
 | 插件安装和运行 | `plugin_list`、`plugin_install_content({ text })`、`plugin_set_enabled({ id, enabled })`、`plugin_remove({ id })`、`plugin_run({ id, command, text })` | `text` 为 SAF 读出的 UTF-8 JSON，最多 2 MiB。支持 JavaScript 与 Rust 编译的 Wasm。安装后先启用，运行仅返回文本结果。接口 3 的多文档和图片命令需要前端提供对应的文件或图片工作流 |
 | 插件市场 | `plugin_market_list({ source, refresh })`、`plugin_market_install({ source, id, sha256 })` | `source: null` 使用内置离线目录。在线安装传入列表返回的源地址、插件 ID 和摘要。安装返回 `{ installed, catalog }` |
 | MCP 客户端 | `mcp_connect({ server })`、`mcp_connected`、`mcp_call({ id, item, args })`、`mcp_disconnect({ id })` | `server` 为 `{ id, name, transport: 'http', url }`。连接后返回服务端发布的工具、资源和提示词。调用参数只在本次调用传给服务。stdio 客户端、stdio 服务及工作区授权仅限桌面 |
 
-Android 的服务设置地址支持公开 CA 签发证书的 HTTPS，以及设备回环 HTTP。填写可直接访问的端点，避免重定向。地址禁用用户名、密码、查询参数及片段。密钥只在保存供应商时临时传入 `key`，会话和偏好文件只保存普通配置。
+Android 的 AI 供应商支持 HTTP 和公开 CA 签发证书的 HTTPS，MCP 和插件市场支持 HTTPS 或设备回环 HTTP。填写可直接访问的端点，避免重定向。地址禁用用户名、密码、查询参数及片段。保存供应商和获取列表时可临时传入 `key`，会话和偏好文件只保存普通配置。
 
 ## Typora 2 beta 后续里程碑
 
