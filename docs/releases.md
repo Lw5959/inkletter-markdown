@@ -29,7 +29,7 @@
 
 Android 构建安装 JDK、Android SDK 37、Build Tools 37.0.0、NDK 28.2.13676358 和可供 bindgen 使用的 libclang。Gradle 使用 AGP 内置 Kotlin，Java 和 Kotlin 均生成 Java 17 字节码。为 `BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android` 指定所选 NDK 的 `--sysroot`。在 `src-tauri/gen/android/app/build/outputs/apk` 找到未签名 APK，签名后用 `apksigner verify` 核对。
 
-Debian 构建需要 `appstreamcli`、`gpg` 和同架构的 `appimagetool`。用 `YEYU_APPIMAGETOOL` 或 `PATH` 指定 `appimagetool`。使用独立 runtime 时，用 `YEYU_APPIMAGE_RUNTIME` 指定同架构的官方文件。构建入口从 DEB 生成 AppDir，一次收集 WebKitGTK 依赖和许可证，并用 xz 打包。DEB 与 AppImage 分别含 `DEB` 和 `APP` 标记，用于应用内选择正确的更新包。
+Debian 构建需要 `appstreamcli`、`desktop-file-validate`、`gpg`、支持 xz 的 `mksquashfs` 以及同架构的 `appimagetool`。用 `YEYU_APPIMAGETOOL` 或 `PATH` 指定 `appimagetool`。从 AppImage 提取工具时，使用其中的 `usr/bin/appimagetool` 并把系统的 `mksquashfs` 放在 `PATH` 前面。使用独立 runtime 时，用 `YEYU_APPIMAGE_RUNTIME` 指定同架构的官方文件。构建入口从 DEB 生成 AppDir，一次收集 WebKitGTK 依赖和许可证，并用 xz 打包。DEB 与 AppImage 分别含 `DEB` 和 `APP` 标记，用于应用内选择正确的更新包。
 
 ## 发布到 GitHub 和 Gitee
 
