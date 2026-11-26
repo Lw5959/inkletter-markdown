@@ -1141,23 +1141,20 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     expect(actions).toContainEqual({ type: 'suggestion-dismiss', id: 'sug-1' })
   })
 
-  it('软件更新从帮助菜单进入，忽略已关闭的检查并区分原生进度与系统下载', async () => {
+  it('软件更新从帮助菜单进入，支持签名更新和 DEB 应用内下载', async () => {
     const api = 'https://api.github.com/repos/Lw5959/yeyu/releases/latest'
-    const url = 'https://github.com/Lw5959/yeyu/releases/download/v9.0.1/Yeyu_9.0.1_linux-x64.deb'
-    await page.route(api, route => route.fulfill({ json: {
-      tag_name: 'v9.0.1', body: 'DEB 发布说明', assets: [{ name: 'Yeyu_9.0.1_linux-x64.deb', browser_download_url: url }],
-    } }))
+    await page.route(api, route => route.abort())
     try {
       await page.goto(baseUrl + '/__ui_harness__')
       await page.evaluate(`(async () => {
         const { mockIPC, mockWindows } = await import('/node_modules/@tauri-apps/api/mocks.js')
-        const test = window.__updates = { checks: [], writes: [], operations: [], package: null, ready: false }
+        const test = window.__updates = { checks: [], writes: [], operations: [], package: false, ready: false }
         test.release = { version: '9.0.1', notes: '<b>桌面发布说明</b>' }
         mockWindows('main')
         mockIPC((cmd, args) => {
           switch (cmd) {
             case 'plugin:app|version': return '0.2.5'
-            case 'plugin:dialog|save': return '/tmp/页屿更新测试.md'
+            case 'plugin:dialog|save': return args.options?.defaultPath?.endsWith('.deb') ? '/tmp/页屿更新.deb' : '/tmp/页屿更新测试.md'
             case 'theme_list': case 'plugin_list': case 'typora_theme_paths': return []
             case 'ai_settings': return { providers: [], active: null }
             case 'launch_paths': test.ready = true; return []
@@ -1168,6 +1165,21 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
               return { ...args, version: '1', name: '页屿更新测试.md' }
             case 'save_recovery': if (!args.recovery) test.operations.push('checkpoint'); return
             case 'update_package': return test.package
+            case 'update_check_package': return { version: '9.0.1', notes: 'DEB 发布说明' }
+            case 'update_download_package': {
+              test.downloadedVersion = args.version
+              const send = event => window.__TAURI_INTERNALS__.runCallback(args.progress.id, event)
+              send({ index: 0, message: { kind: 'download', downloaded: 524288, total: 1048576 } })
+              return new Promise(resolve => {
+                test.finishDownload = () => {
+                  send({ index: 1, message: { kind: 'verify' } })
+                  send({ index: 2, end: true })
+                  resolve()
+                }
+              })
+            }
+            case 'update_open_package': test.openedVersion = args.version; return 'save'
+            case 'update_save_package': test.savedPackage = args; return
             case 'update_check': return new Promise((resolve, reject) => test.checks.push({ resolve, reject }))
             case 'update_install': {
               test.operations.push('install')
@@ -1247,11 +1259,20 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       await dialog.getByText('更新未完成').waitFor()
       expect(await dialog.innerText()).not.toContain('fixture-secret')
 
-      await page.evaluate('window.__updates.package = "linux-x64.deb"')
+      await page.evaluate('window.__updates.package = true')
       await dialog.getByRole('button', { name: '重试' }).click()
       await dialog.getByRole('button', { name: '下载更新' }).click()
-      await dialog.getByText('已将下载链接交给系统').waitFor()
-      expect(await page.evaluate('window.__updates.visited')).toBe(url)
+      await dialog.getByText('512.0 KiB / 1.0 MiB · 50%').waitFor()
+      expect(await page.evaluate('window.__updates.downloadedVersion')).toBe('9.0.1')
+      expect(await dialog.getByRole('button', { name: '打开安装包' }).count()).toBe(0)
+      await page.evaluate('window.__updates.finishDownload()')
+      await dialog.getByText('安装包已校验，可以开始安装。').waitFor()
+      await dialog.getByRole('button', { name: '打开安装包' }).click()
+      await dialog.getByRole('button', { name: '保存安装包' }).click()
+      await dialog.getByText('安装包已保存').waitFor()
+      expect(await page.evaluate('window.__updates.openedVersion')).toBe('9.0.1')
+      expect(await page.evaluate('window.__updates.savedPackage')).toEqual({ version: '9.0.1', path: '/tmp/页屿更新.deb' })
+      expect(await page.evaluate('window.__updates.visited')).toBeUndefined()
       expect(await progress.count()).toBe(0)
       await dialog.getByRole('button', { name: '关闭' }).click()
     } finally {
@@ -1263,9 +1284,10 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     await page.setViewportSize({ width: 390, height: 736 })
     const updates = 'https://api.github.com/repos/Lw5959/yeyu/releases/latest'
     try {
-      await page.route(updates, route => route.fulfill({ json: { tag_name: 'v0.2.8', assets: [] } }))
+      await page.route(updates, route => route.abort())
       await page.goto(`${baseUrl}/__ui_harness__`)
       await page.evaluate(`(async () => {
+        const { mockIPC } = await import('/node_modules/@tauri-apps/api/mocks.js')
         const path = 'content://qa/document/01'
         const document = { uri: path, name: '移动笔记.md', text: '# 标题\\r\\n\\r\\n正文\\n', bom: true, version: '1', writable: true }
         const writes = []
@@ -1277,13 +1299,31 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
         const builtins = () => ({ name: '内置插件', source: null, plugins: [{ ...bundled,
           availability: installed.length ? 'installed' : 'install', installedVersion: installed[0]?.version ?? null }] })
         let picks = 0
-        window.__TAURI_INTERNALS__ = { invoke: async (cmd, payload) => {
+        const updateOps = window.__mobileUpdate = []
+        let installerOpens = 0
+        mockIPC((cmd, payload) => {
           if (cmd === 'android_pick') { picks++; return path }
           if (cmd === 'android_read') { reads.push(payload.uri); return document }
           if (cmd === 'android_write') { writes.push(payload); return { ...document, text: payload.text, version: '2' } }
           if (cmd === 'android_load_session') return { uri: 'content://qa/last-note', theme: 'default', animations: true, mode: 'live' }
           if (cmd === 'android_insets') return { top: 26, bottom: 10, left: 0, right: 0 }
           if (cmd === 'plugin:app|version') return '0.2.8'
+          if (cmd === 'update_check_package') return { version: '0.2.14', notes: '应用内更新' }
+          if (cmd === 'update_download_package') {
+            updateOps.push('下载 ' + payload.version)
+            const send = event => window.__TAURI_INTERNALS__.runCallback(payload.progress.id, event)
+            send({ index: 0, message: { kind: 'download', downloaded: 1024, total: 2048 } })
+            return new Promise(resolve => { window.__finishMobileDownload = () => {
+              send({ index: 1, message: { kind: 'verify' } })
+              send({ index: 2, end: true })
+              resolve()
+            } })
+          }
+          if (cmd === 'update_open_package') {
+            updateOps.push('安装 ' + payload.version)
+            return installerOpens++ === 0 ? 'permission' : 'installer'
+          }
+          if (cmd === 'visit_link' || cmd === 'android_open_update') updateOps.push('打开浏览器')
           if (cmd === 'ai_settings') return { providers: [], active: null }
           if (cmd === 'ai_list_models') { modelRequests.push(payload.request); return ['local-edit'] }
           if (cmd === 'plugin_list') return installed
@@ -1293,7 +1333,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
             return { installed, catalog: builtins() }
           }
           return null
-        } }
+        })
         window.__mobileWrites = writes
         window.__mobileModelRequests = modelRequests
         window.__mobileStartup = () => ({ picks, reads })
@@ -1395,7 +1435,15 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       await plugins.waitFor({ state: 'hidden' })
       await menu.getByRole('button', { name: '检查更新', exact: true }).click()
       const update = page.getByRole('region', { name: '软件更新' })
-      await update.getByText('已是最新版本').waitFor()
+      await update.getByRole('button', { name: '下载更新' }).click()
+      await update.getByText('1.0 KiB / 2.0 KiB · 50%').waitFor()
+      await page.evaluate('window.__finishMobileDownload()')
+      const install = update.getByRole('button', { name: '安装更新' })
+      await install.click()
+      await update.getByText('需要安装授权').waitFor()
+      await install.click()
+      await update.getByText('已打开安装包').waitFor()
+      expect(await page.evaluate('window.__mobileUpdate')).toEqual(['下载 0.2.14', '安装 0.2.14', '安装 0.2.14'])
       expect(await page.locator('dialog[open], .yy-modal-backdrop').count()).toBe(0)
       await back()
       await update.waitFor({ state: 'hidden' })

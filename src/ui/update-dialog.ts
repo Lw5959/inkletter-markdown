@@ -7,12 +7,22 @@ import type { createPages } from './pages'
 
 export type UpdateProgress =
   | { kind: 'download'; downloaded: number; total: number | null }
+  | { kind: 'verify' }
   | { kind: 'install' }
+
+export type PackageLaunch = 'installer' | 'permission' | 'save'
+
+type PackageOffer = {
+  kind: 'package'
+  apply: (report: (progress: UpdateProgress) => void) => Promise<void>
+  install: () => Promise<PackageLaunch>
+  save?: () => Promise<string | null>
+}
 
 export type UpdateOffer = { version: string; notes: string } & (
   // 返回 false 表示用户取消了保存或安装确认，可以回到文档。
   | { kind: 'install'; apply: (report: (progress: UpdateProgress) => void) => Promise<void | false> }
-  | { kind: 'external'; apply: () => Promise<void> }
+  | PackageOffer
 )
 
 function formatBytes(bytes: number) {
@@ -22,7 +32,7 @@ function formatBytes(bytes: number) {
 }
 
 /** 打开更新界面并立即检查，用户点击确认后才调用 apply。 */
-export function showUpdate(check: (installedVersion: string) => Promise<UpdateOffer | null>, pages?: Pick<ReturnType<typeof createPages>, 'open'>) {
+export function showUpdate(check: () => Promise<UpdateOffer | null>, pages?: Pick<ReturnType<typeof createPages>, 'open'>) {
   if (!pages && document.querySelector('dialog.yy-update-dialog[open]')) return
 
   const dialog = pages ? null : el('dialog', { className: 'app-dialog yy-update-dialog', attrs: { 'aria-label': '软件更新' } })
@@ -62,9 +72,9 @@ export function showUpdate(check: (installedVersion: string) => Promise<UpdateOf
 
   function report(progress: UpdateProgress) {
     if (!applying || !active()) return
-    if (progress.kind === 'install') {
+    if (progress.kind !== 'download') {
       download.hidden = true
-      showStatus('正在校验签名并安装…')
+      showStatus(progress.kind === 'install' ? '正在校验签名并安装…' : '正在校验安装包…')
       return
     }
     if (download.hidden) showStatus('正在下载更新…')
@@ -81,29 +91,20 @@ export function showUpdate(check: (installedVersion: string) => Promise<UpdateOf
     }
   }
 
-  async function apply(release: UpdateOffer) {
+  async function runAction(title: string, action: () => Promise<void>) {
     if (applying || !active()) return
     applying = true
     primary.hidden = true
     dismiss.disabled = true
-    showStatus(release.kind === 'install' ? '正在准备更新…' : '正在打开下载链接…')
+    showStatus(title)
     headline.focus()
 
     try {
-      if (release.kind === 'install') {
-        if (await release.apply(report) === false) {
-          dialog?.close()
-          return
-        }
-        if (active()) showStatus('更新已安装', '页屿正在重新启动。')
-      } else {
-        await release.apply()
-        if (active()) showStatus('已将下载链接交给系统', '请在浏览器或系统下载界面查看进度。')
-      }
+      await action()
     } catch {
       if (!active()) return
       // 原生及网络错误可能带有下载 URL，界面只展示可操作的提示。
-      showStatus(release.kind === 'install' ? '更新未完成' : '无法打开下载链接', '请重新检查更新后重试。')
+      showStatus('更新未完成', '请重新检查更新后重试。')
       showAction('重试', checkForUpdate)
     } finally {
       applying = false
@@ -111,6 +112,49 @@ export function showUpdate(check: (installedVersion: string) => Promise<UpdateOf
       dismiss.disabled = false
       if (active() && dialog) dismiss.focus()
     }
+  }
+
+  function installPackage(release: PackageOffer) {
+    return runAction('正在打开安装包…', async () => {
+      const result = await release.install()
+      if (!active()) return
+      if (result === 'permission') {
+        showStatus('需要安装授权', '请在系统设置中允许页屿安装应用，返回后再点「安装更新」。')
+      } else if (result === 'installer') {
+        showStatus('已打开安装包', '请在系统界面确认安装。')
+      } else {
+        const save = release.save
+        if (!save) throw new Error('未找到系统安装器')
+        showStatus('更新已下载', '当前系统没有可用的安装程序，可以将安装包保存到本地。')
+        showAction('保存安装包', () => savePackage(save))
+        return
+      }
+      showAction(release.save ? '打开安装包' : '安装更新', () => installPackage(release))
+    })
+  }
+
+  function savePackage(save: NonNullable<PackageOffer['save']>) {
+    return runAction('正在保存安装包…', async () => {
+      const path = await save()
+      if (!active()) return
+      showStatus(path ? '安装包已保存' : '更新已下载', path ?? '可以将安装包保存到本地。')
+      showAction('保存安装包', () => savePackage(save))
+    })
+  }
+
+  function apply(release: UpdateOffer) {
+    return runAction('正在准备更新…', async () => {
+      const result = await release.apply(report)
+      if (!active()) return
+      if (result === false) {
+        dialog?.close()
+      } else if (release.kind === 'install') {
+        showStatus('更新已安装', '页屿正在重新启动。')
+      } else {
+        showStatus('更新已下载', '安装包已校验，可以开始安装。')
+        showAction(release.save ? '打开安装包' : '安装更新', () => installPackage(release))
+      }
+    })
   }
 
   async function checkForUpdate() {
@@ -123,7 +167,7 @@ export function showUpdate(check: (installedVersion: string) => Promise<UpdateOf
       installedVersion ??= await getVersion()
       if (!active()) return
       current.textContent = '当前版本 ' + installedVersion
-      const release = await check(installedVersion)
+      const release = await check()
       // 检查可能在用户离开后才返回，此时丢弃结果。
       if (!active()) return
       if (!release) {
@@ -133,7 +177,7 @@ export function showUpdate(check: (installedVersion: string) => Promise<UpdateOf
       const installs = release.kind === 'install'
       showStatus('发现新版本 ' + release.version, installs
         ? '确认后将下载并校验安装包，安装完成后重启页屿。'
-        : '确认后将在应用外打开下载链接。')
+        : '更新将在页屿内下载并校验，完成后可打开安装包。')
       notesBody.textContent = release.notes.trim() || '暂无发布说明。'
       notesBody.scrollTop = 0
       notes.hidden = false

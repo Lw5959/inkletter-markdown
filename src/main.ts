@@ -698,13 +698,16 @@ async function applyTitlebar(material: TitlebarMaterial) {
 }
 
 function checkAppUpdate() {
-  showUpdate(async installedVersion => {
-    const standalone = await invoke<string | null>('update_package')
-    if (standalone) {
-      const release = await checkPublishedPackage(standalone, installedVersion)
-      return release && { ...release, kind: 'external', apply: () => invoke<void>('visit_link', { url: release.url }) }
-    }
-    const release = await invoke<Pick<ReleaseInfo, 'version' | 'notes'> | null>('update_check')
+  showUpdate(async () => {
+    if (await invoke<boolean>('update_package')) return checkPublishedPackage({
+      beforeInstall: checkpoint,
+      async save(version) {
+        const path = await save({ defaultPath: `Yeyu_${version}.deb`, filters: [{ name: 'DEB', extensions: ['deb'] }] })
+        if (path) await invoke('update_save_package', { version, path })
+        return path
+      },
+    })
+    const release = await invoke<ReleaseInfo | null>('update_check')
     return release && {
       ...release,
       kind: 'install',

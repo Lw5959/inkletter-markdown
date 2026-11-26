@@ -8,6 +8,7 @@ mod document_bytes;
 mod mcp;
 mod plugins;
 mod store;
+mod updates;
 
 #[tauri::mobile_entry_point]
 pub fn run() {

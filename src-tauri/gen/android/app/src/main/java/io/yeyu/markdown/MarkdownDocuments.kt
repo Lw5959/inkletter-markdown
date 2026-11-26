@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.CancellationSignal
 import android.os.ParcelFileDescriptor
@@ -13,9 +14,11 @@ import android.print.PrintDocumentAdapter
 import android.print.PrintManager
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
+import android.provider.Settings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.result.ActivityResult
+import androidx.core.content.FileProvider
 import androidx.core.view.WindowCompat
 import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
@@ -25,6 +28,7 @@ import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import org.json.JSONArray
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 
@@ -48,6 +52,9 @@ class BackNavigationArgs { var enabled: Boolean = false; var animated: Boolean =
 
 @InvokeArg
 class UrlArgs { lateinit var url: String }
+
+@InvokeArg
+class UpdateArgs { lateinit var path: String }
 
 @TauriPlugin
 class MarkdownDocuments(private val activity: Activity) : Plugin(activity) {
@@ -255,19 +262,27 @@ class MarkdownDocuments(private val activity: Activity) : Plugin(activity) {
     }
 
     @Command
-    fun downloadUpdate(invoke: Invoke) {
+    fun installUpdate(invoke: Invoke) {
         try {
-            val uri = Uri.parse(invoke.parseArgs(UrlArgs::class.java).url)
-            val path = uri.path.orEmpty()
-            if (uri.scheme != "https" || uri.host != "github.com" ||
-                !path.startsWith("/Lw5959/yeyu/releases/download/") || !path.endsWith("_android-arm64.apk")) {
-                invoke.reject("更新地址与页屿 GitHub 发布仓库不匹配")
+            val file = File(invoke.parseArgs(UpdateArgs::class.java).path).canonicalFile
+            require(file.parentFile == File(activity.cacheDir, "updates").canonicalFile &&
+                file.name.startsWith("Yeyu_") && file.name.endsWith("_android-arm64.apk") && file.isFile) {
+                "找不到已校验的页屿安装包"
+            }
+            // Android 8 起，由用户为当前应用授权安装来源。回到页屿后可直接打开已下载的 APK。
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !activity.packageManager.canRequestPackageInstalls()) {
+                activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.fromParts("package", activity.packageName, null)))
+                invoke.resolve(JSObject().put("status", "permission"))
                 return
             }
-            activity.startActivity(Intent(Intent.ACTION_VIEW, uri))
-            invoke.resolve()
+            val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.fileprovider", file)
+            activity.startActivity(Intent(Intent.ACTION_VIEW)
+                .setDataAndType(uri, "application/vnd.android.package-archive")
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+            invoke.resolve(JSObject().put("status", "installer"))
         } catch (error: Exception) {
-            invoke.reject("无法打开 GitHub APK 下载", error)
+            invoke.reject("无法打开系统安装器", error)
         }
     }
 

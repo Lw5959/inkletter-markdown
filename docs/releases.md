@@ -32,4 +32,4 @@ Android 构建安装 Android SDK 37、Build Tools 37.0.0、NDK 28.2.13676358 和
 3. 推送源码并将标签指向实际构建提交。在 GitHub 创建对应标签的 Release 草稿，上传安装包、更新包、签名和两个清单。核对远端资产列表和 SHA-256 后再公开发布。
 4. 将安装包和更新包齐全的稳定版本设为最新，并从公开的 `releases/latest/download/latest.json` 读回版本和下载地址。
 
-应用查询 GitHub 最新稳定 Release。桌面原生更新使用 `latest.json` 并验证产物签名。DEB 和 Android 在用户确认后交给系统安装器。用户仍可从 Releases 页面下载对应系统和架构的安装包。
+应用内「检查更新」从 GitHub Releases 获取最新稳定版。macOS、Windows 和 Linux AppImage 使用 `latest.json` 下载签名更新包。Linux DEB 和 Android 在页屿里显示下载进度，依据发布资产的 SHA-256 核对文件，下载完成后可打开系统安装器。Android 首次从页屿安装时需要在系统设置中授权来源，返回后可继续安装。Linux 缺少关联的安装程序时，可将 DEB 保存到指定位置。

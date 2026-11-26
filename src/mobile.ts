@@ -497,14 +497,7 @@ async function exportDocument(format: 'html' | 'pdf') {
 }
 
 function showMobileUpdate() {
-  showUpdate(async version => {
-    const release = await checkPublishedPackage('android-arm64.apk', version)
-    if (!release) return null
-    return { ...release, kind: 'external', async apply() {
-      await checkpoint()
-      await invoke('android_open_update', { url: release.url })
-    } }
-  }, { open: pages.push })
+  showUpdate(() => checkPublishedPackage({ beforeInstall: checkpoint }), { open: pages.push })
 }
 
 async function openService(page: MobileServicePage) {

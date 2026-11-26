@@ -74,6 +74,8 @@ fn main() {
         );
     }
     let builder = tauri::Builder::default();
+    #[cfg(target_os = "linux")]
+    let builder = builder.manage(updates::package::Downloads::default());
     #[cfg(target_os = "macos")]
     let builder = builder
         .menu(native_menu::build)
@@ -126,6 +128,14 @@ fn main() {
             updates::update_package,
             updates::update_check,
             updates::update_install,
+            #[cfg(target_os = "linux")]
+            updates::package::update_check_package,
+            #[cfg(target_os = "linux")]
+            updates::package::update_download_package,
+            #[cfg(target_os = "linux")]
+            updates::package::update_open_package,
+            #[cfg(target_os = "linux")]
+            updates::package::update_save_package,
             associations::markdown_default,
             #[cfg(target_os = "macos")]
             titlebar::titlebar_apply,

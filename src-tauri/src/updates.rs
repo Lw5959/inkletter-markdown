@@ -1,7 +1,13 @@
 use serde::Serialize;
+#[cfg(not(target_os = "android"))]
 use std::time::{Duration, Instant};
+#[cfg(not(target_os = "android"))]
 use tauri::{AppHandle, ipc::Channel};
+#[cfg(not(target_os = "android"))]
 use tauri_plugin_updater::{Update, UpdaterExt};
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+pub mod package;
 
 #[derive(Serialize)]
 pub struct UpdateInfo {
@@ -12,24 +18,24 @@ pub struct UpdateInfo {
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum UpdateProgress {
-    Download { downloaded: u64, total: Option<u64> },
+    Download {
+        downloaded: u64,
+        total: Option<u64>,
+    },
+    #[cfg(any(target_os = "android", target_os = "linux"))]
+    Verify,
+    #[cfg(not(target_os = "android"))]
     Install,
 }
 
+#[cfg(not(target_os = "android"))]
 #[tauri::command]
-pub fn update_package() -> Option<String> {
+pub fn update_package() -> bool {
     // DEB 由系统包管理器安装，AppImage 使用原生签名更新流程。
-    if cfg!(target_os = "linux") && std::env::var_os("APPIMAGE").is_none() {
-        let arch = if std::env::consts::ARCH == "aarch64" {
-            "arm64"
-        } else {
-            "x64"
-        };
-        return Some(format!("linux-{arch}.deb"));
-    }
-    None
+    cfg!(target_os = "linux") && std::env::var_os("APPIMAGE").is_none()
 }
 
+#[cfg(not(target_os = "android"))]
 #[tauri::command]
 pub async fn update_check(app: AppHandle) -> Result<Option<UpdateInfo>, String> {
     let update = fetch_update(&app).await?;
@@ -39,6 +45,7 @@ pub async fn update_check(app: AppHandle) -> Result<Option<UpdateInfo>, String> 
     }))
 }
 
+#[cfg(not(target_os = "android"))]
 async fn fetch_update(app: &AppHandle) -> Result<Option<Update>, String> {
     let updater = app.updater().map_err(|_| "无法初始化更新服务")?;
     // 超时只限制发布信息检查，避免慢速网络上的大安装包被提前中断。
@@ -48,6 +55,7 @@ async fn fetch_update(app: &AppHandle) -> Result<Option<Update>, String> {
         .map_err(|_| "无法读取更新发布信息".into())
 }
 
+#[cfg(not(target_os = "android"))]
 #[tauri::command]
 pub async fn update_install(
     app: AppHandle,

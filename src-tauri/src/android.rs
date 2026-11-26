@@ -3,6 +3,7 @@ use crate::{
     document_bytes::{decode, encode, hash},
     mcp, plugins,
     store::{Store, err},
+    updates::package::{self, Downloads},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -257,11 +258,21 @@ async fn android_appearance(
 }
 
 #[tauri::command]
-async fn android_open_update(url: String, documents: State<'_, Documents>) -> Result<(), String> {
-    documents
+async fn update_open_package(
+    version: String,
+    downloads: State<'_, Downloads>,
+    documents: State<'_, Documents>,
+) -> Result<String, String> {
+    #[derive(Deserialize)]
+    struct Launch {
+        status: String,
+    }
+    let path = package::verified_path(&downloads, &version).await?;
+    let launch: Launch = documents
         .plugin
-        .run_mobile_plugin("downloadUpdate", json!({ "url": url }))
-        .map_err(err)
+        .run_mobile_plugin("installUpdate", json!({ "path": path }))
+        .map_err(err)?;
+    Ok(launch.status)
 }
 
 #[tauri::command]
@@ -290,6 +301,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(documents)
         .plugin(ai::config::android_credentials())
+        .manage(Downloads::default())
         .manage(ai::Jobs::default())
         .manage(plugins::Plugins::default())
         .manage(plugins::market::Market::default())
@@ -322,7 +334,9 @@ pub fn run() {
             android_insets,
             android_back_navigation,
             android_appearance,
-            android_open_update,
+            package::update_check_package,
+            package::update_download_package,
+            update_open_package,
             visit_link,
             ai::config::ai_settings,
             ai::config::ai_provider_save,
