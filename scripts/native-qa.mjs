@@ -14,6 +14,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 const [exe, kind = 'full'] = process.argv.slice(2)
 if (!exe || !['full', 'measure', 'titlebar', 'opencode', 'windows'].includes(kind)) throw new Error('用法：node scripts/native-qa.mjs <QA 程序> [full|measure|titlebar|opencode|windows]')
 const folder = mkdtempSync(join(tmpdir(), 'yeyu-native-'))
+const finderBundle = process.platform === 'darwin' ? process.env.YEYU_QA_FINDER_BUNDLE : undefined
 const root = join(folder, 'workspace')
 const guide = join(root, '验收.md')
 const plainText = join(root, '纯文本.txt')
@@ -64,6 +65,7 @@ copyFileSync('assets/app-icon.png', join(folder, '源 图.png'))
 copyFileSync('assets/app-icon.png', join(folder, 'copy.png'))
 const setup = {
   phase: kind, root, guide, mb1, mb10, exports, plugin, updatedPlugin, batchPaths, gallery, plainText,
+  finder: !!finderBundle,
   themes: [...themes, { path: customTheme, name: '相对资源与级联夹具' }],
   typora: process.env.YEYU_TEST_TYPORA ? JSON.parse(process.env.YEYU_TEST_TYPORA) : undefined,
   typoraConfig: process.env.YEYU_TEST_TYPORA_CONFIG === '1',
@@ -235,9 +237,25 @@ try {
     const rssStartupKiB = rss()
     const metrics = await result('measurement')
     console.log(JSON.stringify({ ...ready, ...metrics, rssStartupKiB, rssAfter10MbKiB: rss() }, null, 2))
-  } else if (kind === 'titlebar' || kind === 'windows') {
+  } else if (kind === 'titlebar') {
     boot(kind)
     console.log(JSON.stringify(await result(kind), null, 2))
+  } else if (kind === 'windows') {
+    boot(kind)
+    if (finderBundle) {
+      await result('finder-ready')
+      execFileSync('open', ['-a', finderBundle, plainText, guide])
+    }
+    const verified = await result(kind)
+    await result('window-main-draft')
+    await result('window-other-draft')
+    assert.match(readFileSync(guide, 'utf8'), /已保存的 Markdown$/)
+    assert.match(readFileSync(plainText, 'utf8'), /已保存的 TXT$/)
+    await terminate('SIGKILL')
+    boot('recover-windows')
+    await result('window-main-recovered')
+    await result('window-other-recovered')
+    console.log(JSON.stringify({ ...verified, savedIndependently: true, recoveredBoth: true, finder: !!finderBundle }, null, 2))
   } else if (kind === 'opencode') {
     boot(kind)
     const configuration = await result('opencode-config')

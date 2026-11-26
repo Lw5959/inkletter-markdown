@@ -10,7 +10,7 @@ import { choose } from './dialogs'
 import { showUpdate } from './ui/update-dialog'
 
 type Case = {
-  phase: 'full' | 'recover' | 'measure' | 'titlebar' | 'opencode' | 'windows'
+  phase: 'full' | 'recover' | 'measure' | 'titlebar' | 'opencode' | 'windows' | 'recover-windows'
   epoch: number
   root: string
   guide: string
@@ -33,6 +33,7 @@ type Case = {
   updatedPlugin: string
   gallery: string
   plainText: string
+  finder?: boolean
   batchPaths: string[]
 }
 type Ports = {
@@ -83,7 +84,7 @@ function setInput(input: HTMLInputElement | HTMLTextAreaElement, value: string) 
 
 export async function prepareRecovery() {
   const scenario = await config()
-  if (scenario.phase !== 'recover') return
+  if (scenario.phase !== 'recover' && scenario.phase !== 'recover-windows') return
   const observer = new MutationObserver(() => {
     const dialog = [...document.querySelectorAll<HTMLDialogElement>('.app-dialog')].find(element =>
       element.querySelector('h2')?.textContent === '恢复未保存文档')
@@ -396,8 +397,13 @@ async function verifyWindows(ports: Ports, scenario: Case) {
   const draft = '\r\n独立窗口中的未保存文本'
   ports.editor.replace(original.length, original.length, draft)
   await ports.checkpoint()
-  await ports.openPath(scenario.plainText)
-  const editors = await editorWindows()
+  if (scenario.finder) await mark('finder-ready', {})
+  else await ports.openPath(scenario.plainText)
+  let editors = await editorWindows()
+  for (let retry = 0; editors.length < 2 && retry < 100; retry++) {
+    await wait(80)
+    editors = await editorWindows()
+  }
   check(editors.length === 2 && editors.some(item => item.title === '纯文本.txt'), 'TXT 文件独占一个原生文档窗口')
   await ports.openPath(scenario.plainText)
   check((await editorWindows()).length === 2, '同一路径重复打开时聚焦已有窗口')
@@ -456,7 +462,20 @@ async function verifyWindows(ports: Ports, scenario: Case) {
   } finally {
     window.open = originalOpen
   }
+  await testWindowDraft(ports, true)
   return { documents: 2, txt: true, deduplicate: true, undo: true, plugins: true, confirm: true, doubleConfirm: true, update: true }
+}
+
+async function testWindowDraft(ports: Ports, main: boolean) {
+  await ports.action({ type: 'autosave', enabled: false })
+  const saved = ports.text() + (main ? '\r\n已保存的 Markdown' : '\r\n已保存的 TXT')
+  ports.editor.replace(ports.text().length, ports.text().length, saved.slice(ports.text().length))
+  check(await ports.saveFile() && (await native.read(ports.state.path!)).text === saved, '各窗口独立保存文件')
+  const draft = main ? '\r\n主窗口恢复草稿' : '\r\n第二窗口恢复草稿'
+  ports.editor.replace(saved.length, saved.length, draft)
+  await ports.action({ type: 'mode', mode: 'source' })
+  await ports.checkpoint()
+  await mark(main ? 'window-main-draft' : 'window-other-draft', { path: ports.state.path })
 }
 
 async function verifyFull(ports: Ports, scenario: Case) {
@@ -1063,6 +1082,18 @@ export async function runNativeQa(ports: Ports) {
   try {
     const scenario = await config()
     await frame()
+    const main = getCurrentWindow().label === 'main'
+    if (scenario.phase === 'recover-windows') {
+      const expected = main ? '主窗口恢复草稿' : '第二窗口恢复草稿'
+      check(ports.state.path?.endsWith(main ? '验收.md' : '纯文本.txt') &&
+        ports.text().endsWith(expected) && ports.state.dirty && ports.state.mode === 'source', '各窗口恢复自己的草稿和源码模式')
+      await mark(main ? 'window-main-recovered' : 'window-other-recovered', { path: ports.state.path })
+      return
+    }
+    if (!main) {
+      if (scenario.phase === 'windows' && ports.state.path?.endsWith('纯文本.txt')) await testWindowDraft(ports, false)
+      return
+    }
     if (scenario.phase === 'measure') await measure(ports, scenario)
     else if (scenario.phase === 'titlebar') await mark('titlebar', await verifyTitlebarResize())
     else if (scenario.phase === 'opencode') {

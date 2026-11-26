@@ -1380,7 +1380,7 @@ async function startup() {
     loaded = true
     update(reason(error))
   }
-  if (__YEYU_QA__ && getCurrentWindow().label === 'main') {
+  if (__YEYU_QA__) {
     void import('./qa').then(({ runNativeQa }) => runNativeQa({
       editor, state, action: dispatch, openPath, setWorkspace, addTheme: path => addThemes([path]), installPlugin, formatFiles, exportTo,
       saveFile, checkpoint, text, writing, protocol, monitor, shareSelection, setDocument,
@@ -1424,7 +1424,7 @@ async function startup() {
   }).catch(error => update(reason(error)))
 }
 
-if (__YEYU_QA__ && getCurrentWindow().label === 'main') void import('./qa').then(({ prepareRecovery }) => prepareRecovery())
+if (__YEYU_QA__) void import('./qa').then(({ prepareRecovery }) => prepareRecovery())
 void getCurrentWebviewWindow().listen('yeyu:document-open', () => {
   void loadWindowRequest()?.catch(error => update(reason(error)))
 }).catch(() => {})
