@@ -11,15 +11,22 @@
   display: block;
   color: var(--yy-ink);
   background: var(--yy-chrome-bg);
+  overflow: clip;
 }
 
-.yy-mobile-editor {
-  height: 100%;
+.yy-mobile-document-area, .yy-mobile-screen, .yy-shell.yy-mobile > .yy-tool-pages {
+  position: absolute;
+  inset: 0;
+}
+
+.yy-mobile-screen {
   display: grid;
   /* 文件名、代码和表格的固有宽度不能撑开页面列。 */
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  background: var(--yy-chrome-bg);
 }
+.yy-mobile-home { grid-template-rows: auto minmax(0, 1fr); }
+.yy-mobile-editor { grid-template-rows: auto minmax(0, 1fr) auto; }
 
 .yy-mobile-header, .yy-mobile-footer {
   display: flex;
@@ -169,10 +176,14 @@
 }
 .yy-mobile-workspace-notice, .yy-mobile-page-message { margin: 10px 12px; color: var(--yy-ink-muted); }
 
-.yy-shell.yy-mobile > .yy-tool-page {
-  position: absolute;
-  inset: 0;
+.yy-shell.yy-mobile .yy-tool-page {
   padding: var(--yy-safe-top) var(--yy-safe-right) var(--yy-safe-bottom) var(--yy-safe-left);
+}
+
+.yy-mobile [data-yeyu-back-preview] {
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: var(--yy-shadow-md);
 }
 .yy-shell.yy-mobile .yy-tool-page-header { padding: 4px 10px; }
 .yy-shell.yy-mobile .yy-tool-page-back { width: 44px; height: 44px; }

@@ -230,6 +230,21 @@ async fn android_insets(documents: State<'_, Documents>) -> Result<Value, String
 }
 
 #[tauri::command]
+async fn android_back_navigation(
+    enabled: bool,
+    animated: bool,
+    documents: State<'_, Documents>,
+) -> Result<(), String> {
+    documents
+        .plugin
+        .run_mobile_plugin(
+            "backNavigation",
+            json!({ "enabled": enabled, "animated": animated }),
+        )
+        .map_err(err)
+}
+
+#[tauri::command]
 async fn android_appearance(
     light: bool,
     color: String,
@@ -293,6 +308,7 @@ pub fn run() {
             android_load_session,
             android_save_session,
             android_insets,
+            android_back_navigation,
             android_appearance,
             android_open_update,
             ai::config::ai_settings,

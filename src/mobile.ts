@@ -3,6 +3,7 @@ import { builtinThemes } from './builtin-themes'
 import type { EditorFormat, EditorMode, Presentation, Selection } from './contracts'
 import { count, find, lineOffset } from './document-tools'
 import { createEditor } from './editor'
+import { createMobileMotion } from './mobile-motion'
 import type { MobileServicePage, MobileServiceSettings, createMobileServices } from './mobile-services'
 import { installMobileViewport } from './mobile-viewport'
 import { checkPublishedPackage } from './release-updates'
@@ -25,6 +26,7 @@ type RecentFile = { uri: string; name: string }
 type Session = { theme: string; animations: boolean; mode: EditorMode; draft?: Draft; recoveries?: Draft[];
   recent?: RecentFile[]; workspace?: string; presentation?: Presentation; services?: MobileServiceSettings }
 type PageRow = { label: string; icon?: string; checked?: boolean; action: (button: HTMLButtonElement) => void }
+type BackGesture = { phase: 'start' | 'progress' | 'cancel'; progress: number; edge: 'left' | 'right' }
 
 const recentLimit = 12
 
@@ -47,6 +49,11 @@ let busy = false
 let revision = 0
 let timer = 0
 let pending = Promise.resolve()
+let backState = ''
+let backUpdate = Promise.resolve()
+
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)')
+const motion = createMobileMotion(reducedMotion)
 
 const title = el('h1', { className: 'yy-mobile-title' })
 const detail = el('p', { className: 'yy-mobile-detail', attrs: { role: 'status' } })
@@ -67,11 +74,12 @@ const editor = createEditor(host, {
 
 const fileOpen = iconButton('打开文件', icons.folderOpen, () => operate(openFile))
 const fileSave = iconButton('保存文档', icons.save, () => operate(() => writeDocument(false)))
-const themes = iconButton('文档主题', icons.palette, showThemes)
-const more = iconButton('更多操作', icons.more, showActions)
-const header = el('header', { className: 'yy-mobile-header yy-chrome' },
-  el('div', { className: 'yy-mobile-heading' }, title, detail),
-  el('nav', { className: 'yy-mobile-tools', attrs: { 'aria-label': '文件操作' } }, fileOpen, fileSave, themes, more))
+const headerControls = () => [iconButton('文档主题', icons.palette, showThemes), iconButton('更多操作', icons.more, showActions)]
+const editorControls = headerControls()
+const homeControls = headerControls()
+const homeDetail = el('p', { className: 'yy-mobile-detail', attrs: { role: 'status', hidden: '' } })
+const header = screenHeader(title, detail, [fileOpen, fileSave, ...editorControls])
+const homeHeader = screenHeader(el('h1', { className: 'yy-mobile-title', text: '页屿' }), homeDetail, homeControls)
 const canvas = document.createElement('canvas')
 canvas.width = canvas.height = 1
 const colorPixel = canvas.getContext('2d', { willReadFrequently: true })
@@ -111,12 +119,23 @@ const landingRecent = el('section', { className: 'yy-mobile-landing-recent', att
 const landing = el('main', { className: 'yy-mobile-landing yy-chrome', attrs: { 'aria-label': '文件入口' } },
   el('div', { className: 'yy-mobile-launch-content' },
     el('div', { className: 'yy-mobile-launch-actions' }, chooseFile, createFile, workspaceButton, recoverFiles), landingRecent))
-const fileActions = [fileOpen, fileSave, themes, more, chooseFile, createFile, workspaceButton, recoverFiles]
-const editorScreen = el('div', { className: 'yy-mobile-editor' }, header, stage, landing, footer)
-const pages = createPages(editorScreen)
+const fileActions = [fileOpen, fileSave, ...editorControls, ...homeControls, chooseFile, createFile, workspaceButton, recoverFiles]
+const homeScreen = el('div', { className: 'yy-mobile-screen yy-mobile-home' }, homeHeader, landing)
+const editorScreen = el('div', { className: 'yy-mobile-screen yy-mobile-editor', attrs: { hidden: '' } }, header, stage, footer)
+const documentArea = el('div', { className: 'yy-mobile-document-area' }, homeScreen, editorScreen)
+const pages = createPages(documentArea, undefined, (current, direction) => {
+  motion.enter(current ?? (hasDocument ? editorScreen : homeScreen), direction)
+  syncBackNavigation()
+})
 document.body.classList.add('yy-android')
-document.querySelector('#app')!.replaceChildren(el('div', { className: 'yy-shell yy-mobile' }, editorScreen, pages.element))
+document.querySelector('#app')!.replaceChildren(el('div', { className: 'yy-shell yy-mobile' }, documentArea, pages.element))
 installMobileViewport(paper)
+
+function screenHeader(heading: HTMLElement, status: HTMLElement, controls: HTMLButtonElement[]) {
+  return el('header', { className: 'yy-mobile-header yy-chrome' },
+    el('div', { className: 'yy-mobile-heading' }, heading, status),
+    el('nav', { className: 'yy-mobile-tools', attrs: { 'aria-label': '文件操作' } }, ...controls))
+}
 
 function iconButton(label: string, icon: string, onClick: () => void) {
   const button = el('button', { className: 'yy-mobile-icon', type: 'button', html: icon, title: label, attrs: { 'aria-label': label } })
@@ -142,16 +161,21 @@ function setMode(value: EditorMode) {
 }
 
 function refresh(message?: string) {
-  const name = origin?.name ?? (hasDocument ? '未命名.md' : '页屿')
+  const name = origin?.name ?? '未命名.md'
   const status = message ?? (dirty ? '有未保存的编辑' : origin ? (origin.writable ? '已保存' : '只读文件') : hasDocument ? '尚未保存' : '')
+  const visibleDetail = hasDocument ? detail : homeDetail
   if (title.textContent !== name) title.textContent = name
-  if (detail.textContent !== status) detail.textContent = status
-  detail.hidden = !status
-  fileOpen.hidden = fileSave.hidden = stage.hidden = footer.hidden = !hasDocument
-  landing.hidden = hasDocument
+  if (visibleDetail.textContent !== status) visibleDetail.textContent = status
+  visibleDetail.hidden = !status
+  if (editorScreen.hidden === hasDocument) {
+    editorScreen.hidden = !hasDocument
+    homeScreen.hidden = hasDocument
+    if (!pages.active) motion.enter(hasDocument ? editorScreen : homeScreen, hasDocument ? 'forward' : 'back')
+  }
   recoverFiles.hidden = !recoveries.length
   landingList.inert = busy
   for (const button of fileActions) button.disabled = busy
+  syncBackNavigation()
 }
 
 function reason(error: unknown) {
@@ -184,6 +208,20 @@ function setTheme(value: string) {
 function setAnimations(value: boolean) {
   animations = value
   document.documentElement.dataset.yeyuMotion = value ? 'on' : 'off'
+  if (!motion.enabled()) motion.reset()
+  syncBackNavigation()
+}
+
+function syncBackNavigation() {
+  const enabled = !!pages.active || hasDocument || busy
+  const animated = motion.enabled()
+  const next = `${enabled}:${animated}`
+  if (backState === next) return
+  backState = next
+  // 动画偏好和页面状态可能连续变化，按顺序更新原生回调的启用状态。
+  backUpdate = backUpdate.then(() => invoke<void>('android_back_navigation', { enabled, animated })).catch(() => {
+    if (backState === next) backState = ''
+  })
 }
 
 function showDocument(value: Document | null, draft?: Draft, opened = true) {
@@ -234,6 +272,7 @@ function operate(action: () => Promise<unknown>) {
     busy = false
     landingList.inert = false
     for (const button of fileActions) button.disabled = false
+    syncBackNavigation()
   })
 }
 
@@ -610,30 +649,65 @@ async function start() {
 setMode('live')
 setAnimations(false)
 operate(start)
+reducedMotion.addEventListener('change', () => {
+  if (!motion.enabled()) motion.reset()
+  syncBackNavigation()
+})
 window.addEventListener('keydown', event => {
   if (event.defaultPrevented || event.key !== 'Escape' || document.querySelector('dialog[open]')) return
   if (event.target instanceof Element && event.target.closest('[role="combobox"][aria-expanded="true"]')) return
   if (pages.back()) event.preventDefault()
 })
-window.addEventListener('yeyu:android-back', event => {
+function previewBack() {
+  if (document.querySelector('dialog[open]')) return null
+  if (pages.active) return pages.previewBack()
+  if (finder.visible) return { element: finder.element, restore() {} }
+  // 有未保存的编辑时，提交后先询问。手势不预览丢弃后的首页。
+  if (!hasDocument || dirty || busy) return null
+  homeScreen.inert = true
+  homeScreen.hidden = false
+  return {
+    element: editorScreen,
+    restore() {
+      homeScreen.hidden = hasDocument
+      homeScreen.inert = false
+    },
+  }
+}
+
+window.addEventListener('yeyu:android-back-gesture', event => {
+  const gesture = (event as CustomEvent<BackGesture>).detail
+  if (gesture.phase === 'start') motion.startBack(previewBack, gesture.edge)
+  else if (gesture.phase === 'progress') motion.progressBack(gesture.progress)
+  else if (gesture.phase === 'cancel') motion.cancelBack()
+})
+
+function backAction(): (() => void) | null {
   const modal = Array.from(document.querySelectorAll<HTMLDialogElement>('dialog[open]')).at(-1)
-  if (modal) {
-    event.preventDefault()
-    cancelDialog(modal)
-  } else if (pages.back()) {
-    event.preventDefault()
-  } else if (finder.visible) {
-    event.preventDefault()
-    finder.close()
-  } else if (hasDocument || busy) {
-    event.preventDefault()
+  if (modal) return () => { if (modal.open) cancelDialog(modal) }
+  const page = pages.active
+  if (page) return () => { if (pages.active === page) pages.back() }
+  if (finder.visible) return () => { if (!pages.active) finder.close() }
+  if (!hasDocument && !busy) return null
+  const id = documentId
+  return () => {
+    if (pages.active || id !== documentId) return
     operate(async () => {
       if (!await canLeave()) return
       showDocument(null, undefined, false)
       await checkpoint()
     })
   }
+}
+
+window.addEventListener('yeyu:android-back', event => {
+  const action = backAction()
+  if (!action) return
+  event.preventDefault()
+  motion.commitBack(action)
 })
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden' && (dirty || timer)) void checkpoint().catch(report)
+  if (document.visibilityState !== 'hidden') return
+  motion.reset()
+  if (dirty || timer) void checkpoint().catch(report)
 })

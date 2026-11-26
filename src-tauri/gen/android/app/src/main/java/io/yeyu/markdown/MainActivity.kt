@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.os.Build
 import android.view.View
 import android.webkit.WebView
+import androidx.activity.BackEventCompat
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
@@ -12,8 +13,75 @@ import app.tauri.plugin.JSObject
 
 class MainActivity : TauriActivity() {
   private var surface: WebView? = null
+  private var interceptBack = false
+  private var animateBack = false
+  private var trackingBack = false
+  private var pendingBackProgress: BackEventCompat? = null
+  private val backFrame = Runnable {
+    val progress = pendingBackProgress
+    pendingBackProgress = null
+    if (trackingBack && progress != null) sendBackGesture("progress", progress)
+  }
+  private val backCallback = object : OnBackPressedCallback(false) {
+    override fun handleOnBackStarted(backEvent: BackEventCompat) {
+      if (!animateBack || surface == null) return
+      trackingBack = true
+      sendBackGesture("start", backEvent)
+    }
+
+    override fun handleOnBackProgressed(backEvent: BackEventCompat) {
+      if (!trackingBack) return
+      val needsFrame = pendingBackProgress == null
+      pendingBackProgress = backEvent
+      // 同一帧有多个进度事件时，只把最新进度送到 WebView。
+      if (needsFrame) surface?.postOnAnimation(backFrame)
+    }
+
+    override fun handleOnBackCancelled() {
+      val started = trackingBack
+      clearBackFrame()
+      if (started) sendBackGesture("cancel")
+    }
+
+    override fun handleOnBackPressed() {
+      clearBackFrame()
+      val webView = surface
+      if (webView == null) giveBackToSystem()
+      else webView.evaluateJavascript("window.dispatchEvent(new Event('yeyu:android-back', { cancelable: true }))") {
+        if (it != "false") giveBackToSystem()
+      }
+    }
+  }
+
   internal var webInsets = JSObject().put("left", 0).put("top", 0).put("right", 0).put("bottom", 0)
     private set
+
+  internal fun setBackNavigation(enabled: Boolean, animated: Boolean) {
+    if (!enabled || !animated) backCallback.handleOnBackCancelled()
+    interceptBack = enabled
+    animateBack = animated
+    // 首页没有应用内返回目标时，由 Android 提供跨任务或回桌面的预览。
+    backCallback.isEnabled = enabled
+  }
+
+  private fun clearBackFrame() {
+    surface?.removeCallbacks(backFrame)
+    pendingBackProgress = null
+    trackingBack = false
+  }
+
+  private fun sendBackGesture(phase: String, event: BackEventCompat? = null) {
+    val detail = JSObject().put("phase", phase)
+      .put("edge", if (event?.swipeEdge == BackEventCompat.EDGE_RIGHT) "right" else "left")
+      .put("progress", event?.progress?.toDouble() ?: 0.0)
+    surface?.evaluateJavascript("window.dispatchEvent(new CustomEvent('yeyu:android-back-gesture', { detail: $detail }))", null)
+  }
+
+  private fun giveBackToSystem() {
+    if (isFinishing || isDestroyed) return
+    backCallback.isEnabled = false
+    try { onBackPressedDispatcher.onBackPressed() } finally { backCallback.isEnabled = interceptBack && !isFinishing }
+  }
 
   override fun onWebViewCreate(webView: WebView) {
     super.onWebViewCreate(webView)
@@ -55,19 +123,12 @@ class MainActivity : TauriActivity() {
     }
     ViewCompat.requestApplyInsets(content)
 
-    onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-      override fun handleOnBackPressed() {
-        val webView = surface
-        fun systemBack() {
-          isEnabled = false
-          try { onBackPressedDispatcher.onBackPressed() } finally { isEnabled = true }
-        }
-        if (webView == null) systemBack()
-        else webView.evaluateJavascript("window.dispatchEvent(new Event('yeyu:android-back', { cancelable: true }))") {
-          // 页面取消此事件时，最上层弹窗或正在打开的文档已经接管返回手势。
-          if (it != "false") systemBack()
-        }
-      }
-    })
+    onBackPressedDispatcher.addCallback(this, backCallback)
+  }
+
+  override fun onDestroy() {
+    clearBackFrame()
+    surface = null
+    super.onDestroy()
   }
 }

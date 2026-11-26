@@ -44,6 +44,9 @@ class DescriptorArgs { lateinit var uri: String; var write: Boolean = false }
 class AppearanceArgs { var light: Boolean = true; lateinit var color: String }
 
 @InvokeArg
+class BackNavigationArgs { var enabled: Boolean = false; var animated: Boolean = false }
+
+@InvokeArg
 class UpdateArgs { lateinit var url: String }
 
 @TauriPlugin
@@ -186,6 +189,15 @@ class MarkdownDocuments(private val activity: Activity) : Plugin(activity) {
     @Command
     fun insets(invoke: Invoke) {
         activity.runOnUiThread { invoke.resolve((activity as MainActivity).webInsets) }
+    }
+
+    @Command
+    fun backNavigation(invoke: Invoke) {
+        val args = invoke.parseArgs(BackNavigationArgs::class.java)
+        activity.runOnUiThread {
+            (activity as MainActivity).setBackNavigation(args.enabled, args.animated)
+            invoke.resolve()
+        }
     }
 
     @Command

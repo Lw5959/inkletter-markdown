@@ -796,8 +796,15 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 
 .yy-shell .yy-editor-covered { visibility: hidden; }
 
-.yy-shell .yy-tool-page {
+.yy-shell .yy-tool-pages {
   grid-area: 2 / 1;
+  position: relative;
+  min-height: 0;
+}
+
+.yy-shell .yy-tool-page {
+  position: absolute;
+  inset: 0;
   min-width: 0;
   min-height: 0;
   display: flex;

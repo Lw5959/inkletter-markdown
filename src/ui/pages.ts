@@ -2,34 +2,35 @@ import type { DialogPresenter } from './dialogs'
 import { el } from './helpers'
 import { icons } from './icons'
 
-type Page = { title: string; content: HTMLElement; focus: Element | null; dispose?: () => void }
+type Page = { section: HTMLElement; backButton: HTMLButtonElement; focus: Element | null; dispose?: () => void }
+type Navigation = (current: HTMLElement | null, direction: 'forward' | 'back') => void
 
-export function createPages(editor: HTMLElement, restoreFocus?: () => void) {
-  const title = el('h2', { attrs: { id: 'yy-tool-page-title' } })
-  const backButton = el('button', {
-    type: 'button', className: 'yy-tool-page-back yy-icon-btn', html: icons.chevronLeft,
-    attrs: { 'aria-label': '返回', title: '返回' },
-  })
-  const body = el('div', { className: 'yy-tool-page-body' })
-  const element = el('section', {
-    className: 'yy-tool-page yy-chrome', attrs: { hidden: '', 'aria-labelledby': 'yy-tool-page-title' },
-  }, el('header', { className: 'yy-tool-page-header' }, backButton, title), body)
+export function createPages(editor: HTMLElement, restoreFocus?: () => void, onNavigation?: Navigation) {
+  const element = el('div', { className: 'yy-tool-pages', attrs: { hidden: '' } })
   const stack: Page[] = []
 
-  function render() {
+  function render(direction: 'forward' | 'back') {
     const current = stack.at(-1)
     element.hidden = !current
     // 保持编辑器挂载，返回后保留滚动、选区和未保存的正文。
     editor.inert = !!current
     editor.classList.toggle('yy-editor-covered', !!current)
-    title.textContent = current?.title ?? ''
-    body.replaceChildren(...(current ? [current.content] : []))
-    body.scrollTop = 0
+    if (current) current.section.inert = false
+    element.replaceChildren(...(current ? [current.section] : []))
+    onNavigation?.(current?.section ?? null, direction)
   }
 
   function push(label: string, content: HTMLElement, dispose?: () => void) {
-    stack.push({ title: label, content, focus: document.activeElement, dispose })
-    render()
+    const backButton = el('button', {
+      type: 'button', className: 'yy-tool-page-back yy-icon-btn', html: icons.chevronLeft,
+      attrs: { 'aria-label': '返回', title: '返回' },
+    })
+    const section = el('section', { className: 'yy-tool-page yy-chrome', attrs: { 'aria-label': label } },
+      el('header', { className: 'yy-tool-page-header' }, backButton, el('h2', { text: label })),
+      el('div', { className: 'yy-tool-page-body' }, content))
+    backButton.addEventListener('click', back)
+    stack.push({ section, backButton, focus: document.activeElement, dispose })
+    render('forward')
     // 打开页面时聚焦返回按钮，避免移动端自动弹出软键盘。
     backButton.focus({ preventScroll: true })
   }
@@ -44,14 +45,33 @@ export function createPages(editor: HTMLElement, restoreFocus?: () => void) {
   function back() {
     const page = stack.pop()
     if (!page) return false
-    render()
+    render('back')
     page.dispose?.()
     if (page.focus instanceof HTMLElement && page.focus.isConnected) page.focus.focus({ preventScroll: true })
     if (!editor.contains(document.activeElement) && !element.contains(document.activeElement)) {
-      if (stack.length) backButton.focus({ preventScroll: true })
+      if (stack.length) stack.at(-1)!.backButton.focus({ preventScroll: true })
       else restoreFocus?.()
     }
     return true
+  }
+
+  function previewBack() {
+    const current = stack.at(-1)
+    if (!current) return null
+    const previous = stack.at(-2)?.section
+    // 手势期间只显示上一层的内容，焦点和点击仍留在当前页。
+    if (previous) {
+      previous.inert = true
+      element.prepend(previous)
+    } else editor.classList.remove('yy-editor-covered')
+    return {
+      element: current.section,
+      restore() {
+        if (stack.at(-1) !== current) return
+        previous?.remove()
+        editor.classList.add('yy-editor-covered')
+      },
+    }
   }
 
   function present(navigate: 'open' | 'push' = 'open'): DialogPresenter {
@@ -69,6 +89,5 @@ export function createPages(editor: HTMLElement, restoreFocus?: () => void) {
     }
   }
 
-  backButton.addEventListener('click', back)
-  return { element, open, push, back, present }
+  return { element, open, push, back, present, previewBack, get active() { return stack.at(-1)?.section ?? null } }
 }

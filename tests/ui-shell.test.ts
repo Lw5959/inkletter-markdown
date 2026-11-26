@@ -1195,7 +1195,125 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       await page.unroute(updates)
       await page.setViewportSize({ width: 1360, height: 860 })
     }
-  })
+  }, 15000)
+
+  it('Android 页面有进出动效，预测返回可跟手、取消与提交', async () => {
+    const phone = await browser.newPage({ viewport: { width: 390, height: 736 }, isMobile: true, hasTouch: true })
+    phone.setDefaultTimeout(5000)
+    try {
+      await phone.addInitScript(() => {
+        const uri = 'content://qa/document/predictive-back'
+        const native = window as unknown as Record<string, unknown>
+        const backStates: { enabled: boolean; animated: boolean }[] = []
+        native.__backStates = backStates
+        native.__TAURI_INTERNALS__ = { invoke: async (cmd: string, args: { enabled: boolean; animated: boolean }) => {
+          if (cmd === 'android_pick') return uri
+          if (cmd === 'android_read') return { uri, name: '返回测试.md', text: '# 原始正文\n', bom: false, version: '1', writable: true }
+          if (cmd === 'android_load_session') return { theme: 'default', animations: true, mode: 'source' }
+          if (cmd === 'android_back_navigation') backStates.push({ enabled: args.enabled, animated: args.animated })
+          if (cmd === 'ai_settings') return { providers: [], active: null }
+          return null
+        } }
+      })
+      await phone.goto(`${baseUrl}/mobile.html`)
+      const nativeBack = () => phone.evaluate('window.__backStates.at(-1)')
+      const gesture = (phase: 'start' | 'progress' | 'cancel', progress = 0, edge = 'left') => phone.evaluate(detail => {
+        window.dispatchEvent(new CustomEvent('yeyu:android-back-gesture', { detail }))
+      }, { phase, progress, edge })
+      const back = () => phone.evaluate(() => window.dispatchEvent(new Event('yeyu:android-back', { cancelable: true })))
+      const preview = phone.locator('[data-yeyu-back-preview]')
+      const transform = () => preview.evaluate(element => {
+        const matrix = new DOMMatrix(getComputedStyle(element).transform)
+        return { x: matrix.m41, scale: matrix.m11 }
+      })
+      const more = phone.getByRole('button', { name: '更多操作' })
+      const actions = phone.getByRole('region', { name: '文档操作' })
+      const doc = phone.getByRole('heading', { name: '返回测试.md' })
+
+      await expect.poll(nativeBack).toEqual({ enabled: false, animated: true })
+      expect(await back()).toBe(true)
+      await phone.getByRole('button', { name: '打开文件', exact: true }).click()
+      await doc.waitFor()
+      await expect.poll(nativeBack).toEqual({ enabled: true, animated: true })
+      expect(await phone.evaluate(() => {
+        document.querySelector<HTMLButtonElement>('.yy-mobile-editor [aria-label="更多操作"]')!.click()
+        return document.querySelector('.yy-tool-page')!.getAnimations().length > 0
+      })).toBe(true)
+      await gesture('start')
+      await gesture('progress', .25)
+      const early = await transform()
+      await gesture('progress', .75)
+      const later = await transform()
+      expect(early.x).toBeGreaterThan(0)
+      expect(later.x).toBeGreaterThan(early.x)
+      expect(later.scale).toBeLessThan(early.scale)
+      expect(await phone.locator('.yy-mobile-document-area').evaluate(layer => layer.hasAttribute('inert') && !layer.classList.contains('yy-editor-covered'))).toBe(true)
+      await gesture('cancel')
+      await preview.waitFor({ state: 'detached' })
+      await actions.waitFor()
+      expect(await phone.locator('.yy-mobile-document-area').evaluate(layer => layer.classList.contains('yy-editor-covered'))).toBe(true)
+
+      await actions.getByRole('button', { name: 'AI 写作' }).click()
+      const writing = phone.getByRole('region', { name: 'AI 写作助手' })
+      await writing.getByRole('button', { name: '模型配置' }).click()
+      const models = phone.getByRole('region', { name: '模型配置' })
+      await models.waitFor()
+      await gesture('start', 0, 'right')
+      await gesture('progress', .6, 'right')
+      expect((await transform()).x).toBeLessThan(0)
+      expect(await phone.locator('section[aria-label="AI 写作助手"]').evaluate(layer => layer.hasAttribute('inert'))).toBe(true)
+      expect(await phone.evaluate(() => [0, 1].map(() => window.dispatchEvent(new Event('yeyu:android-back', { cancelable: true })))))
+        .toEqual([false, false])
+      await models.waitFor({ state: 'detached' })
+      await writing.waitFor()
+      expect(await phone.evaluate(() => {
+        document.querySelector<HTMLButtonElement>('.yy-tool-page [aria-label="返回"]')!.click()
+        return document.querySelector('.yy-mobile-editor')!.getAnimations().length > 0
+      })).toBe(true)
+      await doc.waitFor()
+
+      await gesture('start')
+      await gesture('progress', .65)
+      expect(await phone.locator('.yy-mobile-home').evaluate(layer => !layer.hasAttribute('hidden') && layer.hasAttribute('inert'))).toBe(true)
+      expect(await back()).toBe(false)
+      await phone.getByRole('main', { name: '文件入口' }).waitFor()
+      await expect.poll(nativeBack).toEqual({ enabled: false, animated: true })
+
+      await phone.getByRole('button', { name: '打开文件', exact: true }).click()
+      await phone.locator('.cm-content .cm-line').first().click()
+      await phone.keyboard.insertText('本地草稿')
+      await gesture('start')
+      expect(await preview.count()).toBe(0)
+      expect(await back()).toBe(false)
+      await phone.getByRole('region', { name: '未保存的编辑' }).waitFor()
+      expect(await back()).toBe(false)
+      expect(await phone.locator('.cm-content').innerText()).toContain('本地草稿')
+
+      await more.click()
+      const animationSetting = actions.getByRole('button', { name: '界面动画' })
+      await animationSetting.click()
+      await expect.poll(nativeBack).toEqual({ enabled: true, animated: false })
+      await gesture('start')
+      expect(await preview.count()).toBe(0)
+      await back()
+      await doc.waitFor()
+      await more.click()
+      await animationSetting.click()
+      await expect.poll(nativeBack).toEqual({ enabled: true, animated: true })
+      await gesture('start')
+      await gesture('progress', .4)
+      expect(await preview.count()).toBe(1)
+      await phone.emulateMedia({ reducedMotion: 'reduce' })
+      await expect.poll(nativeBack).toEqual({ enabled: true, animated: false })
+      expect(await preview.count()).toBe(0)
+      await gesture('start')
+      expect(await preview.count()).toBe(0)
+      await back()
+      await doc.waitFor()
+    } finally {
+      await phone.close()
+    }
+  }, 15000)
 
   it('Android 在窄屏、横屏和大字号下保持工具可点，宽表格只在块内横向滚动', async () => {
     const title = '记录与分析_' + 'LONG_DOCUMENT_FILENAME_'.repeat(9) + '.md'
@@ -1212,6 +1330,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       const phone = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: density, isMobile: true, hasTouch: true })
       phone.setDefaultTimeout(5000)
       try {
+        await phone.emulateMedia({ reducedMotion: 'reduce' })
         await phone.addInitScript(({ title, text, left, right }) => {
           const uri = 'content://qa/long-document'
           const native = window as unknown as Record<string, unknown>
@@ -1243,8 +1362,8 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
         if (enlarged) await phone.addStyleTag({ content: 'html { -webkit-text-size-adjust: 150%; } .yy-mobile-mode { font-size: 21px; } .document-theme { font-size: 24px; }' })
         const geometry = await phone.evaluate(() => {
           const bounds = (selector: string) => document.querySelector(selector)!.getBoundingClientRect().toJSON()
-          const title = document.querySelector<HTMLElement>('.yy-mobile-title')!
-          return { viewport: document.documentElement.clientWidth, header: bounds('.yy-mobile-header'),
+          const title = document.querySelector<HTMLElement>('.yy-mobile-editor .yy-mobile-title')!
+          return { viewport: document.documentElement.clientWidth, header: bounds('.yy-mobile-editor .yy-mobile-header'),
             footer: bounds('.yy-mobile-footer'), ellipsis: title.clientWidth < title.scrollWidth && getComputedStyle(title).textOverflow === 'ellipsis' }
         })
         expect(geometry.viewport).toBe(width)
@@ -1273,7 +1392,6 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
         expect(box.x + box.width).toBeLessThanOrEqual(width - right)
         await close.click()
 
-        await phone.emulateMedia({ reducedMotion: 'reduce' })
         await phone.getByRole('button', { name: '更多操作' }).click()
         const menu = phone.getByRole('region', { name: '文档操作' })
         const baseline = await menu.evaluate(page => {

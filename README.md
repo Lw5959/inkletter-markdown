@@ -19,6 +19,8 @@ Android 提供 ARM64 APK。启动进入首页，文件入口纵向排列，下�
 
 工具栏的调色盘切换主题。底部提供实时／源码切换、大纲、查找替换和撤销重做。「更多操作」打开独立页面，可进入 Markdown 格式、阅读设置、字数统计、导出、AI、MCP、插件市场和软件更新。授权文件夹后可筛选 Markdown 文件或检索正文。键盘出现时，编辑区会缩小并滚动到当前光标。页面左上角和系统返回均可回到上一层。文件选择和打印由 Android 系统界面处理。
 
+打开和返回页面时有滑动过渡。Android 14 及以上使用手势导航时，从屏幕边缘向内滑可以预览上一页，取消手势后回到当前页。在首页返回时由系统处理。选择「更多操作 → 界面动画」可关闭页屿的动效，页屿也会遵循系统的减少动态效果设置。[Android 预测返回](https://developer.android.com/guide/navigation/custom-back/support-animations-views)
+
 AI 写作沿用桌面端的供应商、模型、提示词和差异审阅，API 密钥由 Android Keystore 保护。插件市场提供在线目录、内置离线安装，以及 JavaScript、Rust 插件运行。MCP 可通过 Streamable HTTP 连接、发现和调用工具、资源及提示词。移动端的 MCP 服务、Typora 设置迁移、相对图片整理和 Pandoc 格式仍待适配。
 
 ## 更新
