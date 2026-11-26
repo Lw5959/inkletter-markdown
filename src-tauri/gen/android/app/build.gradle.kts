@@ -1,9 +1,7 @@
 import java.util.Properties
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
-
+import com.android.build.api.variant.ApplicationAndroidComponentsExtension
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("rust")
 }
 
@@ -51,17 +49,11 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
     buildFeatures {
         buildConfig = true
-    }
-}
-
-kotlin {
-    compilerOptions {
-        jvmTarget = JvmTarget.JVM_1_8
     }
 }
 
@@ -81,3 +73,21 @@ dependencies {
 }
 
 apply(from = file("tauri.build.gradle.kts"))
+
+val prepareWryKotlin = tasks.register<PrepareWryKotlin>("prepareWryKotlin") {
+    sourceDirectory.set(layout.projectDirectory.dir("src/main/java/io/yeyu/markdown/generated"))
+    outputDirectory.set(layout.buildDirectory.dir("generated/yeyu-wry"))
+}
+extensions.configure<ApplicationAndroidComponentsExtension>("androidComponents") {
+    finalizeDsl { dsl ->
+        dsl.sourceSets.named("main") {
+            // Wry 的原始文件由 Tauri 生成，编译时使用 Gradle 准备的副本。
+            java.directories.clear()
+            kotlin.directories.clear()
+            kotlin.directories.add("src/main/kotlin")
+        }
+    }
+    onVariants { variant ->
+        variant.sources.kotlin?.addGeneratedSourceDirectory(prepareWryKotlin, PrepareWryKotlin::outputDirectory)
+    }
+}

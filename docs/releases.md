@@ -23,7 +23,11 @@
 | Linux ARM64 | `APPIMAGE_EXTRACT_AND_RUN=1 pnpm tauri build --ci --target aarch64-unknown-linux-gnu --bundles deb,appimage -- --locked` |
 | Android ARM64 | `pnpm tauri android build --ci --apk --target aarch64` |
 
-Android 构建安装 Android SDK 37、Build Tools 37.0.0、NDK 28.2.13676358 和可供 bindgen 使用的 libclang。为 `BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android` 指定所选 NDK 的 `--sysroot`。在 `src-tauri/gen/android/app/build/outputs/apk` 找到未签名 APK，签名后用 `apksigner verify` 核对。
+在 macOS 上交叉构建 Windows 包时，安装 `cargo-xwin` 和 Unix 版 `makensis`，使用 `sh scripts/build-windows-cross.sh --ci --config '{"bundle":{"createUpdaterArtifacts":true}}' -- --locked`。这个入口按 Unix 版 NSIS 的参数生成安装器，发布链接也按交叉工具链提供的 CRT 生成。
+
+使用临时签名时，macOS 的每个架构先用 `pnpm tauri build --ci --target <目标> --bundles app --no-sign -- --locked` 生成应用包。设置 `TAURI_SIGNING_PRIVATE_KEY_PATH` 后，运行 `node scripts/package-macos-adhoc.mjs <应用包路径> <产物目录>` 生成对应的 DMG 和签名更新归档。持有 Developer ID 且已配置公证凭据时，使用上表的 Tauri 签名构建流程。
+
+Android 构建安装 JDK、Android SDK 37、Build Tools 37.0.0、NDK 28.2.13676358 和可供 bindgen 使用的 libclang。Gradle 使用 AGP 内置 Kotlin，Java 和 Kotlin 均生成 Java 17 字节码。为 `BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android` 指定所选 NDK 的 `--sysroot`。在 `src-tauri/gen/android/app/build/outputs/apk` 找到未签名 APK，签名后用 `apksigner verify` 核对。
 
 ## 发布到 GitHub
 

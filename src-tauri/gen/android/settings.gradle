@@ -1,3 +1,39 @@
 include ':app'
 
 apply from: 'tauri.settings.gradle'
+
+// 在项目 Gradle 缓存适配 Tauri 的 Android 库，保留 crate 的原始文件和依赖。
+def tauri = project(':tauri-android')
+def upstream = tauri.projectDir
+def adapter = file('.gradle/yeyu-tauri-android/' + upstream.parentFile.parentFile.name)
+def stageFile = { File dest, byte[] content ->
+    dest.parentFile.mkdirs()
+    if (!dest.isFile() || !Arrays.equals(dest.bytes, content)) dest.bytes = content
+}
+def script = new File(upstream, 'build.gradle.kts').getText('UTF-8')
+    .replaceAll(/(?m)^\s*id\("org\.jetbrains\.kotlin\.android"\)[ \t]*\r?\n/, '')
+    .replace('JavaVersion.VERSION_1_8', 'JavaVersion.VERSION_17')
+    .replace('JvmTarget.JVM_1_8', 'JvmTarget.JVM_17')
+stageFile(new File(adapter, 'build.gradle.kts'), script.getBytes('UTF-8'))
+stageFile(new File(adapter, 'consumer-rules.pro'), new File(upstream, 'consumer-rules.pro').bytes)
+
+def compat = [
+    'AppPlugin.kt': { String content ->
+        content.replace('this@AppPlugin.activity.onBackPressed()',
+            '(this@AppPlugin.activity as AppCompatActivity).onBackPressedDispatcher.onBackPressed()')
+    },
+    'PluginHandle.kt': { String content ->
+        content.replace('var pluginCursor: Class<*> =', 'var pluginCursor: Class<*>? =')
+            .replace('while (pluginCursor.name !=', 'while (pluginCursor != null && pluginCursor.name !=')
+    },
+    'Plugin.kt': { String content ->
+        // 生命周期分发仍须调用旧插件可覆写的方法，仅标注这五处兼容调用。
+        content.replaceAll(/(?m)^    on(Destroy|Restart|Pause|Resume|Stop)\(\)$/, '    @Suppress("DEPRECATION")\n    on$1()')
+    },
+]
+new File(upstream, 'src').eachFileRecurse(groovy.io.FileType.FILES) { source ->
+    def transform = compat[source.name]
+    def data = transform ? transform(source.getText('UTF-8')).getBytes('UTF-8') : source.bytes
+    stageFile(new File(adapter, upstream.toPath().relativize(source.toPath()).toString()), data)
+}
+tauri.projectDir = adapter
