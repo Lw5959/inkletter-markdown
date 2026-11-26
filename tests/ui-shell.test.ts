@@ -1095,6 +1095,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     await composer.fill('只看报价相关的待办')
     await send.click()
     await expect.poll(() => replies.count()).toBe(5)
+    await replies.last().getByText('提交新报价', { exact: true }).waitFor()
     expect((await requests())[1].command).toBe('ai_agent_turn')
     expect(await replies.last().locator('li').count()).toBe(1)
 
