@@ -1,4 +1,4 @@
-import { aiIntents, aiTasks, normalizePrompts } from '../ai-prompts'
+import { aiIntents, aiTasks, normalizePrompts, systemPrompt } from '../ai-prompts'
 import type { AiIntent, AiPrompts, AiProtocol, AiProviderDraft, AiSettings, ShellActions } from '../contracts'
 import type { DialogPresenter } from './dialogs'
 import { modelDiscovery } from './ai-model-discovery'
@@ -197,7 +197,7 @@ export function openModelSettings(modals: DialogPresenter, settings: () => AiSet
   })
 }
 
-export function openPromptSettings(modals: DialogPresenter, prompts: AiPrompts, initial: AiIntent, dispatch: Dispatch) {
+export function openPromptSettings(modals: DialogPresenter, prompts: AiPrompts, initial: AiIntent, dispatch: Dispatch, agent = false) {
   const drafts = { ...prompts }
   let intent = initial
   const body = el('div', { className: 'yy-ai-prompt-settings' })
@@ -210,14 +210,21 @@ export function openPromptSettings(modals: DialogPresenter, prompts: AiPrompts, 
   const field = el('label', { className: 'yy-field' })
   field.append(title, input)
   const reset = el('button', { className: 'yy-btn yy-btn-sm yy-btn-ghost', text: '恢复默认', type: 'button' })
+  const preview = el('pre', { className: 'yy-scroll-area', attrs: { 'aria-label': '完整提示词', tabindex: '0' } })
+  const full = el('details', { className: 'yy-ai-template-preview' },
+    el('summary', { text: agent ? '预览智能体完整提示词' : '预览完整提示词' }), preview)
   const editor = el('div', { className: 'yy-ai-template-editor' })
-  editor.append(field, reset)
+  editor.append(field, reset, full)
   const buttons = new Map<AiIntent, HTMLButtonElement>()
+  const updatePreview = () => {
+    reset.disabled = input.value === aiTasks[intent].prompt
+    preview.textContent = systemPrompt(intent, normalizePrompts(drafts), agent)
+  }
 
   const showTask = () => {
     title.textContent = aiTasks[intent].label
     input.value = drafts[intent] ?? aiTasks[intent].prompt
-    reset.disabled = input.value === aiTasks[intent].prompt
+    updatePreview()
     for (const [id, button] of buttons) button.setAttribute('aria-pressed', String(id === intent))
   }
   for (const id of aiIntents) {
@@ -231,7 +238,7 @@ export function openPromptSettings(modals: DialogPresenter, prompts: AiPrompts, 
   }
   input.addEventListener('input', () => {
     drafts[intent] = input.value
-    reset.disabled = input.value === aiTasks[intent].prompt
+    updatePreview()
   })
   reset.addEventListener('click', () => {
     delete drafts[intent]

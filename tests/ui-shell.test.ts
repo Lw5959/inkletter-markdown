@@ -891,8 +891,13 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
           const messages = structuredClone(data.messages)
           observed.push({ command: cmd, messages })
           const send = callbacks.get(data.event.id)
+          if (window.__desktopAi.failNext) {
+            window.__desktopAi.failNext = false
+            send({ index: 0, end: true })
+            throw new Error('测试供应商拒绝请求')
+          }
           if (messages.at(-1).text.endsWith('检查连续提交')) await new Promise(resolve => { window.__finishOnce = resolve })
-          const text = messages[0].text.startsWith('压缩这段') ? '已压缩的历史重点' : '收到。'
+          const text = messages[0].text.startsWith('压缩这段') ? '已压缩的历史重点' : window.__desktopAi.reply ?? '收到。'
           send({ index: 0, message: { kind: 'delta', text } })
           send({ index: 1, message: { kind: 'done' } })
           send({ index: 2, end: true })
@@ -900,11 +905,18 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
         }
       }
       const writing = new Writing(view => shell.setAI(view))
+      let revision = 1
+      window.__desktopAi.changeDocument = () => { editor.setMarkdown('# 选区已经改动'); revision++ }
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+        writeText: async text => { window.__desktopAi.copied = text },
+      } })
       window.__desktopAi.reload = async () => { const reopened = new Writing(view => shell.setAI(view)); await reopened.load(); window.__test.writing = reopened }
       window.__test.writing = writing
       window.__test.dispatch = async (action) => {
         const current = window.__test.writing
-        if (action.type === 'ai-send') await current.send(action.intent, action.prompt, editor, 1, 1, { agent: action.agent })
+        if (action.type === 'ai-send') await current.send(action.intent, action.prompt, editor, 1, revision, { agent: action.agent })
+        else if (action.type === 'ai-context') current.preview(action.scope, editor, 1, revision, '测试.md')
+        else if (action.type === 'ai-retry') await current.retry()
         else if (action.type === 'ai-compress' || action.type.startsWith('ai-chat-')) await current.manageChat(action)
       }
       await writing.load()
@@ -930,6 +942,33 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     expect(await page.locator('.yy-msg-user').count()).toBe(1)
     await page.evaluate('window.__finishOnce()')
     await page.getByText('收到。', { exact: true }).waitFor()
+    await page.evaluate('window.__desktopAi.failNext = true')
+    await page.getByRole('button', { name: '重新生成上条回复' }).click()
+    await page.getByText('测试供应商拒绝请求', { exact: true }).waitFor()
+    expect(await page.locator('.yy-ai-messages .yy-msg-assistant').count()).toBe(1)
+    expect(await page.getByText('收到。', { exact: true }).isVisible()).toBe(true)
+    await page.evaluate(`window.__desktopAi.reply = '**新的回复**'`)
+    await page.getByRole('button', { name: '重试上次请求' }).click()
+    await expect.poll(() => page.evaluate('window.__desktopAi.observed.length')).toBe(3)
+    await page.evaluate('window.__finishOnce()')
+    await page.getByText('新的回复', { exact: true }).waitFor()
+    expect(await page.locator('.yy-ai-messages .yy-msg-assistant').count()).toBe(1)
+    expect(await page.locator('.yy-msg-user').count()).toBe(1)
+    await page.getByRole('button', { name: '复制 Markdown' }).click()
+    await expect.poll(() => page.evaluate('window.__desktopAi.copied')).toBe('**新的回复**')
+
+    await page.getByRole('combobox', { name: '添加上下文' }).click()
+    await page.getByRole('option', { name: '全文' }).click()
+    await page.getByRole('combobox', { name: '写作操作' }).click()
+    await page.getByRole('option', { name: '扩写' }).click()
+    await page.evaluate('window.__desktopAi.changeDocument()')
+    await composer.fill('写作范围已经修改')
+    await send.click()
+    await page.getByText('已选上下文发生变化，请重新添加后发送').waitFor()
+    expect(await composer.inputValue()).toBe('写作范围已经修改')
+    expect(await page.evaluate('window.__desktopAi.observed.length')).toBe(3)
+    await page.getByRole('combobox', { name: '写作操作' }).click()
+    await page.getByRole('option', { name: '对话', exact: true }).click()
     await chats.click()
     await manage.getByRole('button', { name: '设备复核', exact: true }).click()
     await chats.click()
@@ -1022,11 +1061,14 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     await page.getByRole('button', { name: '默认提示词', exact: true }).click()
     const promptsDialog = page.getByRole('dialog', { name: '默认提示词' })
     const template = promptsDialog.getByLabel('提示词内容')
-    expect(await promptsDialog.locator('.yy-ai-task-choice').count()).toBe(9)
+    expect(await promptsDialog.locator('.yy-ai-task-choice').count()).toBe(12)
     await promptsDialog.getByRole('button', { name: '改写', exact: true }).click()
     const defaultRewrite = await template.inputValue()
     expect(defaultRewrite).toContain('保留原有事实')
+    await promptsDialog.getByText('预览完整提示词', { exact: true }).click()
+    expect(await promptsDialog.getByLabel('完整提示词').textContent()).toContain('链接目标')
     await template.fill('保留专名，将段落缩为两句。')
+    expect(await promptsDialog.getByLabel('完整提示词').textContent()).toContain('保留专名，将段落缩为两句。')
     await promptsDialog.getByRole('button', { name: '摘要', exact: true }).click()
     await promptsDialog.getByRole('button', { name: '改写', exact: true }).click()
     expect(await template.inputValue()).toBe('保留专名，将段落缩为两句。')
@@ -1113,7 +1155,9 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     expect(await page.getByRole('option').count()).toBe(3)
     await page.getByRole('option', { name: /qwen-plus.*本地推理/ }).click()
     await page.getByRole('combobox', { name: '写作操作' }).click()
-    expect(await page.getByRole('option').count()).toBe(9)
+    expect(await page.getByRole('option').count()).toBe(12)
+    expect(await page.getByRole('option', { name: '精简' }).count()).toBe(1)
+    expect(await page.getByRole('option', { name: '提取待办' }).count()).toBe(1)
     await page.getByRole('option', { name: '翻译' }).click()
     await page.fill('.yy-ai-composer textarea', '翻译为英文')
     await page.click('.yy-ai-composer button[type="submit"]')
@@ -1576,6 +1620,14 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       const last = await phone.evaluate('window.__agentFixture.requests.slice(-2)') as typeof requests
       expect(last[0].id).not.toBe(last[1].id)
       expect(last[0].messages).toEqual(last[1].messages)
+      await writing.locator('.yy-ai-messages .yy-msg-assistant').last().getByRole('button', { name: '插入文档' }).tap()
+      const insertReview = writing.getByRole('region', { name: '差异审阅建议' })
+      await insertReview.getByText('插入 AI 回复', { exact: true }).waitFor()
+      expect(await phone.evaluate('window.__agentFixture.writes.length')).toBe(1)
+      await insertReview.getByRole('button', { name: '全部应用' }).tap()
+      await phone.getByRole('button', { name: '保存文档' }).tap()
+      await expect.poll(() => phone.evaluate('window.__agentFixture.writes[1]?.text')).toMatch(/(?:\r\n重试完成|重试完成\r\n)/)
+      await openAi()
       await writing.getByRole('button', { name: '对话管理' }).tap()
       const conversations = phone.getByRole('region', { name: '对话管理' })
       await conversations.getByRole('button', { name: '新建对话' }).tap()

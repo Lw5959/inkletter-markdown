@@ -143,6 +143,11 @@ export function createMobileServices(options: Options) {
         await writing.send(action.intent, action.prompt, editor, id, revision, { agent: action.agent, writable: open && !readonly })
         break
       }
+      case 'ai-insert-reply': {
+        const { id, revision } = editable()
+        writing.insertReply(action.message, editor, id, revision)
+        break
+      }
       case 'ai-cancel': await writing.cancel(); break
       case 'ai-retry': await writing.retry(); break
       case 'ai-clear': await writing.clear(); break
@@ -156,6 +161,7 @@ export function createMobileServices(options: Options) {
         if (!target) throw new Error('原文已经变化，请基于当前内容重新生成')
         editor.replace(target.from, target.to, chooseHunks(item.view.parts, action.hunks))
         writing.review(null)
+        if (writing.view.context && writing.view.context.scope !== 'files') writing.clearContext()
         pages.closeAll()
         notify('建议已应用，可撤销')
         break

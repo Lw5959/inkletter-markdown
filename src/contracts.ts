@@ -37,7 +37,7 @@ export type SidebarTab = 'files' | 'outline' | 'search'
 export type WorkspaceEntry = { path: string; name: string; children?: WorkspaceEntry[] }
 export type SearchResult = { path: string; name: string; line: number; preview: string }
 export type FindQuery = { text: string; replacement: string; regex: boolean; matchCase: boolean; wholeWord: boolean }
-export type AiIntent = 'chat' | 'outline' | 'draft' | 'continue' | 'rewrite' | 'polish' | 'summary' | 'translate' | 'proofread'
+export type AiIntent = 'chat' | 'outline' | 'draft' | 'continue' | 'rewrite' | 'expand' | 'condense' | 'polish' | 'summary' | 'actions' | 'translate' | 'proofread'
 export type AiPrompts = Partial<Record<AiIntent, string>>
 export type AiScope = 'selection' | 'paragraph' | 'document' | 'files'
 export type AiProtocol = 'chat' | 'anthropic' | 'responses'
@@ -62,7 +62,7 @@ export type Suggestion = { id: string; title: string; parts: DiffPart[]; hunks: 
 export type AiView = {
   settings: AiSettings; prompts: AiPrompts; context: AiContext | null; messages: AiMessage[]; stream: string;
   pending: boolean; error: string; suggestion: Suggestion | null; canRetry: boolean; agent?: AiAgentActivity;
-  conversations?: AiConversations; compacting?: boolean
+  conversations?: AiConversations; compacting?: boolean; canRegenerate?: boolean
 }
 export type McpServer = { id: string; name: string; transport: 'stdio' | 'http'; command?: string; args?: string[]; url?: string }
 export type McpItem = { kind: 'tool' | 'resource' | 'prompt'; name: string; title?: string; description?: string; schema?: unknown }
@@ -121,6 +121,7 @@ export type ShellAction =
   | { type: 'ai-context'; scope: AiScope }
   | { type: 'ai-context-clear' }
   | { type: 'ai-send'; intent: AiIntent; prompt: string; agent?: boolean }
+  | { type: 'ai-insert-reply'; message: AiMessage }
   | { type: 'ai-chat-new' | 'ai-compress' }
   | { type: 'ai-chat-select' | 'ai-chat-remove'; id: string }
   | { type: 'ai-chat-rename'; id: string; title: string }

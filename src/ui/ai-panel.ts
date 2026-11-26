@@ -6,7 +6,7 @@ import { openConversations } from './ai-conversations'
 import { openModelSettings, openPromptSettings } from './ai-settings'
 import { ChoicePicker } from './choice-picker'
 import type { DialogPresenter } from './dialogs'
-import { el, groupDiffParts } from './helpers'
+import { copyTextToClipboard, el, groupDiffParts } from './helpers'
 import { icons } from './icons'
 
 const scopes: Record<AiScope, string> = {
@@ -106,7 +106,7 @@ export class AiPanel {
     })
     this.modelButton.addEventListener('click', () => this.openModels())
     prompts.addEventListener('click', () => {
-      openPromptSettings(this.options.modals, this.view.prompts, this.intent, this.options.dispatch)
+      openPromptSettings(this.options.modals, this.view.prompts, this.intent, this.options.dispatch, this.agentMode)
     })
     this.chatButton.addEventListener('click', () => {
       this.refreshChats = openConversations(this.options.modals, () => this.view, this.options.dispatch,
@@ -207,7 +207,7 @@ export class AiPanel {
   private async submitPrompt() {
     if (this.submitting || this.view.pending || this.changingModel) return
     const draft = this.promptInput.value
-    if (!draft.trim() && this.intent === 'chat') {
+    if (!draft.trim() && (this.intent === 'chat' || !this.view.context)) {
       this.promptInput.focus()
       return
     }
@@ -235,7 +235,7 @@ export class AiPanel {
     this.promptInput.style.height = 'auto'
     const { scrollHeight, clientHeight } = this.promptInput
     if (scrollHeight > clientHeight) this.promptInput.style.height = scrollHeight + 'px'
-    this.sendButton.disabled = this.intent === 'chat' && !this.promptInput.value.trim()
+    this.sendButton.disabled = !this.promptInput.value.trim() && (this.intent === 'chat' || !this.view.context)
   }
 
   private async request(action: ShellAction) {
@@ -252,8 +252,29 @@ export class AiPanel {
     }
   }
 
+  private replyActions(message: AiMessage) {
+    const copyLabel = el('span', { text: '复制 Markdown' })
+    const copy = el('button', { className: 'yy-btn yy-btn-sm yy-btn-ghost', type: 'button' },
+      el('span', { className: 'yy-icon', html: icons.copy }), copyLabel)
+    let copiedTimer = 0
+    copy.addEventListener('click', async () => {
+      if (await copyTextToClipboard(message.text)) {
+        copyLabel.textContent = '已复制'
+        window.clearTimeout(copiedTimer)
+        copiedTimer = window.setTimeout(() => { copyLabel.textContent = '复制 Markdown' }, 1600)
+      } else {
+        this.actionError = '复制失败，可选中文本后复制'
+        this.renderError()
+      }
+    })
+    const insert = el('button', { className: 'yy-btn yy-btn-sm yy-btn-ghost', type: 'button' },
+      el('span', { className: 'yy-icon', html: icons.filePlus }), '插入文档')
+    insert.addEventListener('click', () => { void this.request({ type: 'ai-insert-reply', message }) })
+    return el('footer', { className: 'yy-ai-reply-actions' }, copy, insert)
+  }
+
   setView(view: AiView) {
-    const { settings, context, messages, stream, pending, suggestion, canRetry, agent, conversations, compacting } = view
+    const { settings, context, messages, stream, pending, suggestion, canRetry, canRegenerate, agent, conversations, compacting } = view
     const nearEnd = this.conversation.scrollHeight - this.conversation.clientHeight - this.conversation.scrollTop < 48
     this.view = view
     const active = conversations?.active
@@ -284,6 +305,11 @@ export class AiPanel {
     this.clearButton.hidden = !messages.length
     this.clearButton.disabled = pending
     this.retryButton.hidden = pending || !canRetry
+    const retryLabel = canRegenerate ? '重新生成上条回复' : '重试上次请求'
+    if (retryLabel !== this.retryButton.title) {
+      this.retryButton.title = retryLabel
+      this.retryButton.setAttribute('aria-label', retryLabel)
+    }
     this.sendButton.hidden = pending
     this.cancelButton.hidden = !pending
     this.empty.hidden = !!(messages.length || pending || suggestion)
@@ -302,6 +328,7 @@ export class AiPanel {
           el('div', { className: 'yy-msg-role', text: message.role === 'user' ? '你' : '页屿 AI' }),
           body,
         )
+        if (message.role === 'assistant' && message.text.trim()) item.append(this.replyActions(message))
         this.messageNodes.set(message, item)
         return item
       }))
@@ -318,6 +345,7 @@ export class AiPanel {
       const scope = context ? scopes[context.scope] : ''
       this.contextLabel.textContent = context && context.label !== scope ? scope + ' · ' + context.label : scope
       this.contextPreview.textContent = context?.text ?? ''
+      this.updateDraft()
     }
 
     const suggestionId = suggestion?.id ?? null

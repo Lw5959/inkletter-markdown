@@ -135,6 +135,13 @@
   white-space: pre-wrap;
 }
 
+.yy-shell .yy-ai-reply-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-top: 6px;
+}
+
 .yy-shell .yy-ai-markdown { white-space: normal; min-width: 0; }
 .yy-shell .yy-ai-markdown > :first-child { margin-block-start: 0; }
 .yy-shell .yy-ai-markdown > :last-child { margin-block-end: 0; }
@@ -672,6 +679,35 @@
 .yy-shell .yy-ai-settings .yy-ai-template {
   min-height: 175px;
   line-height: 1.7;
+}
+
+.yy-shell .yy-ai-template-preview {
+  margin-top: 12px;
+  border-top: 1px solid var(--yy-border);
+}
+
+.yy-shell .yy-ai-template-preview summary {
+  padding: 9px 0;
+  color: var(--yy-ink-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.yy-shell.yy-mobile .yy-ai-template-preview summary { min-height: 44px; }
+
+.yy-shell .yy-ai-template-preview pre {
+  max-height: min(260px, 35dvh);
+  margin: 0;
+  overflow: auto;
+  padding: 9px 11px;
+  border: 1px solid var(--yy-border);
+  border-radius: 8px;
+  background: var(--yy-chrome-subtle);
+  color: var(--yy-ink);
+  font: inherit;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .yy-shell .yy-ai-setting-error {

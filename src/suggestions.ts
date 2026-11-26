@@ -34,6 +34,31 @@ export function markdownDiff(original: string, response: string) {
   ].filter(change => change.value)
 }
 
+export function writingMarkdown(markdown: string, target: Binding, eol: string) {
+  const breaks = /\r\n|[\r\n]/g
+  if (!target.text) {
+    const text = markdown.replace(breaks, eol)
+    const gap = (left: string, right: string) => {
+      if (!left.trim() || !right.trim()) return ''
+      const boundary = (left.match(/\s*$/)?.[0] ?? '') + (right.match(/^\s*/)?.[0] ?? '')
+      return eol.repeat(Math.max(0, 2 - (boundary.match(breaks)?.length ?? 0)))
+    }
+    return gap(target.before, text) + text + gap(text, target.after)
+  }
+  const endings = target.text.match(breaks) ?? []
+  const original = target.text.replace(breaks, '\n')
+  const changes = markdownDiff(original, markdown.replace(breaks, '\n'))
+  let line = 0
+  // 模型通常返回 LF。保留未改动行原有的换行符，新行沿用改稿范围的换行风格。
+  return changes.map(change => {
+    if (change.removed) {
+      line += change.value.match(/\n/g)?.length ?? 0
+      return ''
+    }
+    return change.value.replace(/\n/g, () => change.added ? endings[0] ?? eol : endings[line++] ?? eol)
+  }).join('')
+}
+
 export function suggestion(source: Suggestion['source'], title: string, target: Binding, response: string, mcpId?: string): PendingSuggestion {
   const changes = markdownDiff(target.text, response)
   let hunks = 0

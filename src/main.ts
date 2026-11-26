@@ -977,6 +977,10 @@ async function dispatch(action: ShellAction) {
     case 'ai-context-clear': writing.clearContext(); break
     case 'ai-send': await writing.send(action.intent, action.prompt, editor, documentId, revision,
       { agent: action.agent, writable: !state.presentation.readonly }); break
+    case 'ai-insert-reply':
+      if (state.presentation.readonly) throw new Error('请先关闭只读模式')
+      writing.insertReply(action.message, editor, documentId, revision)
+      break
     case 'ai-cancel': await writing.cancel(); break
     case 'ai-retry': await writing.retry(); break
     case 'ai-clear': await writing.clear(); break
@@ -1032,6 +1036,7 @@ async function dispatch(action: ShellAction) {
       if (!location) throw new Error('改稿位置已变化，请基于当前文档重新生成建议')
       editor.replace(location.from, location.to, chooseHunks(item.view.parts, action.hunks))
       writing.review(null)
+      if (writing.view.context && writing.view.context.scope !== 'files') writing.clearContext()
       if (item.mcpId) await protocol.resolve(item.mcpId)
       editor.focus()
       update('建议已应用，可撤销')

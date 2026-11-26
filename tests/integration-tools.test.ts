@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bind, chooseHunks, relocate, suggestion } from '../src/suggestions'
+import { bind, chooseHunks, relocate, suggestion, writingMarkdown } from '../src/suggestions'
 
 describe('接受修改建议', () => {
   it('重新定位仍完整的建议，并拒绝歧义和改过的原文', () => {
@@ -19,5 +19,14 @@ describe('接受修改建议', () => {
     expect(proposal.view.hunks).toEqual(2)
     expect(chooseHunks(proposal.view.parts, [0])).toEqual('保留\r\n丙\r\n中间\n乙\r末尾')
     expect(chooseHunks(proposal.view.parts, [0, 1])).toEqual(next)
+  })
+
+  it('AI 改稿保留未修改行的混合行尾，插入回复沿用文档换行', () => {
+    const source = '保留一\r\n旧描述\r\n保留二\n末行\r句末'
+    const target = bind(1, 1, source, { from: 0, to: source.length })
+    expect(writingMarkdown('保留一\n新描述\n保留二\n末行\n句末', target, '\r\n'))
+      .toBe('保留一\r\n新描述\r\n保留二\n末行\r句末')
+    const insertion = bind(1, 1, '甲\r\n\r\n乙', { from: 1, to: 1 })
+    expect(writingMarkdown('**小结**\n- 第一点', insertion, '\r\n')).toBe('\r\n\r\n**小结**\r\n- 第一点')
   })
 })
