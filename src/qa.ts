@@ -58,9 +58,9 @@ const button = (scope: ParentNode, text: string) =>
 function check(value: unknown, name: string): asserts value {
   if (!value) throw new Error('验收失败：' + name)
 }
-async function until(ready: () => boolean, ms = 10_000) {
+async function until(ready: () => boolean | Promise<boolean>, ms = 10_000) {
   const deadline = performance.now() + ms
-  while (!ready()) {
+  while (!await ready()) {
     if (performance.now() > deadline) throw new Error('等待验收状态超时')
     await wait(40)
   }
@@ -421,6 +421,7 @@ async function verifyWindows(ports: Ports, scenario: Case) {
   const move = (position: Point) => invoke('qa_move_window', { position })
   const originalFrame = /Mac/.test(navigator.platform) ? await editorFrame() : null
   let placement: { offset: Point; editorMove: number; pluginMove: Point } | undefined
+  let panelHeights: { confirm: number; latest: number; releaseNotes: number } | undefined
   if (originalFrame) {
     // 在靠近屏幕边缘的位置开窗，区分按显示器居中和按文档窗口定位两种行为。
     await move({ x: originalFrame.workArea.position.x + 24, y: originalFrame.position.y })
@@ -472,6 +473,7 @@ async function verifyWindows(ports: Ports, scenario: Case) {
     const decision = choose('关闭文档', '保留当前窗口的修改。', [{ label: '继续编辑', value: 'cancel', primary: true }])
     const confirmation = opened.at(-1)!
     check(confirmation !== plugins && confirmation.document.querySelector('dialog[open]'), '确认弹窗在独立窗口显示')
+    const confirmHeight = confirmation.innerHeight
     button(confirmation.document, '继续编辑').click()
     check(await decision === 'cancel', '子窗口归还确认结果')
 
@@ -488,19 +490,43 @@ async function verifyWindows(ports: Ports, scenario: Case) {
       check(ports.text() === (finish === '确认放弃' ? original : original + draft), '放弃或取消按最终选择执行')
     }
 
-    showUpdate(async () => ({ version: '9.0.0', notes: '## 验收更新\n\n**Markdown**', kind: 'install', async apply() {} }))
+    showUpdate(async () => null)
+    const currentUpdate = opened.at(-1)!
+    check(currentUpdate !== confirmation, '更新另开原生窗口')
+    await until(() => currentUpdate.document.querySelector('.yy-update-status h3')?.textContent === '已是最新版本')
+    const updateHeight = currentUpdate.innerHeight
+    const dismiss = button(currentUpdate.document, '关闭')
+    check(dismiss.getBoundingClientRect().bottom <= updateHeight, '紧凑窗口直接显示关闭按钮')
+    await until(async () => (await windows()).some(item => item.title === '软件更新'))
+    dismiss.click()
+    // WebView 的 Window.closed 可能为真，系统仍显示残留的窗口。
+    await until(async () => !(await windows()).some(item => item.title === '软件更新'))
+    check(!document.getElementById('app')?.inert, '关闭更新后恢复文档操作')
+    check(confirmHeight > 0 && confirmHeight <= 172 && updateHeight > 0 && updateHeight <= 266,
+      `短确认及已是最新版本使用紧凑窗口（${confirmHeight}、${updateHeight}）`)
+
+    let firstCheck = true
+    showUpdate(async () => {
+      if (!firstCheck) return null
+      firstCheck = false
+      return { version: '9.0.0', notes: '## 验收更新\n\n**Markdown**\n\n' + '发布说明。\n\n'.repeat(30), kind: 'install', async apply() {} }
+    })
     const update = opened.at(-1)!
-    check(update !== confirmation, '更新另开原生窗口')
-    await until(() => !!update.document.querySelector('.yy-update-notes-body strong'))
+    await until(() => !!update.document.querySelector('.yy-update-notes-body strong') && update.innerHeight > updateHeight)
+    const notes = update.document.querySelector('.yy-update-notes-body')!
+    check(update.innerHeight <= 495 && notes.scrollHeight > notes.clientHeight, '长发布说明使用可滚动的扩展窗口')
+    panelHeights = { confirm: confirmHeight, latest: updateHeight, releaseNotes: update.innerHeight }
+    update.document.querySelector<HTMLButtonElement>('.yy-update-sources button[aria-pressed="false"]')!.click()
+    await until(() => update.document.querySelector('.yy-update-status h3')?.textContent === '已是最新版本' && update.innerHeight === updateHeight)
     button(update.document, '关闭').click()
-    await until(() => update.closed)
+    await until(async () => !(await windows()).some(item => item.label.startsWith('panel-')))
     check((await editorWindows()).length === 2 && ports.state.path?.endsWith('验收.md'), '关闭工具窗口保留两个文档窗口')
   } finally {
     window.open = originalOpen
     if (originalFrame) await move(originalFrame.position)
   }
   await testWindowDraft(ports, true)
-  return { documents: 2, txt: true, deduplicate: true, undo: true, plugins: true, placement, confirm: true, doubleConfirm: true, update: true }
+  return { documents: 2, txt: true, deduplicate: true, undo: true, plugins: true, placement, confirm: true, doubleConfirm: true, update: true, nativePanelClose: true, panelHeights }
 }
 
 async function testWindowDraft(ports: Ports, main: boolean) {

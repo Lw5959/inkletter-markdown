@@ -7,14 +7,14 @@ use std::{
     sync::Mutex,
 };
 use tauri::{
-    AppHandle, Emitter, Manager, Monitor, PhysicalPosition, WebviewUrl, WebviewWindow,
+    AppHandle, Emitter, LogicalSize, Manager, Monitor, PhysicalPosition, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder, WindowEvent,
 };
 use uuid::Uuid;
 
 pub const OPEN_EVENT: &str = "yeyu:document-open";
-const MODAL_URL: &str = "about:blank";
-const TOOL_URL: &str = "about:blank#tool";
+const PANEL_URL: &str = "about:blank";
+const PANEL_CLOSED_EVENT: &str = "yeyu:panel-closed";
 
 #[derive(Clone, Serialize)]
 pub struct OpenRequest {
@@ -74,7 +74,24 @@ fn recovery_labels(data: &Path) -> Vec<String> {
     labels
 }
 
-fn position_tool(
+fn panel_spec(fragment: &str) -> Option<(&str, bool, u16, u16)> {
+    let mut parts = fragment.split('/');
+    let modal = match parts.next()? {
+        "yeyu-modal" => true,
+        "yeyu-tool" => false,
+        _ => return None,
+    };
+    let label = parts.next()?;
+    Uuid::try_parse(label.strip_prefix("panel-")?).ok()?;
+    let width = parts.next()?.parse().ok()?;
+    let height = parts.next()?.parse().ok()?;
+    if parts.next().is_some() || !(1..=4096).contains(&width) || !(1..=4096).contains(&height) {
+        return None;
+    }
+    Some((label, modal, width, height))
+}
+
+fn position_panel(
     window: &WebviewWindow,
     owner: &WebviewWindow,
     monitor: &Monitor,
@@ -138,60 +155,50 @@ fn create_editor(
     let built = WebviewWindowBuilder::from_config(app, &config).and_then(|builder| {
         builder
             .initialization_script(format!("window.__YEYU_DESKTOP_WINDOWS__ = {panels};"))
-            .on_new_window(move |url, features| {
+            .on_new_window(move |mut url, features| {
                 use tauri::webview::NewWindowResponse;
-                // 只接收应用自身的空白子窗口。外部链接仍由系统默认浏览器处理。
-                let tool = match url.as_str() {
-                    MODAL_URL => false,
-                    TOOL_URL => true,
-                    _ => return NewWindowResponse::Deny,
+                let Some((label, modal, width, height)) = url.fragment().and_then(panel_spec)
+                else {
+                    return NewWindowResponse::Deny;
                 };
+                let label = label.to_owned();
+                // 在 opener 的初始空白页挂载组件。片段只传窗口标识和尺寸，避免触发二次导航。
+                url.set_fragment(None);
+                if url.as_str() != PANEL_URL {
+                    return NewWindowResponse::Deny;
+                }
                 let Some(parent) = handle.get_webview_window(&owner) else {
                     return NewWindowResponse::Deny;
                 };
-                let monitor = if tool {
-                    parent.current_monitor().ok().flatten()
-                } else {
-                    None
-                };
-                // WebKitGTK 的开窗事件没有提供 window.open 的宽高。
-                let default_tool_size = tool && features.size().is_none();
-                // 标记只用于创建窗口。继续使用 opener 的初始空白页，避免二次导航清掉已挂载的 DOM。
-                let mut blank = url;
-                blank.set_fragment(None);
-                let builder = WebviewWindowBuilder::new(
-                    &handle,
-                    format!("panel-{}", Uuid::new_v4().simple()),
-                    WebviewUrl::External(blank),
-                )
-                .window_features(features)
-                .title("页屿")
-                .skip_taskbar(true)
-                .on_navigation(|url| url.as_str() == MODAL_URL)
-                .on_new_window(|_, _| NewWindowResponse::Deny)
-                .on_document_title_changed(|window, title| {
-                    let _ = window.set_title(&title);
-                });
-                let child = if tool {
-                    // 原生父子窗口会同向移动。工具窗口仅保留下方注册表里的文档归属。
-                    let mut builder = builder.visible(false).focused(false);
-                    if default_tool_size {
-                        builder = builder.inner_size(1110., 750.);
-                    }
-                    if let Some(monitor) = &monitor {
-                        let start = monitor
-                            .work_area()
-                            .position
-                            .to_logical::<f64>(monitor.scale_factor());
-                        builder = builder.position(start.x, start.y).prevent_overflow();
-                    }
-                    builder.build()
-                } else {
-                    builder
-                        .parent(&parent)
-                        .and_then(|builder| builder.center().build())
-                };
-                let Ok(window) = child else {
+                let monitor = parent.current_monitor().ok().flatten();
+                let mut builder =
+                    WebviewWindowBuilder::new(&handle, label, WebviewUrl::External(url))
+                        .window_features(features)
+                        .inner_size(f64::from(width), f64::from(height))
+                        .title("页屿")
+                        .visible(false)
+                        .focused(false)
+                        .skip_taskbar(true)
+                        .on_navigation(|url| url.as_str() == PANEL_URL)
+                        .on_new_window(|_, _| NewWindowResponse::Deny)
+                        .on_document_title_changed(|window, title| {
+                            let _ = window.set_title(&title);
+                        });
+                if modal {
+                    // 需要阻止文档输入的窗口保留原生父子关系，独立工具仅登记文档归属。
+                    let Ok(attached) = builder.parent(&parent) else {
+                        return NewWindowResponse::Deny;
+                    };
+                    builder = attached;
+                }
+                if let Some(monitor) = &monitor {
+                    let start = monitor
+                        .work_area()
+                        .position
+                        .to_logical::<f64>(monitor.scale_factor());
+                    builder = builder.position(start.x, start.y).prevent_overflow();
+                }
+                let Ok(window) = builder.build() else {
                     return NewWindowResponse::Deny;
                 };
                 if let Ok(mut registry) = handle.state::<Windows>().0.lock() {
@@ -199,13 +206,11 @@ fn create_editor(
                         .children
                         .insert(window.label().into(), owner.clone());
                 }
-                if tool {
-                    if let Some(monitor) = &monitor {
-                        let _ = position_tool(&window, &parent, monitor);
-                    }
-                    let _ = window.show();
-                    let _ = window.set_focus();
+                if let Some(monitor) = &monitor {
+                    let _ = position_panel(&window, &parent, monitor);
                 }
+                let _ = window.show();
+                let _ = window.set_focus();
                 NewWindowResponse::Create { window }
             })
             .build()
@@ -354,7 +359,7 @@ fn open_path(
 
 pub fn on_window_event(label: &str, app: &AppHandle, event: &WindowEvent) {
     let windows = app.state::<Windows>();
-    let (children, continue_quit) = {
+    let (owner, children, continue_quit) = {
         let Ok(mut registry) = windows.0.lock() else {
             return;
         };
@@ -368,7 +373,7 @@ pub fn on_window_event(label: &str, app: &AppHandle, event: &WindowEvent) {
         if !matches!(event, WindowEvent::Destroyed) {
             return;
         }
-        registry.children.remove(label);
+        let owner = registry.children.remove(label);
         registry.documents.remove(label);
         let advance = registry.closing_for_quit.as_deref() == Some(label);
         if advance {
@@ -380,8 +385,11 @@ pub fn on_window_event(label: &str, app: &AppHandle, event: &WindowEvent) {
             .filter(|(_, owner)| *owner == label)
             .map(|(child, _)| child.clone())
             .collect::<Vec<_>>();
-        (children, advance)
+        (owner, children, advance)
     };
+    if let Some(owner) = owner {
+        let _ = app.emit_to(owner, PANEL_CLOSED_EVENT, label);
+    }
     for child in children {
         if let Some(window) = app.get_webview_window(&child) {
             let _ = window.destroy();
@@ -390,6 +398,60 @@ pub fn on_window_event(label: &str, app: &AppHandle, event: &WindowEvent) {
     if continue_quit {
         request_quit(app);
     }
+}
+
+fn owned_panel(window: &WebviewWindow, label: &str) -> Result<Option<WebviewWindow>, String> {
+    let windows = window.state::<Windows>();
+    let registry = windows.0.lock().map_err(err)?;
+    match registry.children.get(label) {
+        Some(owner) if owner == window.label() => Ok(window.get_webview_window(label)),
+        Some(_) => Err("工具窗口属于另一份文档".into()),
+        None => Ok(None),
+    }
+}
+
+#[tauri::command]
+pub fn desktop_panel_close(window: WebviewWindow, label: String) -> Result<(), String> {
+    if let Some(panel) = owned_panel(&window, &label)? {
+        // WebView 关闭页面后，系统窗口仍可能存在。需要销毁对应的原生窗口。
+        panel.destroy().map_err(err)?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn desktop_panel_resize(
+    window: WebviewWindow,
+    label: String,
+    height: u16,
+) -> Result<(), String> {
+    if !(1..=4096).contains(&height) {
+        return Err("窗口高度超出范围".into());
+    }
+    let Some(panel) = owned_panel(&window, &label)? else {
+        return Ok(());
+    };
+    let scale = panel.scale_factor().map_err(err)?;
+    let content = panel.inner_size().map_err(err)?;
+    let mut height = f64::from(height);
+    let monitor = panel.current_monitor().map_err(err)?;
+    if let Some(monitor) = &monitor {
+        let titlebar = panel
+            .outer_size()
+            .map_err(err)?
+            .height
+            .saturating_sub(content.height);
+        let available = monitor.work_area().size.height.saturating_sub(titlebar);
+        height = height.min((f64::from(available) / scale).max(1.));
+    }
+    panel
+        .set_size(LogicalSize::new(f64::from(content.width) / scale, height))
+        .map_err(err)?;
+    // 更新说明扩展时仍以文档窗口为参照，将外框限制在当前显示器内。
+    if let Some(monitor) = &monitor {
+        let _ = position_panel(&panel, &window, monitor);
+    }
+    Ok(())
 }
 
 pub fn request_quit(app: &AppHandle) {

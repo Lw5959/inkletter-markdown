@@ -19,6 +19,7 @@ export type UpdateSource = 'auto' | 'github' | 'gitee'
 const preferenceKey = 'yeyu.update.source.v1'
 const sources = { auto: '自动', github: 'GitHub', gitee: 'Gitee' } as const
 const updateWindows = new WeakMap<Document, HTMLDialogElement>()
+const updateHeight = 250
 
 function preferredSource(): UpdateSource {
   try {
@@ -56,7 +57,20 @@ export function showUpdate(check: (source: UpdateSource) => Promise<UpdateOffer 
 
   const dialog = pages ? null : el('dialog', { className: 'app-dialog yy-update-dialog', attrs: { 'aria-label': '软件更新' } })
   const panel = dialog ?? el('div', { className: 'yy-mobile-brief-page yy-update-page' })
-  const active = () => dialog?.open ?? panel.isConnected
+  let popup: ReturnType<typeof openDesktopWindow> = null
+  let dismissed = false
+  const active = () => !dismissed && (dialog?.open ?? panel.isConnected)
+  const closeDialog = () => {
+    if (!dialog || dismissed) return
+    dismissed = true
+    updateWindows.delete(document)
+    if (popup) {
+      popup.close()
+    } else {
+      if (dialog.open) dialog.close()
+      dialog.remove()
+    }
+  }
   const current = el('p', { className: 'yy-update-version', text: '正在读取当前版本…' })
   let source = preferredSource()
   const choices = el('div', { className: 'yy-update-sources', attrs: { role: 'group', 'aria-label': '更新源' } })
@@ -183,7 +197,7 @@ export function showUpdate(check: (source: UpdateSource) => Promise<UpdateOffer 
       const result = await release.apply(report)
       if (!active()) return
       if (result === false) {
-        dialog?.close()
+        closeDialog()
       } else if (release.kind === 'install') {
         showStatus('更新已安装', '页屿正在重新启动。')
       } else {
@@ -211,6 +225,7 @@ export function showUpdate(check: (source: UpdateSource) => Promise<UpdateOffer 
       if (!currentCheck()) return
       if (!release) {
         showStatus('已是最新版本')
+        popup?.setHeight(updateHeight)
         return
       }
       const installs = release.kind === 'install'
@@ -223,11 +238,13 @@ export function showUpdate(check: (source: UpdateSource) => Promise<UpdateOffer 
       notesBody.replaceChildren(rendered)
       notesBody.scrollTop = 0
       notes.hidden = false
+      popup?.setHeight(472)
     } catch {
       if (!currentCheck()) return
       if (!installedVersion) current.textContent = '无法读取当前版本'
       showStatus('检查更新失败', '请检查网络连接，或稍后重试。')
       showAction('重试', checkForUpdate)
+      popup?.setHeight(updateHeight)
     }
   }
 
@@ -238,21 +255,19 @@ export function showUpdate(check: (source: UpdateSource) => Promise<UpdateOffer 
     })
   })
   if (dialog) {
-    dismiss.onclick = () => dialog.close()
+    dismiss.onclick = closeDialog
     dialog.addEventListener('keydown', event => event.stopPropagation())
-    dialog.addEventListener('cancel', event => { if (applying) event.preventDefault() })
-    const close = () => {
-      updateWindows.delete(document)
-      dialog.remove()
-      popup?.close()
-    }
-    const popup = openDesktopWindow(dialog, { title: '软件更新', width: 650, height: 585, modal: true, onClose: close })
+    dialog.addEventListener('cancel', event => {
+      event.preventDefault()
+      if (!applying) closeDialog()
+    })
+    popup = openDesktopWindow(dialog, { title: '软件更新', width: 460, height: updateHeight, modal: true, onClose: closeDialog })
     if (!popup) {
       dismissOnBackdrop(dialog)
       document.body.append(dialog)
     }
     updateWindows.set(document, dialog)
-    dialog.addEventListener('close', close, { once: true })
+    dialog.addEventListener('close', closeDialog, { once: true })
     dialog.showModal()
   } else pages?.open('软件更新', panel)
   void checkForUpdate()

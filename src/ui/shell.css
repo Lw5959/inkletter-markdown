@@ -1844,7 +1844,7 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 .yy-shell.yy-native-panel-host { display: block; overflow: hidden; }
 
 .yy-native-panel .yy-shell .yy-modal,
-.yy-native-panel .app-dialog {
+.yy-native-panel .yy-native-panel-host .app-dialog {
   box-sizing: border-box;
   inset: 0;
   width: 100%;
@@ -1855,6 +1855,15 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
   border: 0;
   border-radius: 0;
   box-shadow: none;
+}
+
+.yy-native-panel .app-dialog > h2,
+.yy-native-panel .app-dialog > form > h2 { display: none; }
+
+.yy-native-panel .app-dialog {
+  padding: 18px 20px;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
 }
 
 .yy-native-panel .app-dialog::backdrop { background: var(--yy-chrome-bg); }

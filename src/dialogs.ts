@@ -38,14 +38,15 @@ function present(element: HTMLDialogElement) {
   return new Promise<string>(resolve => {
     const review = element.classList.contains('app-review-dialog')
     const done = () => {
-      resolve(element.returnValue)
+      element.removeEventListener('close', done)
       popup?.close()
-      element.remove()
+      if (!popup) element.remove()
+      resolve(element.returnValue)
       if (previous instanceof HTMLElement && previous.isConnected) previous.focus({ preventScroll: true })
     }
     const popup = openDesktopWindow(element, {
-      title: element.getAttribute('aria-label') ?? '页屿', width: review ? 880 : 520,
-      height: review ? 650 : 280, modal: true, onClose: done,
+      title: element.getAttribute('aria-label') ?? '页屿', width: review ? 820 : 440,
+      height: review ? 560 : element.querySelector('input') ? 200 : 152, modal: true, onClose: done,
     })
     if (!popup) {
       dismissOnBackdrop(element)

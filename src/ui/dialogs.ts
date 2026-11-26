@@ -82,14 +82,15 @@ export class ModalManager {
     return this.activeDialog !== null
   }
 
-  open(dialog: HTMLElement, options?: { initialFocus?: HTMLElement | null; onClose?: () => void }) {
+  open(dialog: HTMLElement, options?: { initialFocus?: HTMLElement | null; onClose?: () => void; size?: [number, number] }) {
     if (this.activeDialog) this.close(false)
     const active = document.activeElement
     this.returnFocusTo = active instanceof HTMLElement ? active : null
     this.activeDialog = dialog
     this.onCloseCallback = options?.onClose ?? null
+    const [width, height] = options?.size ?? [720, 580]
     this.popup = openDesktopWindow(dialog, {
-      title: dialog.getAttribute('aria-label') ?? '页屿', width: 720, height: 580, modal: true, onClose: () => this.close(),
+      title: dialog.getAttribute('aria-label') ?? '页屿', width, height, modal: true, onClose: () => this.close(),
     })
     if (this.popup) this.popup.child.addEventListener('keydown', this.keydownHandler, true)
     else {
@@ -263,7 +264,7 @@ export class ModalManager {
 
     dialog.append(searchWrap, list, foot)
     renderList()
-    this.open(dialog, { initialFocus: input })
+    this.open(dialog, { initialFocus: input, size: [580, 450] })
   }
 
   openTextPrompt(params: {
@@ -332,7 +333,7 @@ export class ModalManager {
 
     form.append(fieldLabel, errorEl, actions)
     dialog.append(header, form)
-    this.open(dialog, { initialFocus: input })
+    this.open(dialog, { initialFocus: input, size: [450, 256] })
     queueMicrotask(() => input.select())
   }
 
@@ -378,7 +379,7 @@ export class ModalManager {
     actions.append(cancelBtn, confirmBtn)
     body.append(actions)
     dialog.append(header, body)
-    this.open(dialog, { initialFocus: confirmBtn })
+    this.open(dialog, { initialFocus: confirmBtn, size: [440, 208] })
   }
 
   openShortcutsModal(registry: ShortcutRegistry) {

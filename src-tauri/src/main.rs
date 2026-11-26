@@ -149,6 +149,8 @@ fn main() {
             settings::settings_save,
             settings::settings_recent,
             windows::document_windows_open,
+            windows::desktop_panel_close,
+            windows::desktop_panel_resize,
             windows::document_window_request,
             windows::document_window_state,
             windows::document_window_new,
