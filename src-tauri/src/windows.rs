@@ -7,11 +7,14 @@ use std::{
     sync::Mutex,
 };
 use tauri::{
-    AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent,
+    AppHandle, Emitter, Manager, Monitor, PhysicalPosition, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder, WindowEvent,
 };
 use uuid::Uuid;
 
 pub const OPEN_EVENT: &str = "yeyu:document-open";
+const MODAL_URL: &str = "about:blank";
+const TOOL_URL: &str = "about:blank#tool";
 
 #[derive(Clone, Serialize)]
 pub struct OpenRequest {
@@ -71,6 +74,42 @@ fn recovery_labels(data: &Path) -> Vec<String> {
     labels
 }
 
+fn position_tool(
+    window: &WebviewWindow,
+    owner: &WebviewWindow,
+    monitor: &Monitor,
+) -> tauri::Result<()> {
+    let anchor = owner.outer_position()?;
+    let parent = owner.outer_size()?;
+    let panel = window.outer_size()?;
+    let area = monitor.work_area();
+    // 按两个窗口的外框对齐，同时给菜单栏、任务栏和 Dock 留出系统保留区域。
+    let align = |anchor: i32, parent: u32, panel: u32, start: i32, available: u32| {
+        (anchor + (parent as i32 - panel as i32) / 2)
+            .clamp(start, start + available.saturating_sub(panel) as i32)
+    };
+    let position = PhysicalPosition::new(
+        align(
+            anchor.x,
+            parent.width,
+            panel.width,
+            area.position.x,
+            area.size.width,
+        ),
+        align(
+            anchor.y,
+            parent.height,
+            panel.height,
+            area.position.y,
+            area.size.height,
+        ),
+    );
+    // AppKit 在不同缩放比例的显示器之间使用同一套逻辑坐标。
+    #[cfg(target_os = "macos")]
+    let position = position.to_logical::<f64>(monitor.scale_factor());
+    window.set_position(position)
+}
+
 fn create_editor(
     app: &AppHandle,
     label: &str,
@@ -102,31 +141,56 @@ fn create_editor(
             .on_new_window(move |url, features| {
                 use tauri::webview::NewWindowResponse;
                 // 只接收应用自身的空白子窗口。外部链接仍由系统默认浏览器处理。
-                if url.as_str() != "about:blank" {
-                    return NewWindowResponse::Deny;
-                }
+                let tool = match url.as_str() {
+                    MODAL_URL => false,
+                    TOOL_URL => true,
+                    _ => return NewWindowResponse::Deny,
+                };
                 let Some(parent) = handle.get_webview_window(&owner) else {
                     return NewWindowResponse::Deny;
                 };
-                let child = WebviewWindowBuilder::new(
+                let monitor = if tool {
+                    parent.current_monitor().ok().flatten()
+                } else {
+                    None
+                };
+                // WebKitGTK 的开窗事件没有提供 window.open 的宽高。
+                let default_tool_size = tool && features.size().is_none();
+                // 标记只用于创建窗口。继续使用 opener 的初始空白页，避免二次导航清掉已挂载的 DOM。
+                let mut blank = url;
+                blank.set_fragment(None);
+                let builder = WebviewWindowBuilder::new(
                     &handle,
                     format!("panel-{}", Uuid::new_v4().simple()),
-                    WebviewUrl::External(url),
+                    WebviewUrl::External(blank),
                 )
                 .window_features(features)
-                .parent(&parent)
-                .and_then(|builder| {
-                    builder
-                        .title("页屿")
-                        .center()
-                        .skip_taskbar(true)
-                        .on_navigation(|url| url.as_str() == "about:blank")
-                        .on_new_window(|_, _| NewWindowResponse::Deny)
-                        .on_document_title_changed(|window, title| {
-                            let _ = window.set_title(&title);
-                        })
-                        .build()
+                .title("页屿")
+                .skip_taskbar(true)
+                .on_navigation(|url| url.as_str() == MODAL_URL)
+                .on_new_window(|_, _| NewWindowResponse::Deny)
+                .on_document_title_changed(|window, title| {
+                    let _ = window.set_title(&title);
                 });
+                let child = if tool {
+                    // 原生父子窗口会同向移动。工具窗口仅保留下方注册表里的文档归属。
+                    let mut builder = builder.visible(false).focused(false);
+                    if default_tool_size {
+                        builder = builder.inner_size(1110., 750.);
+                    }
+                    if let Some(monitor) = &monitor {
+                        let start = monitor
+                            .work_area()
+                            .position
+                            .to_logical::<f64>(monitor.scale_factor());
+                        builder = builder.position(start.x, start.y).prevent_overflow();
+                    }
+                    builder.build()
+                } else {
+                    builder
+                        .parent(&parent)
+                        .and_then(|builder| builder.center().build())
+                };
                 let Ok(window) = child else {
                     return NewWindowResponse::Deny;
                 };
@@ -134,6 +198,13 @@ fn create_editor(
                     registry
                         .children
                         .insert(window.label().into(), owner.clone());
+                }
+                if tool {
+                    if let Some(monitor) = &monitor {
+                        let _ = position_tool(&window, &parent, monitor);
+                    }
+                    let _ = window.show();
+                    let _ = window.set_focus();
                 }
                 NewWindowResponse::Create { window }
             })

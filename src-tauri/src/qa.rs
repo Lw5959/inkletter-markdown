@@ -31,10 +31,20 @@ pub async fn qa_windows(app: tauri::AppHandle) -> Vec<Value> {
         .into_values()
         .map(|window| {
             serde_json::json!({
-                "label": window.label(), "title": window.title().unwrap_or_default()
+                "label": window.label(), "title": window.title().unwrap_or_default(),
+                "position": window.outer_position().ok(), "size": window.outer_size().ok(),
+                "workArea": window.current_monitor().ok().flatten().map(|monitor| *monitor.work_area()),
             })
         })
         .collect()
+}
+
+#[tauri::command]
+pub async fn qa_move_window(
+    window: tauri::WebviewWindow,
+    position: tauri::PhysicalPosition<i32>,
+) -> Result<(), String> {
+    window.set_position(position).map_err(crate::store::err)
 }
 
 #[tauri::command]
@@ -56,7 +66,6 @@ pub async fn qa_input(
 
 #[cfg(target_os = "macos")]
 mod mac {
-    use super::*;
     use crate::store::err;
     use objc2::{msg_send, runtime::AnyObject, sel};
     use objc2_foundation::{NSRange, NSString};

@@ -389,7 +389,10 @@ async function verifyMcpSuggestion(ports: Ports, path: string, original: string)
 }
 
 async function verifyWindows(ports: Ports, scenario: Case) {
-  const windows = () => invoke<{ label: string; title: string }[]>('qa_windows')
+  type Point = { x: number; y: number }
+  type Size = { width: number; height: number }
+  type Frame = { position: Point; size: Size }
+  const windows = () => invoke<({ label: string; title: string; workArea: Frame } & Frame)[]>('qa_windows')
   const editorWindows = async () => (await windows()).filter(item => !item.label.startsWith('panel-'))
   await ports.action({ type: 'autosave', enabled: false })
   await ports.openPath(scenario.guide, 1, false)
@@ -411,7 +414,17 @@ async function verifyWindows(ports: Ports, scenario: Case) {
   ports.editor.undo()
   check(ports.text() === original, '原窗口撤销栈保留')
 
-  await getCurrentWindow().setFocus()
+  const current = getCurrentWindow()
+  await current.setFocus()
+  const editorFrame = async () => (await windows()).find(item => item.label === current.label)!
+  const pluginFrame = async () => (await windows()).find(item => item.label.startsWith('panel-'))!
+  const move = (position: Point) => invoke('qa_move_window', { position })
+  const originalFrame = /Mac/.test(navigator.platform) ? await editorFrame() : null
+  let placement: { offset: Point; editorMove: number; pluginMove: Point } | undefined
+  if (originalFrame) {
+    // 在靠近屏幕边缘的位置开窗，区分按显示器居中和按文档窗口定位两种行为。
+    await move({ x: originalFrame.workArea.position.x + 24, y: originalFrame.position.y })
+  }
   const opened: Window[] = []
   const originalOpen = window.open
   window.open = (...args) => {
@@ -430,6 +443,29 @@ async function verifyWindows(ports: Ports, scenario: Case) {
     button(plugins.document, '内置插件').click()
     await until(() => !!plugins.document.querySelector('[data-market-plugin="yeyu.opencode"]'))
     check((await windows()).some(item => item.label.startsWith('panel-')), '原生枚举包含插件窗口')
+    if (originalFrame) {
+      const editor = await editorFrame()
+      const before = await pluginFrame()
+      await move({ x: editor.position.x + 128, y: editor.position.y })
+      const editorMove = (await editorFrame()).position.x - editor.position.x
+      const after = await pluginFrame()
+      const pluginMove = { x: after.position.x - before.position.x, y: after.position.y - before.position.y }
+      check(editorMove !== 0 && pluginMove.x === 0 && pluginMove.y === 0,
+        `移动文档窗口时插件窗口保持原位（文档移动 ${editorMove}，插件移动 ${pluginMove.x}, ${pluginMove.y}）`)
+      const work = editor.workArea
+      const placed = (start: number, available: number, ownerStart: number, ownerSize: number, panelSize: number) =>
+        Math.min(Math.max(ownerStart + (ownerSize - panelSize) / 2, start), start + Math.max(0, available - panelSize))
+      const offset = {
+        x: before.position.x - placed(work.position.x, work.size.width, editor.position.x, editor.size.width, before.size.width),
+        y: before.position.y - placed(work.position.y, work.size.height, editor.position.y, editor.size.height, before.size.height),
+      }
+      check(Math.abs(offset.x) <= 2 && Math.abs(offset.y) <= 2,
+        `插件在文档窗口中央或屏幕可用区域内（偏移 ${offset.x}, ${offset.y}）`)
+      const page = plugins.document.querySelector('.yy-tool-page')!.getBoundingClientRect()
+      check(page.x === 0 && page.y === 0 && page.width === plugins.innerWidth && page.height === plugins.innerHeight,
+        '插件页面填满独立窗口视口')
+      placement = { offset, editorMove, pluginMove }
+    }
     plugins.close()
     await until(() => plugins.closed)
 
@@ -461,9 +497,10 @@ async function verifyWindows(ports: Ports, scenario: Case) {
     check((await editorWindows()).length === 2 && ports.state.path?.endsWith('验收.md'), '关闭工具窗口保留两个文档窗口')
   } finally {
     window.open = originalOpen
+    if (originalFrame) await move(originalFrame.position)
   }
   await testWindowDraft(ports, true)
-  return { documents: 2, txt: true, deduplicate: true, undo: true, plugins: true, confirm: true, doubleConfirm: true, update: true }
+  return { documents: 2, txt: true, deduplicate: true, undo: true, plugins: true, placement, confirm: true, doubleConfirm: true, update: true }
 }
 
 async function testWindowDraft(ports: Ports, main: boolean) {

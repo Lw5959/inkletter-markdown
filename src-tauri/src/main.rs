@@ -136,6 +136,8 @@ fn main() {
             qa::qa_input,
             #[cfg(feature = "qa")]
             qa::qa_windows,
+            #[cfg(feature = "qa")]
+            qa::qa_move_window,
             #[cfg(all(feature = "qa", target_os = "macos"))]
             titlebar::qa_titlebar,
             files::open_document,

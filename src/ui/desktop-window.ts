@@ -16,7 +16,8 @@ export function openDesktopWindow(content: HTMLElement, options: Options) {
   if (!Reflect.get(window, '__YEYU_DESKTOP_WINDOWS__')) return null
   const width = Math.min(options.width, screen.availWidth)
   const height = Math.min(options.height, screen.availHeight)
-  const child = window.open('about:blank', '_blank', `popup,width=${width},height=${height}`)
+  const url = options.modal ? 'about:blank' : 'about:blank#tool'
+  const child = window.open(url, '_blank', `popup,width=${width},height=${height}`)
   if (!child) return null
   const doc = child.document
   if (!doc.body) { child.close(); return null }
