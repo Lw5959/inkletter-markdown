@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.yeyu.markdown</id>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Yeyu</name>
+  <name xml:lang="zh-CN">页屿</name>
+  <summary>Write and edit Markdown documents</summary>
+  <summary xml:lang="zh-CN">编写和编辑 Markdown 文档</summary>
+  <description>
+    <p>Write in the live editor or edit the Markdown source. Open local folders, organize documents with the outline, and export to HTML and PDF.</p>
+    <p xml:lang="zh-CN">使用实时视图或源码模式编辑 Markdown。打开本地文件夹，通过大纲整理文档，并导出为 HTML 或 PDF。</p>
+  </description>
+  <developer id="io.yeyu">
+    <name>Yeyu contributors</name>
+  </developer>
+  <launchable type="desktop-id">io.yeyu.markdown.desktop</launchable>
+  <url type="homepage">https://github.com/Lw5959/yeyu</url>
+  <url type="bugtracker">https://github.com/Lw5959/yeyu/issues</url>
+  <content_rating type="oars-1.1"/>
+</component>

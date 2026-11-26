@@ -25,9 +25,13 @@
 
 在 macOS 上交叉构建 Windows 包时，安装 `cargo-xwin` 和 Unix 版 `makensis`，使用 `sh scripts/build-windows-cross.sh --ci --config '{"bundle":{"createUpdaterArtifacts":true}}' -- --locked`。这个入口按 Unix 版 NSIS 的参数生成安装器，发布链接也按交叉工具链提供的 CRT 生成。
 
+Tauri 会在交叉打包日志中提示平台差异和 Authenticode 签名状态。使用 Windows 主机打包可校验原生安装流程。为公开分发配置可信签名证书后，使用 Windows 原生签名工具或 Tauri 的 `signCommand` 对安装器签名。
+
 使用临时签名时，macOS 的每个架构先用 `env -u APPLE_SIGNING_IDENTITY -u APPLE_CERTIFICATE pnpm tauri build --ci --target <目标> --bundles app -- --locked` 生成应用包。设置 `TAURI_SIGNING_PRIVATE_KEY_PATH` 后，运行 `node scripts/package-macos-adhoc.mjs <应用包路径> <产物目录>` 写入临时签名，并生成对应的 DMG 和签名更新归档。持有 Developer ID 且已配置公证凭据时，使用上表的 Tauri 签名构建流程。
 
 Android 构建安装 JDK、Android SDK 37、Build Tools 37.0.0、NDK 28.2.13676358 和可供 bindgen 使用的 libclang。Gradle 使用 AGP 内置 Kotlin，Java 和 Kotlin 均生成 Java 17 字节码。为 `BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android` 指定所选 NDK 的 `--sysroot`。在 `src-tauri/gen/android/app/build/outputs/apk` 找到未签名 APK，签名后用 `apksigner verify` 核对。
+
+在 Debian 构建 AppImage 时，在同一构建环境解包并运行 `python3 scripts/prepare-linux-appimage.py <解包目录>`。脚本按 Debian 安装记录核对共享库的许可，补齐许可证正文和 AppStream 元数据。用 `appstreamcli validate` 检查 `usr/share/metainfo/io.yeyu.markdown.appdata.xml`，再用同架构的 `appimagetool` 重新打包，最后生成更新签名。重试打包前，确认使用的是带 `__TAURI_BUNDLE_TYPE_VAR_UNK` 的原始编译文件。最终 DEB 与 AppImage 分别含 `DEB` 和 `APP` 标记，用于应用内选择正确的更新包。
 
 ## 发布到 GitHub
 
