@@ -1,8 +1,10 @@
 import { getVersion } from '@tauri-apps/api/app'
+import { invoke } from '@tauri-apps/api/core'
 import '../dialogs.css'
 import './update-dialog.css'
 import { el } from './helpers'
 import { dismissOnBackdrop } from './dialog-dismiss'
+import { markdownLink, renderMarkdownContent } from './markdown-content'
 import type { createPages } from './pages'
 
 export type UpdateProgress =
@@ -68,7 +70,7 @@ export function showUpdate(check: (source: UpdateSource) => Promise<UpdateOffer 
   const headline = el('h3', { attrs: { tabindex: '-1' } })
   const detail = el('p', { className: 'yy-update-detail', attrs: { hidden: '' } })
   const status = el('div', { className: 'yy-update-status', attrs: { role: 'status' } }, headline, detail)
-  const notesBody = el('div', { className: 'yy-update-notes-body', attrs: { tabindex: '0' } })
+  const notesBody = el('div', { className: 'yy-update-notes-body yy-markdown-content', attrs: { tabindex: '0' } })
   const notes = el('section', { className: 'yy-update-notes', attrs: { hidden: '', 'aria-label': '发布说明' } },
     el('h3', { text: '发布说明' }), notesBody)
   const meter = el('progress', { attrs: { 'aria-label': '下载进度' } })
@@ -210,10 +212,12 @@ export function showUpdate(check: (source: UpdateSource) => Promise<UpdateOffer 
       showStatus('发现新版本 ' + release.version, installs
         ? '确认后将下载并校验安装包，安装完成后重启页屿。'
         : '更新将在页屿内下载并校验，完成后可打开安装包。')
-      notesBody.textContent = release.notes.trim() || '暂无发布说明。'
+      showAction(installs ? '安装更新' : '下载更新', () => apply(release))
+      const rendered = release.notes.trim() ? await renderMarkdownContent(release.notes) : '暂无发布说明。'
+      if (!currentCheck()) return
+      notesBody.replaceChildren(rendered)
       notesBody.scrollTop = 0
       notes.hidden = false
-      showAction(installs ? '安装更新' : '下载更新', () => apply(release))
     } catch {
       if (!currentCheck()) return
       if (!installedVersion) current.textContent = '无法读取当前版本'
@@ -222,6 +226,12 @@ export function showUpdate(check: (source: UpdateSource) => Promise<UpdateOffer 
     }
   }
 
+  notesBody.addEventListener('click', event => {
+    const url = markdownLink(event)
+    if (url) void invoke('visit_link', { url }).catch(() => {
+      if (active() && !applying && !notes.hidden) showStatus('无法打开链接', '请检查系统浏览器设置。')
+    })
+  })
   if (dialog) {
     dismiss.onclick = () => dialog.close()
     dismissOnBackdrop(dialog)

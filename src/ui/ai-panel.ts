@@ -1,7 +1,8 @@
 import { aiIntents, aiTasks } from '../ai-prompts'
 import type { AiAgentActivity, AiContext, AiIntent, AiMessage, AiScope, AiSelection, AiSettings, AiView, ShellAction, ShellActions, Suggestion } from '../contracts'
 import { invoke, reason } from '../native'
-import { renderReply, replyBody, replyLink, StreamingReply } from './ai-markdown'
+import { renderReply, replyBody, StreamingReply } from './ai-markdown'
+import { markdownLink } from './markdown-content'
 import { openConversations } from './ai-conversations'
 import { openModelSettings, openPromptSettings } from './ai-settings'
 import { ChoicePicker } from './choice-picker'
@@ -132,7 +133,7 @@ export class AiPanel {
       el('span', { className: 'yy-icon', html: icons.chevronRight }), this.agentStatus), this.agentPlan, this.agentSteps)
     this.conversation.append(this.empty, this.messages, this.agentActivity, this.generation, this.suggestionWrap)
     this.conversation.addEventListener('click', event => {
-      const url = replyLink(event)
+      const url = markdownLink(event)
       if (url) void invoke('visit_link', { url }).catch(error => {
         this.actionError = reason(error)
         this.renderError()

@@ -65,7 +65,8 @@
   background: var(--yy-chrome-subtle);
 }
 
-:is(.yy-update-dialog, .yy-update-page) h3 {
+.yy-update-status > h3,
+.yy-update-notes > h3 {
   margin: 0;
   font-size: 14px;
   line-height: 1.5;
@@ -92,7 +93,6 @@
   border: 1px solid var(--yy-border);
   border-radius: 8px;
   background: var(--yy-chrome-bg);
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 

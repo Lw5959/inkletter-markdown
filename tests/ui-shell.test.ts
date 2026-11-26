@@ -839,7 +839,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     await assistant.getByRole('heading', { name: '回复排版' }).waitFor()
     expect(await assistant.locator('li strong').textContent()).toBe('粗体项目')
     expect(await assistant.locator('th').first().evaluate(node => getComputedStyle(node).textAlign)).toBe('right')
-    expect(await assistant.locator('.yy-ai-table-scroll').evaluate(node => node.scrollWidth > node.clientWidth)).toBe(true)
+    expect(await assistant.locator('.yy-markdown-table-scroll').evaluate(node => node.scrollWidth > node.clientWidth)).toBe(true)
     expect(await assistant.locator('pre').evaluate(node => node.scrollWidth > node.clientWidth)).toBe(true)
     expect(await assistant.locator('img').count()).toBe(0)
     expect(await page.locator('.yy-msg-user .yy-msg-body').textContent()).toBe('**让我看原样输入**')
@@ -1284,7 +1284,10 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       await page.evaluate(`(async () => {
         const { mockIPC, mockWindows } = await import('/node_modules/@tauri-apps/api/mocks.js')
         const test = window.__updates = { checks: [], writes: [], operations: [], package: false, ready: false }
-        test.release = { version: '9.0.1', notes: '<b>桌面发布说明</b>' }
+        test.release = { version: '9.0.1', notes: ${JSON.stringify([
+          '## 桌面发布说明', '', '- **改进排版**与 `latest.json`',
+          '- [查看发行版](https://example.invalid/releases)', '', '<b>原始 HTML</b>',
+        ].join('\n'))} }
         mockWindows('main')
         mockIPC((cmd, args) => {
           switch (cmd) {
@@ -1368,7 +1371,16 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       await dialog.getByRole('button', { name: '重试' }).click()
       await expect.poll(() => page.evaluate('window.__updates.checks.length')).toBe(4)
       await page.evaluate('window.__updates.checks[3].resolve(window.__updates.release)')
-      await dialog.getByText('<b>桌面发布说明</b>', { exact: true }).waitFor()
+      const notes = dialog.getByRole('region', { name: '发布说明' })
+      await notes.getByRole('heading', { name: '桌面发布说明' }).waitFor()
+      expect(await notes.getByRole('listitem').count()).toBe(2)
+      expect(await notes.locator('strong').textContent()).toBe('改进排版')
+      expect(await notes.locator('code').textContent()).toBe('latest.json')
+      await notes.getByText('<b>原始 HTML</b>', { exact: true }).waitFor()
+      expect(await notes.locator('b').count()).toBe(0)
+      expect(await page.evaluate('window.__updates.visited')).toBeUndefined()
+      await notes.getByRole('link', { name: '查看发行版' }).click()
+      expect(await page.evaluate('window.__updates.visited')).toBe('https://example.invalid/releases')
       const install = dialog.getByRole('button', { name: '安装更新' })
       const guard = page.locator('.app-dialog').filter({ has: page.getByRole('heading', { name: '未保存的编辑' }) })
       await install.click()
@@ -1413,7 +1425,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       await dialog.getByText('安装包已保存').waitFor()
       expect(await page.evaluate('window.__updates.openedVersion')).toBe('9.0.1')
       expect(await page.evaluate('window.__updates.savedPackage')).toEqual({ version: '9.0.1', path: '/tmp/页屿更新.deb' })
-      expect(await page.evaluate('window.__updates.visited')).toBeUndefined()
+      expect(await page.evaluate('window.__updates.visited')).toBe('https://example.invalid/releases')
       expect(await progress.count()).toBe(0)
       await dialog.getByRole('button', { name: '关闭' }).click()
       await page.getByRole('menuitem', { name: '帮助', exact: true }).click()
@@ -1456,7 +1468,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
           if (cmd === 'android_load_session') return { uri: 'content://qa/last-note', theme: 'default', animations: true, mode: 'live' }
           if (cmd === 'android_insets') return { top: 26, bottom: 10, left: 0, right: 0 }
           if (cmd === 'plugin:app|version') return '0.2.8'
-          if (cmd === 'update_check_package') return { version: '0.2.14', notes: '应用内更新' }
+          if (cmd === 'update_check_package') return { version: '0.2.14', notes: '## 应用内更新\\n\\n1. **更新说明支持 Markdown**' }
           if (cmd === 'update_download_package') {
             updateOps.push('下载 ' + payload.version)
             const send = event => window.__TAURI_INTERNALS__.runCallback(payload.progress.id, event)
@@ -1583,6 +1595,8 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       await plugins.waitFor({ state: 'hidden' })
       await menu.getByRole('button', { name: '检查更新', exact: true }).click()
       const update = page.getByRole('region', { name: '软件更新' })
+      await update.getByRole('heading', { name: '应用内更新' }).waitFor()
+      expect(await update.locator('.yy-update-notes-body ol strong').textContent()).toBe('更新说明支持 Markdown')
       await update.getByRole('button', { name: '下载更新' }).click()
       await update.getByText('1.0 KiB / 2.0 KiB · 50%').waitFor()
       await page.evaluate('window.__finishMobileDownload()')
@@ -1687,7 +1701,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       expect(await dimensions(send)).toEqual([44, 44])
       await send.tap()
       await writing.getByText('智能体已完成', { exact: true }).waitFor()
-      expect(await writing.locator('.yy-ai-messages .yy-ai-markdown strong').textContent()).toBe('两处修改')
+      expect(await writing.locator('.yy-ai-messages .yy-markdown-content strong').textContent()).toBe('两处修改')
       expect(await writing.getByRole('list', { name: '智能体步骤' }).getByRole('listitem').count()).toBe(7)
       const diff = writing.getByRole('region', { name: '差异审阅建议' })
       expect(await diff.locator('[data-hunk]').count()).toBe(2)

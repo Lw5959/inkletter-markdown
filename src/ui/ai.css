@@ -142,50 +142,6 @@
   margin-top: 6px;
 }
 
-.yy-shell .yy-ai-markdown { white-space: normal; min-width: 0; }
-.yy-shell .yy-ai-markdown > :first-child { margin-block-start: 0; }
-.yy-shell .yy-ai-markdown > :last-child { margin-block-end: 0; }
-.yy-shell .yy-ai-markdown :is(p, ul, ol, blockquote, pre, .yy-ai-table-scroll) { margin: .65em 0; }
-.yy-shell .yy-ai-markdown :is(h1, h2, h3, h4, h5, h6) {
-  margin: 1.1em 0 .35em;
-  font-weight: 650;
-  line-height: 1.32;
-}
-.yy-shell .yy-ai-markdown h1 { font-size: 1.5em; }
-.yy-shell .yy-ai-markdown h2 { font-size: 1.29em; }
-.yy-shell .yy-ai-markdown h3 { font-size: 1.12em; }
-.yy-shell .yy-ai-markdown :is(h4, h5, h6) { font-size: 1em; }
-.yy-shell .yy-ai-markdown :is(ul, ol) { padding-inline-start: 1.5em; }
-.yy-shell .yy-ai-markdown li + li { margin-block-start: .22em; }
-.yy-shell .yy-ai-markdown blockquote {
-  padding-inline-start: .85em;
-  border-inline-start: 2px solid var(--yy-border-strong);
-  color: var(--yy-ink-muted);
-}
-.yy-shell .yy-ai-markdown :is(pre, code) { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .93em; }
-.yy-shell .yy-ai-markdown :not(pre) > code { padding: .08em .28em; border-radius: 4px; background: var(--yy-chrome-subtle); }
-.yy-shell .yy-ai-markdown pre {
-  max-width: 100%;
-  overflow-x: auto;
-  padding: 10px 12px;
-  border: 1px solid var(--yy-border);
-  border-radius: 8px;
-  background: var(--yy-chrome-subtle);
-  white-space: pre;
-  overflow-wrap: normal;
-}
-.yy-shell .yy-ai-markdown pre code { font-size: inherit; }
-.yy-shell .yy-ai-markdown :is(.hljs-keyword, .hljs-selector-tag, .hljs-string) { color: var(--yy-accent); }
-.yy-shell .yy-ai-markdown .hljs-comment { color: var(--yy-ink-muted); }
-.yy-shell .yy-ai-markdown .yy-ai-table-scroll { max-width: 100%; overflow-x: auto; }
-.yy-shell .yy-ai-markdown table { border-collapse: collapse; }
-.yy-shell .yy-ai-markdown :is(th, td) { padding: .35em .55em; border: 1px solid var(--yy-border); min-width: 5em; }
-.yy-shell .yy-ai-markdown th { background: var(--yy-chrome-subtle); text-align: start; }
-.yy-shell .yy-ai-markdown a[href] { color: var(--yy-accent); text-decoration: underline; text-underline-offset: .15em; }
-.yy-shell .yy-ai-markdown hr { border: 0; border-block-start: 1px solid var(--yy-border); }
-.yy-shell .yy-ai-markdown figure { max-width: 100%; margin: .8em 0; overflow-x: auto; }
-.yy-shell .yy-ai-markdown figure svg { max-width: 100%; height: auto; }
-
 .yy-shell .yy-ai-agent-activity {
   margin: 12px 0;
   border: 1px solid var(--yy-border);

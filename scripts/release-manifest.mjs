@@ -3,13 +3,14 @@ import { createReadStream } from 'node:fs'
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 
-const [output, tag, repository, giteeOutput] = process.argv.slice(2)
+const [output, tag, repository, giteeOutput, notesFile] = process.argv.slice(2)
 const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url)))
 const config = JSON.parse(await readFile(new URL('../src-tauri/tauri.conf.json', import.meta.url)))
 if (!output || tag !== `v${version}` || config.version !== version || !/^[\w.-]+\/[\w.-]+$/.test(repository ?? '')) {
   throw new Error('发布标签、应用版本和仓库必须一致')
 }
 if (giteeOutput && resolve(giteeOutput) === resolve(output)) throw new Error('GitHub 和 Gitee 清单需要不同的目录')
+const notes = notesFile ? await readFile(notesFile, 'utf8') : undefined
 
 const prefix = `Yeyu_${version}_`
 const targets = {
@@ -30,7 +31,7 @@ const files = (await readdir(output)).sort().filter(file => file.startsWith(pref
 for (const suffix of minimum) {
   if (!files.includes(prefix + suffix)) throw new Error('缺少安装包 ' + suffix)
 }
-await writeFile(join(output, 'latest.json'), JSON.stringify({ version, platforms }, null, 2) + '\n')
+await writeFile(join(output, 'latest.json'), JSON.stringify({ version, notes, platforms }, null, 2) + '\n')
 async function sha256(file) {
   const hash = createHash('sha256')
   for await (const chunk of createReadStream(file)) hash.update(chunk)
@@ -66,6 +67,6 @@ if (giteeOutput) {
   }))
   await mkdir(giteeOutput, { recursive: true })
   const feed = join(giteeOutput, 'latest.json')
-  await writeFile(feed, JSON.stringify({ version, platforms: mirrored, packages }, null, 2) + '\n')
+  await writeFile(feed, JSON.stringify({ version, notes, platforms: mirrored, packages }, null, 2) + '\n')
   await writeFile(join(giteeOutput, 'SHA256SUMS'), checksumText([...hashes, ['latest.json', await sha256(feed)]]))
 }

@@ -1,0 +1,44 @@
+:is(.yy-shell, .app-dialog) .yy-markdown-content { white-space: normal; min-width: 0; }
+:is(.yy-shell, .app-dialog) .yy-markdown-content p { white-space: normal; }
+:is(.yy-shell, .app-dialog) .yy-markdown-content > :first-child { margin-block-start: 0; }
+:is(.yy-shell, .app-dialog) .yy-markdown-content > :last-child { margin-block-end: 0; }
+:is(.yy-shell, .app-dialog) .yy-markdown-content :is(p, ul, ol, blockquote, pre, .yy-markdown-table-scroll) { margin: .65em 0; }
+:is(.yy-shell, .app-dialog) .yy-markdown-content :is(h1, h2, h3, h4, h5, h6) {
+  margin: 1.1em 0 .35em;
+  font-weight: 650;
+  line-height: 1.32;
+}
+:is(.yy-shell, .app-dialog) .yy-markdown-content h1 { font-size: 1.5em; }
+:is(.yy-shell, .app-dialog) .yy-markdown-content h2 { font-size: 1.29em; }
+:is(.yy-shell, .app-dialog) .yy-markdown-content h3 { font-size: 1.12em; }
+:is(.yy-shell, .app-dialog) .yy-markdown-content :is(h4, h5, h6) { font-size: 1em; }
+:is(.yy-shell, .app-dialog) .yy-markdown-content :is(ul, ol) { padding-inline-start: 1.5em; }
+:is(.yy-shell, .app-dialog) .yy-markdown-content li + li { margin-block-start: .22em; }
+:is(.yy-shell, .app-dialog) .yy-markdown-content blockquote {
+  padding-inline-start: .85em;
+  border-inline-start: 2px solid var(--yy-border-strong);
+  color: var(--yy-ink-muted);
+}
+:is(.yy-shell, .app-dialog) .yy-markdown-content :is(pre, code) { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .93em; }
+:is(.yy-shell, .app-dialog) .yy-markdown-content :not(pre) > code { padding: .08em .28em; border-radius: 4px; background: var(--yy-chrome-subtle); }
+:is(.yy-shell, .app-dialog) .yy-markdown-content pre {
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--yy-border);
+  border-radius: 8px;
+  background: var(--yy-chrome-subtle);
+  white-space: pre;
+  overflow-wrap: normal;
+}
+:is(.yy-shell, .app-dialog) .yy-markdown-content pre code { font-size: inherit; }
+:is(.yy-shell, .app-dialog) .yy-markdown-content :is(.hljs-keyword, .hljs-selector-tag, .hljs-string) { color: var(--yy-accent); }
+:is(.yy-shell, .app-dialog) .yy-markdown-content .hljs-comment { color: var(--yy-ink-muted); }
+:is(.yy-shell, .app-dialog) .yy-markdown-content .yy-markdown-table-scroll { max-width: 100%; overflow-x: auto; }
+:is(.yy-shell, .app-dialog) .yy-markdown-content table { border-collapse: collapse; }
+:is(.yy-shell, .app-dialog) .yy-markdown-content :is(th, td) { padding: .35em .55em; border: 1px solid var(--yy-border); min-width: 5em; }
+:is(.yy-shell, .app-dialog) .yy-markdown-content th { background: var(--yy-chrome-subtle); text-align: start; }
+:is(.yy-shell, .app-dialog) .yy-markdown-content a[href] { color: var(--yy-accent); text-decoration: underline; text-underline-offset: .15em; }
+:is(.yy-shell, .app-dialog) .yy-markdown-content hr { border: 0; border-block-start: 1px solid var(--yy-border); }
+:is(.yy-shell, .app-dialog) .yy-markdown-content figure { max-width: 100%; margin: .8em 0; overflow-x: auto; }
+:is(.yy-shell, .app-dialog) .yy-markdown-content figure svg { max-width: 100%; height: auto; }
