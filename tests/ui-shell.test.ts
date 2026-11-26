@@ -72,6 +72,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
         onWindowAppearance(theme) { nativeThemes.push(theme) },
         dispatch(action) {
           actions.push(action)
+          return window.__test?.dispatch?.(action)
         },
       })
       const editor = createEditor(shell.editorHost, {
@@ -813,6 +814,168 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     expect(await page.evaluate('window.__test.actions.at(-1).provider.models')).toEqual(['alpha-write', 'beta-code'])
   }, 10000)
 
+  it('在桌面侧栏渲染历史和流式 Markdown，宽表和代码可横向滚动', async () => {
+    await mountTestHarness()
+    const fence = '\x60'.repeat(3)
+    const column = Array.from({ length: 12 }, (_, i) => '第' + (i + 1) + '列')
+    const answer = [
+      '## 回复排版', '', '- **粗体项目**', '- 第二项', '',
+      '| ' + column.join(' | ') + ' |', '| ' + column.map(() => '---:').join(' | ') + ' |',
+      '| ' + column.map(() => '详情').join(' | ') + ' |', '', fence + 'js',
+      'const code = "' + 'value'.repeat(160) + '"', fence, '',
+      '[参考链接](https://example.test/docs)', '', '![图片说明](https://example.test/picture.png)',
+    ].join('\n')
+    await page.evaluate(answer => {
+      const native = window as unknown as Record<string, any>
+      native.__TAURI_INTERNALS__ = { invoke: async (command: string, args: unknown) => { native.__clickedLink = { command, args } } }
+      native.__test.shell.setAI({
+        settings: { providers: [], active: null }, prompts: {}, context: null,
+        messages: [{ role: 'user', text: '**让我看原样输入**' }, { role: 'assistant', text: answer }],
+        stream: '### 流式标题\n\n- 实时 **加粗**', pending: true, error: '', suggestion: null, canRetry: false,
+      })
+    }, answer)
+    await page.locator('[data-toggle="ai"]').click()
+    const assistant = page.locator('.yy-ai-messages .yy-msg-assistant')
+    await assistant.getByRole('heading', { name: '回复排版' }).waitFor()
+    expect(await assistant.locator('li strong').textContent()).toBe('粗体项目')
+    expect(await assistant.locator('th').first().evaluate(node => getComputedStyle(node).textAlign)).toBe('right')
+    expect(await assistant.locator('.yy-ai-table-scroll').evaluate(node => node.scrollWidth > node.clientWidth)).toBe(true)
+    expect(await assistant.locator('pre').evaluate(node => node.scrollWidth > node.clientWidth)).toBe(true)
+    expect(await assistant.locator('img').count()).toBe(0)
+    expect(await page.locator('.yy-msg-user .yy-msg-body').textContent()).toBe('**让我看原样输入**')
+    await page.getByRole('heading', { name: '流式标题' }).waitFor()
+    expect(await page.locator('.yy-ai-conversation > .yy-msg-assistant li strong').textContent()).toBe('加粗')
+    await assistant.getByRole('link', { name: '参考链接' }).click()
+    expect(await page.evaluate('window.__clickedLink')).toEqual({ command: 'visit_link', args: { url: 'https://example.test/docs' } })
+  }, 10000)
+
+  it('桌面对话可保存和切换，压缩后用摘要续接且重复提交只发送一次', async () => {
+    await mountTestHarness()
+    await page.evaluate(String.raw`(async () => {
+      const { Writing } = await import('/src/ai.ts')
+      const { shell, editor } = window.__test
+      const scope = 'fixture\nhttps://models.example.test/v1'
+      const archive = { conversations: [{ id: 'old', scope, title: '原项目',
+        messages: [
+          { role: 'user', text: '只保留在原始记录的标记' }, { role: 'assistant', text: '已确认需求' },
+          { role: 'user', text: '采购完成了吗' }, { role: 'assistant', text: '尚待复核' },
+          { role: 'user', text: '需要复核哪个项目' }, { role: 'assistant', text: '设备清单' }
+        ], summary: '', covered: 0, updated: 1
+      }], selected: { [scope]: 'old' } }
+      const callbacks = new Map()
+      let id = 0
+      const observed = []
+      window.__desktopAi = { observed, archive }
+      window.__TAURI_INTERNALS__ = {
+        transformCallback(fn) { callbacks.set(++id, fn); return id },
+        unregisterCallback(i) { callbacks.delete(i) },
+        async invoke(cmd, data) {
+          if (cmd === 'ai_settings') return { providers: [{ id: 'fixture', endpoint: 'https://models.example.test/v1',
+            protocol: 'chat', name: '测试模型', models: ['writer'], hasKey: false }],
+            active: { providerId: 'fixture', model: 'writer' } }
+          if (cmd === 'ai_conversations') {
+            if (data?.value) Object.assign(archive, structuredClone(data.value))
+            return data?.value ? null : structuredClone(archive)
+          }
+          if (cmd === 'ai_agent_turn') {
+            const request = structuredClone(data.request)
+            observed.push({ command: cmd, request })
+            const send = callbacks.get(data.event.id)
+            const plan = { id: 'plan', name: 'update_plan', arguments: JSON.stringify({ plan: [{ step: '整理摘要任务', status: 'completed' }] }) }
+            const text = request.history.length ? '## 智能体结论\n\n已复核。' : ''
+            if (text) send({ index: 0, message: { kind: 'delta', text } })
+            send({ index: text ? 1 : 0, end: true })
+            return { text, calls: text ? [] : [plan], output: [{ role: 'assistant', content: text }] }
+          }
+          if (cmd !== 'ai_stream') return null
+          const messages = structuredClone(data.messages)
+          observed.push({ command: cmd, messages })
+          const send = callbacks.get(data.event.id)
+          if (messages.at(-1).text.endsWith('检查连续提交')) await new Promise(resolve => { window.__finishOnce = resolve })
+          const text = messages[0].text.startsWith('压缩这段') ? '已压缩的历史重点' : '收到。'
+          send({ index: 0, message: { kind: 'delta', text } })
+          send({ index: 1, message: { kind: 'done' } })
+          send({ index: 2, end: true })
+          return null
+        }
+      }
+      const writing = new Writing(view => shell.setAI(view))
+      window.__desktopAi.reload = async () => { const reopened = new Writing(view => shell.setAI(view)); await reopened.load(); window.__test.writing = reopened }
+      window.__test.writing = writing
+      window.__test.dispatch = async (action) => {
+        const current = window.__test.writing
+        if (action.type === 'ai-send') await current.send(action.intent, action.prompt, editor, 1, 1, { agent: action.agent })
+        else if (action.type === 'ai-compress' || action.type.startsWith('ai-chat-')) await current.manageChat(action)
+      }
+      await writing.load()
+    })()`)
+    await page.locator('[data-toggle="ai"]').click()
+    const chats = page.getByRole('button', { name: '对话管理' })
+    const manage = page.getByRole('dialog', { name: '对话管理' })
+    const composer = page.getByLabel('AI 指令输入')
+    const send = page.getByRole('button', { name: '发送', exact: true })
+    await chats.click()
+    await manage.getByRole('button', { name: '重命名 原项目' }).click()
+    await manage.getByLabel('对话标题').fill('设备复核')
+    await manage.getByRole('button', { name: '保存标题' }).click()
+    await manage.getByRole('button', { name: '设备复核', exact: true }).waitFor()
+    await manage.getByRole('button', { name: '新建对话' }).click()
+    await composer.fill('检查连续提交')
+    await composer.evaluate(input => {
+      const form = input.closest('form')!
+      form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }))
+      form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }))
+    })
+    await expect.poll(() => page.evaluate('window.__desktopAi.observed.length')).toBe(1)
+    expect(await page.locator('.yy-msg-user').count()).toBe(1)
+    await page.evaluate('window.__finishOnce()')
+    await page.getByText('收到。', { exact: true }).waitFor()
+    await chats.click()
+    await manage.getByRole('button', { name: '设备复核', exact: true }).click()
+    await chats.click()
+    await manage.getByRole('button', { name: '压缩上下文' }).click()
+    await manage.getByText('已压缩 4 条消息').waitFor()
+    await manage.getByRole('button', { name: '关闭' }).click()
+    expect(await page.getByText('只保留在原始记录的标记', { exact: true }).count()).toBe(1)
+    await page.getByRole('button', { name: '智能体', exact: true }).click()
+    await composer.fill('继续旧项目')
+    await send.click()
+    await page.getByRole('heading', { name: '智能体结论' }).waitFor()
+    await page.getByRole('list', { name: '执行计划' }).getByText('整理摘要任务').waitFor()
+    const request = JSON.stringify(await page.evaluate('window.__desktopAi.observed.at(-1).request'))
+    expect(request).toContain('已压缩的历史重点')
+    expect(request).not.toContain('只保留在原始记录的标记')
+    expect(await page.evaluate('window.__desktopAi.archive.conversations.length')).toBe(2)
+    await page.evaluate('window.__desktopAi.reload()')
+    await page.getByRole('heading', { name: '智能体结论' }).waitFor()
+    await chats.click()
+    await manage.getByRole('button', { name: '删除 检查连续提交' }).click()
+    await manage.getByRole('button', { name: '确认删除' }).click()
+    await expect.poll(() => page.evaluate('window.__desktopAi.archive.conversations.length')).toBe(1)
+
+    await manage.getByRole('button', { name: '关闭' }).click()
+    await page.evaluate(() => {
+      const fixture = (window as unknown as Record<string, any>).__desktopAi
+      const chat = fixture.archive.conversations[0]
+      chat.summary = ''
+      chat.covered = 0
+      chat.messages = [
+        { role: 'user', text: '需要自动压缩的旧段'.repeat(3000) }, { role: 'assistant', text: '确认旧段' },
+        ...Array.from({ length: 3 }, (_, i) => [{ role: 'user', text: '保留的问题 ' + i }, { role: 'assistant', text: '保留的回答 ' + i }]).flat(),
+      ]
+    })
+    await page.evaluate('window.__desktopAi.reload()')
+    await composer.fill('验证自动压缩')
+    await send.click()
+    await page.getByRole('heading', { name: '智能体结论' }).waitFor()
+    expect(await page.evaluate('window.__desktopAi.observed.slice(-3).map(item => item.command)'))
+      .toEqual(['ai_stream', 'ai_agent_turn', 'ai_agent_turn'])
+    const shortened = JSON.stringify(await page.evaluate('window.__desktopAi.observed.at(-1).request'))
+    expect(shortened).toContain('已压缩的历史重点')
+    expect(shortened).toContain('保留的问题 2')
+    expect(shortened).not.toContain('需要自动压缩的旧段')
+  }, 20000)
+
   it('AI 模型配置与提示词页面、上下文全文预览、流式会话和差异逐段应用', async () => {
     await mountTestHarness()
 
@@ -1242,6 +1405,124 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     } finally {
       await page.unroute(updates)
       await page.setViewportSize({ width: 1360, height: 860 })
+    }
+  }, 15000)
+
+  it('Android 智能体多轮读取授权文档，审阅后才写入，可取消和重试', async () => {
+    const phone = await browser.newPage({ viewport: { width: 390, height: 760 }, isMobile: true, hasTouch: true })
+    phone.setDefaultTimeout(5000)
+    const source = '# 项目说明\r\n\r\n旧述第一段。\r\n\r\n待保留的内部文字。\r\n\r\n旧述第二段。\r\n'
+    try {
+      await phone.addInitScript(text => {
+        const uri = 'content://qa/document/agent'
+        const document = { uri, name: '智能体试稿.md', text, version: '1', bom: true, writable: true }
+        const native = window as unknown as Record<string, any>
+        const requests: any[] = []
+        const writes: any[] = []
+        const channels = new Map<number, (event: unknown) => void>()
+        let callback = 0
+        let stop: (() => void) | undefined
+        let cancellations = 0
+        native.__agentFixture = { requests, writes }
+        const call = (id: string, name: string, args: object) => ({ id, name, arguments: JSON.stringify(args) })
+        native.__TAURI_INTERNALS__ = {
+          transformCallback(fn: (event: unknown) => void) { channels.set(++callback, fn); return callback },
+          unregisterCallback(id: number) { channels.delete(id) },
+          async invoke(cmd: string, payload: any) {
+            if (cmd === 'android_pick') return uri
+            if (cmd === 'android_read') return document
+            if (cmd === 'android_write') { writes.push(payload); return { ...document, text: payload.text, version: '2' } }
+            if (cmd === 'ai_settings') return {
+              providers: [{ id: 'fixture', name: '测试服务', endpoint: 'https://agent.example.test/v1', protocol: 'chat', models: ['write'], hasKey: false }],
+              active: { providerId: 'fixture', model: 'write' },
+            }
+            if (cmd === 'ai_cancel') { cancellations++; stop?.(); return null }
+            if (cmd !== 'ai_agent_turn') return null
+            const { request, event } = payload
+            requests.push(structuredClone(request))
+            const respond = (text: string, calls: ReturnType<typeof call>[] = []) => {
+              const send = channels.get(event.id)
+              if (text) send?.({ index: 0, message: { kind: 'delta', text } })
+              send?.({ index: text ? 1 : 0, end: true })
+              return { text, calls, output: [{ role: 'assistant', content: text, tool_calls: calls }] }
+            }
+            if (request.messages.at(-1).text.endsWith('测试取消')) {
+              if (cancellations) return respond('重试完成')
+              return new Promise(resolve => { stop = () => { channels.delete(event.id); resolve(null) } })
+            }
+            if (!request.history.length) return respond('', [
+              call('find', 'search_documents', { query: '旧述' }),
+              call('outline', 'document_outline', { document: 1 }),
+              call('unavailable', 'read_document', { document: 99, start_line: 1, end_line: 1 }),
+            ])
+            if (request.history.length === 1) return respond('', [
+              call('read1', 'read_document', { document: 1, start_line: 3, end_line: 3 }),
+              call('read2', 'read_document', { document: 1, start_line: 7, end_line: 7 }),
+            ])
+            if (request.history.length === 2) return respond('', [
+              call('edit1', 'propose_edit', { start_line: 3, end_line: 3, markdown: '第一处建议。' }),
+              call('edit2', 'propose_edit', { start_line: 7, end_line: 7, markdown: '第二处建议。' }),
+            ])
+            return respond('已提出**两处修改**')
+          },
+        }
+      }, source)
+      await phone.goto(baseUrl + '/mobile.html')
+      await phone.getByRole('button', { name: '打开文件', exact: true }).tap()
+      await phone.getByRole('heading', { name: '智能体试稿.md' }).waitFor()
+      const openAi = async () => {
+        await phone.getByRole('button', { name: '更多操作' }).tap()
+        await phone.getByRole('button', { name: 'AI 写作', exact: true }).tap()
+      }
+      await openAi()
+      const writing = phone.getByRole('region', { name: 'AI 写作助手' })
+      const agent = writing.getByRole('button', { name: '智能体', exact: true })
+      const composer = writing.getByLabel('AI 指令输入')
+      await agent.tap()
+      await writing.getByRole('combobox', { name: '添加上下文' }).tap()
+      await phone.getByRole('option', { name: '全文' }).tap()
+      expect(await writing.getByLabel('上下文全文预览').textContent()).toBe(source)
+      await composer.fill('整理两处项目描述')
+      await writing.getByRole('button', { name: '发送', exact: true }).tap()
+      await writing.getByText('智能体已完成', { exact: true }).waitFor()
+      expect(await writing.locator('.yy-ai-messages .yy-ai-markdown strong').textContent()).toBe('两处修改')
+      expect(await writing.getByRole('list', { name: '智能体步骤' }).getByRole('listitem').count()).toBe(7)
+      const diff = writing.getByRole('region', { name: '差异审阅建议' })
+      expect(await diff.locator('[data-hunk]').count()).toBe(2)
+      const requests = await phone.evaluate('window.__agentFixture.requests') as {
+        id: string
+        messages: { text: string }[]
+        history: { results: { id: string; error: boolean; content: string }[] }[]
+      }[]
+      expect(requests).toHaveLength(4)
+      expect(JSON.stringify(requests)).not.toContain('待保留的内部文字')
+      expect(requests[0].messages.at(-1)!.text).not.toContain('旧述第一段')
+      expect(JSON.parse(requests[1].history[0].results[0].content).matches.map((item: { line: number }) => item.line)).toEqual([3, 7])
+      expect(requests[1].history[0].results[2]).toMatchObject({ id: 'unavailable', error: true })
+      expect(JSON.parse(requests[2].history[1].results[0].content).markdown).toBe('旧述第一段。')
+      expect(await phone.evaluate('window.__agentFixture.writes.length')).toBe(0)
+      await diff.getByRole('button', { name: '全部应用' }).tap()
+      await phone.getByRole('button', { name: '保存文档' }).tap()
+      const after = source.replace('旧述第一段。', '第一处建议。').replace('旧述第二段。', '第二处建议。')
+      await expect.poll(() => phone.evaluate('window.__agentFixture.writes[0]')).toMatchObject({ text: after, bom: true })
+
+      await openAi()
+      await composer.fill('测试取消')
+      await writing.getByRole('button', { name: '发送', exact: true }).tap()
+      await writing.getByRole('button', { name: '取消生成' }).tap()
+      await writing.getByText('智能体已取消', { exact: true }).waitFor()
+      await writing.getByRole('button', { name: '重试上次请求' }).tap()
+      await writing.getByText('重试完成', { exact: true }).waitFor()
+      const last = await phone.evaluate('window.__agentFixture.requests.slice(-2)') as typeof requests
+      expect(last[0].id).not.toBe(last[1].id)
+      expect(last[0].messages).toEqual(last[1].messages)
+      await writing.getByRole('button', { name: '对话管理' }).tap()
+      const conversations = phone.getByRole('region', { name: '对话管理' })
+      await conversations.getByRole('button', { name: '新建对话' }).tap()
+      await writing.waitFor()
+      expect(await writing.locator('.yy-msg-user').count()).toBe(0)
+    } finally {
+      await phone.close()
     }
   }, 15000)
 

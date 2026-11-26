@@ -160,6 +160,8 @@ fn main() {
             ai::config::ai_model_select,
             ai::ai_list_models,
             ai::ai_stream,
+            ai::agent::ai_agent_turn,
+            ai::ai_conversations,
             ai::ai_cancel,
             plugins::plugin_list,
             plugins::plugin_install,

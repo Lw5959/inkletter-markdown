@@ -24,6 +24,42 @@
   color: var(--yy-ink-muted);
 }
 
+.yy-shell .yy-ai-chat-switch { min-width: 0; max-width: 112px; }
+.yy-shell .yy-ai-chat-switch > span:last-child { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.yy-shell.yy-mobile .yy-ai-chat-switch { max-width: 94px; }
+.yy-shell .yy-ai-chat-controls, .yy-shell .yy-ai-chat-edit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.yy-shell .yy-ai-chat-list { display: grid; gap: 6px; margin-block-start: 12px; }
+.yy-shell .yy-ai-chat-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border: 1px solid var(--yy-border);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.yy-shell .yy-ai-chat-name {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 5px;
+  text-align: start;
+  color: var(--yy-ink);
+  background: transparent;
+  cursor: pointer;
+}
+.yy-shell .yy-ai-chat-name:is(:hover, [aria-pressed="true"]) { background: var(--yy-accent-soft); }
+.yy-shell .yy-ai-chat-row > .yy-icon-btn { flex: none; }
+.yy-shell .yy-ai-chat-edit { width: 100%; }
+.yy-shell .yy-ai-chat-edit input { flex: 1; min-width: 116px; }
+.yy-shell.yy-mobile .yy-ai-chat-name { min-height: 44px; }
+
 .yy-shell .yy-ai-conversation {
   display: flex;
   flex-direction: column;
@@ -98,6 +134,95 @@
   line-height: 1.65;
   white-space: pre-wrap;
 }
+
+.yy-shell .yy-ai-markdown { white-space: normal; min-width: 0; }
+.yy-shell .yy-ai-markdown > :first-child { margin-block-start: 0; }
+.yy-shell .yy-ai-markdown > :last-child { margin-block-end: 0; }
+.yy-shell .yy-ai-markdown :is(p, ul, ol, blockquote, pre, .yy-ai-table-scroll) { margin: .65em 0; }
+.yy-shell .yy-ai-markdown :is(h1, h2, h3, h4, h5, h6) {
+  margin: 1.1em 0 .35em;
+  font-weight: 650;
+  line-height: 1.32;
+}
+.yy-shell .yy-ai-markdown h1 { font-size: 1.5em; }
+.yy-shell .yy-ai-markdown h2 { font-size: 1.29em; }
+.yy-shell .yy-ai-markdown h3 { font-size: 1.12em; }
+.yy-shell .yy-ai-markdown :is(h4, h5, h6) { font-size: 1em; }
+.yy-shell .yy-ai-markdown :is(ul, ol) { padding-inline-start: 1.5em; }
+.yy-shell .yy-ai-markdown li + li { margin-block-start: .22em; }
+.yy-shell .yy-ai-markdown blockquote {
+  padding-inline-start: .85em;
+  border-inline-start: 2px solid var(--yy-border-strong);
+  color: var(--yy-ink-muted);
+}
+.yy-shell .yy-ai-markdown :is(pre, code) { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .93em; }
+.yy-shell .yy-ai-markdown :not(pre) > code { padding: .08em .28em; border-radius: 4px; background: var(--yy-chrome-subtle); }
+.yy-shell .yy-ai-markdown pre {
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--yy-border);
+  border-radius: 8px;
+  background: var(--yy-chrome-subtle);
+  white-space: pre;
+  overflow-wrap: normal;
+}
+.yy-shell .yy-ai-markdown pre code { font-size: inherit; }
+.yy-shell .yy-ai-markdown :is(.hljs-keyword, .hljs-selector-tag, .hljs-string) { color: var(--yy-accent); }
+.yy-shell .yy-ai-markdown .hljs-comment { color: var(--yy-ink-muted); }
+.yy-shell .yy-ai-markdown .yy-ai-table-scroll { max-width: 100%; overflow-x: auto; }
+.yy-shell .yy-ai-markdown table { border-collapse: collapse; }
+.yy-shell .yy-ai-markdown :is(th, td) { padding: .35em .55em; border: 1px solid var(--yy-border); min-width: 5em; }
+.yy-shell .yy-ai-markdown th { background: var(--yy-chrome-subtle); text-align: start; }
+.yy-shell .yy-ai-markdown a[href] { color: var(--yy-accent); text-decoration: underline; text-underline-offset: .15em; }
+.yy-shell .yy-ai-markdown hr { border: 0; border-block-start: 1px solid var(--yy-border); }
+.yy-shell .yy-ai-markdown figure { max-width: 100%; margin: .8em 0; overflow-x: auto; }
+.yy-shell .yy-ai-markdown figure svg { max-width: 100%; height: auto; }
+
+.yy-shell .yy-ai-agent-activity {
+  margin: 12px 0;
+  border: 1px solid var(--yy-border);
+  border-radius: 10px;
+  background: var(--yy-chrome-subtle);
+  font-size: 12px;
+}
+.yy-shell .yy-ai-agent-activity summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.yy-shell .yy-ai-agent-activity summary::-webkit-details-marker { display: none; }
+.yy-shell .yy-ai-agent-activity[open] summary > .yy-icon { transform: rotate(90deg); }
+.yy-shell :is(.yy-ai-agent-plan, .yy-ai-agent-steps) {
+  display: grid;
+  gap: 6px;
+  padding: 0 10px 8px;
+  margin: 0;
+  list-style: none;
+}
+.yy-shell .yy-ai-agent-plan { border-block-end: 1px solid var(--yy-border); margin-block-end: 8px; }
+.yy-shell .yy-ai-agent-plan > li { display: flex; gap: 8px; }
+.yy-shell .yy-ai-agent-plan > li > span:first-child { flex: none; }
+.yy-shell .yy-ai-agent-plan > li[data-status="in_progress"] > span:first-child { color: var(--yy-accent); }
+.yy-shell .yy-ai-agent-steps:empty { padding: 0; }
+.yy-shell .yy-ai-agent-steps > li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 6px;
+  color: var(--yy-ink-muted);
+  overflow-wrap: anywhere;
+}
+.yy-shell .yy-ai-agent-steps > li > span:last-child { grid-column: 2; }
+.yy-shell .yy-ai-agent-steps .yy-icon { color: var(--yy-accent); }
+.yy-shell .yy-ai-agent-steps .is-failed .yy-icon { color: var(--yy-danger); }
+.yy-shell .yy-ai-agent-toggle[aria-pressed="true"] {
+  background: var(--yy-accent-soft);
+  color: var(--yy-accent);
+}
+.yy-shell.yy-mobile .yy-ai-agent-activity summary,
+.yy-shell.yy-mobile .yy-ai-agent-toggle { min-height: 44px; }
 
 .yy-shell .yy-ai-composer {
   display: flex;

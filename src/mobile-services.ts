@@ -130,7 +130,7 @@ export function createMobileServices(options: Options) {
           const uris = await invoke<string[]>('android_pick_many')
           if (!uris.length) break
           const files = await Promise.all(uris.map(options.read))
-          writing.files(files.map(file => file.name).join('、'), files.map(file => '# ' + file.name + '\n\n' + file.text).join('\n\n'))
+          writing.files(files.map(({ name, text }) => ({ name, text })))
         } else {
           if (!state.open) throw new Error('请先打开文档再添加上下文')
           writing.preview(action.scope, editor, state.id, state.revision, state.title)
@@ -139,13 +139,15 @@ export function createMobileServices(options: Options) {
       }
       case 'ai-context-clear': writing.clearContext(); break
       case 'ai-send': {
-        const { id, revision } = options.state()
-        await writing.send(action.intent, action.prompt, editor, id, revision)
+        const { id, revision, open, readonly } = options.state()
+        await writing.send(action.intent, action.prompt, editor, id, revision, { agent: action.agent, writable: open && !readonly })
         break
       }
       case 'ai-cancel': await writing.cancel(); break
       case 'ai-retry': await writing.retry(); break
-      case 'ai-clear': writing.clear(); break
+      case 'ai-clear': await writing.clear(); break
+      case 'ai-chat-new': case 'ai-chat-select': case 'ai-chat-rename': case 'ai-chat-remove': case 'ai-compress':
+        await writing.manageChat(action); break
       case 'suggestion-apply': {
         const item = writing.pending
         if (!item || item.view.id !== action.id || !action.hunks.length) break

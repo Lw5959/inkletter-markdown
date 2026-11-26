@@ -47,7 +47,7 @@ class AppearanceArgs { var light: Boolean = true; lateinit var color: String }
 class BackNavigationArgs { var enabled: Boolean = false; var animated: Boolean = false }
 
 @InvokeArg
-class UpdateArgs { lateinit var url: String }
+class UrlArgs { lateinit var url: String }
 
 @TauriPlugin
 class MarkdownDocuments(private val activity: Activity) : Plugin(activity) {
@@ -257,7 +257,7 @@ class MarkdownDocuments(private val activity: Activity) : Plugin(activity) {
     @Command
     fun downloadUpdate(invoke: Invoke) {
         try {
-            val uri = Uri.parse(invoke.parseArgs(UpdateArgs::class.java).url)
+            val uri = Uri.parse(invoke.parseArgs(UrlArgs::class.java).url)
             val path = uri.path.orEmpty()
             if (uri.scheme != "https" || uri.host != "github.com" ||
                 !path.startsWith("/Lw5959/yeyu/releases/download/") || !path.endsWith("_android-arm64.apk")) {
@@ -268,6 +268,21 @@ class MarkdownDocuments(private val activity: Activity) : Plugin(activity) {
             invoke.resolve()
         } catch (error: Exception) {
             invoke.reject("无法打开 GitHub APK 下载", error)
+        }
+    }
+
+    @Command
+    fun visitLink(invoke: Invoke) {
+        try {
+            val uri = Uri.parse(invoke.parseArgs(UrlArgs::class.java).url)
+            if (uri.scheme !in listOf("https", "http", "mailto")) {
+                invoke.reject("不支持此链接协议")
+                return
+            }
+            activity.startActivity(Intent(Intent.ACTION_VIEW, uri))
+            invoke.resolve()
+        } catch (error: Exception) {
+            invoke.reject("无法打开链接", error)
         }
     }
 }

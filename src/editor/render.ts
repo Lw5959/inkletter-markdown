@@ -35,7 +35,10 @@ export function safeUrl(url: string, image = false) {
   return !scheme || (image ? ['http', 'https', 'asset', 'blob'] : ['http', 'https', 'mailto']).includes(scheme)
 }
 
-type RenderHooks = RenderOptions & { renderDiagram?: (kind: string, source: string) => Promise<string | null> }
+type RenderHooks = RenderOptions & {
+  renderDiagram?: (kind: string, source: string) => Promise<string | null>
+  highlightCode?: boolean
+}
 
 export function renderMarkdown(markdown: string, options: RenderOptions = {}): Promise<string> {
   return renderMarkdownWith(markdown, {
@@ -48,7 +51,7 @@ export function renderMarkdown(markdown: string, options: RenderOptions = {}): P
 }
 
 // Worker 与编辑器共用解析、高亮和净化。图表由有 DOM 的调用方绘制，再经过同一白名单。
-export async function renderMarkdownWith(markdown: string, { resolveImage, renderDiagram }: RenderHooks): Promise<string> {
+export async function renderMarkdownWith(markdown: string, { resolveImage, renderDiagram, highlightCode = true }: RenderHooks): Promise<string> {
   const clean = (await import('sanitize-html')).default
   const md = parser()
   const escape = md.utils.escapeHtml
@@ -118,7 +121,7 @@ export async function renderMarkdownWith(markdown: string, { resolveImage, rende
         jobs.push(import('katex').then(({ default: katex }) => {
           replacements.set(token, katex.renderToString(token.content, { output: 'mathml', displayMode: true, trust: false, throwOnError: false }))
         }))
-      } else if (kind && /^[\w+-]+$/.test(kind)) {
+      } else if (highlightCode && kind && /^[\w+-]+$/.test(kind)) {
         jobs.push(import('highlight.js').then(({ default: hljs }) => {
           if (hljs.getLanguage(kind)) {
             const highlighted = hljs.highlight(token.content, { language: kind, ignoreIllegals: true }).value
@@ -150,6 +153,7 @@ export async function renderMarkdownWith(markdown: string, { resolveImage, rende
     allowedAttributes: {
       '*': ['id', 'class', 'role', 'aria-label', 'aria-roledescription', 'fill', 'stroke'],
       a: ['href', 'title'], img: ['src', 'alt', 'title'], ol: ['start'], input: [{ name: 'type', values: ['checkbox'] }, 'checked', 'disabled'],
+      th: ['style'], td: ['style'],
       math: ['xmlns', 'display'], annotation: ['encoding'],
       mi: ['mathvariant'], mo: ['stretchy', 'fence', 'separator'], mspace: ['width', 'height', 'depth'], mpadded: ['width', 'height', 'depth', 'lspace', 'voffset'],
       svg: ['xmlns', 'viewBox', 'width', 'height', 'preserveAspectRatio', 'font-family', 'font-size'], g: ['transform'],
@@ -163,6 +167,10 @@ export async function renderMarkdownWith(markdown: string, { resolveImage, rende
       text: ['x', 'y', 'dx', 'dy', 'transform', 'text-anchor'], tspan: ['x', 'y', 'dx', 'dy'],
     },
     parser: { lowerCaseTags: false, lowerCaseAttributeNames: false },
+    allowedStyles: {
+      th: { 'text-align': [/^(left|center|right)$/] },
+      td: { 'text-align': [/^(left|center|right)$/] },
+    },
     allowedSchemes: ['http', 'https', 'mailto'],
     allowedSchemesByTag: { img: ['http', 'https', 'asset', 'blob', 'data'] },
     transformTags: {

@@ -264,6 +264,18 @@ async fn android_open_update(url: String, documents: State<'_, Documents>) -> Re
         .map_err(err)
 }
 
+#[tauri::command]
+async fn visit_link(url: String, documents: State<'_, Documents>) -> Result<(), String> {
+    let url = reqwest::Url::parse(&url).map_err(err)?;
+    if !matches!(url.scheme(), "http" | "https" | "mailto") {
+        return Err("不支持此链接协议".into());
+    }
+    documents
+        .plugin
+        .run_mobile_plugin("visitLink", json!({ "url": url.as_str() }))
+        .map_err(err)
+}
+
 pub fn run() {
     let documents = tauri::plugin::Builder::<Wry>::new("android-documents")
         .setup(|app, api| {
@@ -311,12 +323,15 @@ pub fn run() {
             android_back_navigation,
             android_appearance,
             android_open_update,
+            visit_link,
             ai::config::ai_settings,
             ai::config::ai_provider_save,
             ai::config::ai_provider_remove,
             ai::config::ai_model_select,
             ai::ai_list_models,
             ai::ai_stream,
+            ai::agent::ai_agent_turn,
+            ai::ai_conversations,
             ai::ai_cancel,
             plugins::plugin_list,
             plugins::plugin_install_content,

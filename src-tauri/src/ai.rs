@@ -1,3 +1,4 @@
+pub mod agent;
 pub mod config;
 mod credentials;
 
@@ -10,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
     collections::{BTreeSet, HashMap},
+    future::Future,
     sync::Mutex,
     time::Duration,
 };
@@ -19,6 +21,29 @@ use url::Host;
 
 #[derive(Default)]
 pub struct Jobs(Mutex<HashMap<String, oneshot::Sender<()>>>);
+
+impl Jobs {
+    async fn run<T>(
+        &self,
+        id: String,
+        request: impl Future<Output = Result<T, String>>,
+    ) -> Result<Option<T>, String> {
+        let (cancel, stop) = oneshot::channel();
+        {
+            let mut active = self.0.lock().map_err(err)?;
+            if active.contains_key(&id) {
+                return Err("生成任务已存在".into());
+            }
+            active.insert(id.clone(), cancel);
+        }
+        let result = tokio::select! {
+            result = request => result.map(Some),
+            _ = stop => Ok(None)
+        };
+        self.0.lock().map_err(err)?.remove(&id);
+        result
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -264,35 +289,50 @@ fn model_request(
     key: Option<String>,
 ) -> Result<RequestBuilder, String> {
     let protocol = settings.protocol;
-    let conversation: Vec<Value> = messages
-        .iter()
-        .filter(|message| protocol == Protocol::Chat || message.role != "system")
-        .map(|message| json!({ "role": message.role, "content": message.text }))
-        .collect();
-    let system = || {
-        messages
-            .iter()
-            .filter(|message| message.role == "system")
-            .map(|message| message.text.as_str())
-            .collect::<Vec<_>>()
-            .join("\n\n")
-    };
+    let conversation = model_messages(protocol, messages);
     let model = &settings.model;
     let body = match protocol {
         Protocol::Chat => json!({ "model": model, "messages": conversation, "stream": true }),
         Protocol::Anthropic => json!({
-            "model": model, "messages": conversation, "system": system(), "max_tokens": 4096, "stream": true
+            "model": model, "messages": conversation, "system": system_messages(messages), "max_tokens": 4096, "stream": true
         }),
         Protocol::Responses => json!({
-            "model": model, "input": conversation, "instructions": system(), "store": false, "stream": true
+            "model": model, "input": conversation, "instructions": system_messages(messages), "store": false, "stream": true
         }),
     };
+    stream_request(http, endpoint, protocol, key.as_deref(), &body)
+}
+
+fn model_messages(protocol: Protocol, messages: &[Message]) -> Vec<Value> {
+    messages
+        .iter()
+        .filter(|message| protocol == Protocol::Chat || message.role != "system")
+        .map(|message| json!({ "role": message.role, "content": message.text }))
+        .collect()
+}
+
+fn system_messages(messages: &[Message]) -> String {
+    messages
+        .iter()
+        .filter(|message| message.role == "system")
+        .map(|message| message.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+fn stream_request(
+    http: &Client,
+    endpoint: Url,
+    protocol: Protocol,
+    key: Option<&str>,
+    body: &Value,
+) -> Result<RequestBuilder, String> {
     let request = http
         .post(endpoint)
         .timeout(Duration::from_secs(300))
         .header("Accept", "text/event-stream")
-        .json(&body);
-    authorize(request, protocol, key.as_deref())
+        .json(body);
+    authorize(request, protocol, key)
 }
 
 fn model_event<'a>(
@@ -379,20 +419,7 @@ async fn stream(
     event: &Channel<Event>,
 ) -> Result<(), String> {
     let request = model_request(http, endpoint, &settings, &messages, key)?;
-    let response = request
-        .send()
-        .await
-        .map_err(|error| format!("无法连接模型服务：{}", error.without_url()))?;
-    let status = response.status();
-    if !status.is_success() {
-        let mut chunks = response.bytes_stream();
-        let message = chunks.next().await.and_then(Result::ok).unwrap_or_default();
-        let detail: String = String::from_utf8_lossy(&message)
-            .chars()
-            .take(500)
-            .collect();
-        return Err(format!("模型服务返回 {status} {detail}"));
-    }
+    let response = stream_response(request).await?;
     let mut events = response.bytes_stream().eventsource();
     let mut saw_delta = false;
     let mut complete = false;
@@ -426,6 +453,24 @@ async fn stream(
     event.send(Event::Done).map_err(err)
 }
 
+async fn stream_response(request: RequestBuilder) -> Result<reqwest::Response, String> {
+    let response = request
+        .send()
+        .await
+        .map_err(|error| format!("无法连接模型服务：{}", error.without_url()))?;
+    let status = response.status();
+    if !status.is_success() {
+        let mut chunks = response.bytes_stream();
+        let message = chunks.next().await.and_then(Result::ok).unwrap_or_default();
+        let detail: String = String::from_utf8_lossy(&message)
+            .chars()
+            .take(500)
+            .collect();
+        return Err(format!("模型服务返回 {status} {detail}"));
+    }
+    Ok(response)
+}
+
 #[tauri::command]
 pub async fn ai_stream(
     id: String,
@@ -437,21 +482,14 @@ pub async fn ai_stream(
     models: State<'_, Models>,
     http: State<'_, Client>,
 ) -> Result<(), String> {
-    let (settings, endpoint, key) = config::target(&store, &models, selection)?;
-    let (cancel, stop) = oneshot::channel();
-    {
-        let mut active = jobs.0.lock().map_err(err)?;
-        if active.contains_key(&id) {
-            return Err("生成任务已存在".into());
-        }
-        active.insert(id.clone(), cancel);
-    }
-    let result = tokio::select! {
-        result = stream(&http, endpoint, settings, key, messages, &event) => result,
-        _ = stop => event.send(Event::Cancelled).map_err(err)
+    let request = async {
+        let (settings, endpoint, key) = config::target(&store, &models, selection)?;
+        stream(&http, endpoint, settings, key, messages, &event).await
     };
-    jobs.0.lock().map_err(err)?.remove(&id);
-    result
+    match jobs.run(id, request).await? {
+        Some(()) => Ok(()),
+        None => event.send(Event::Cancelled).map_err(err),
+    }
 }
 
 #[tauri::command]
@@ -460,6 +498,23 @@ pub async fn ai_cancel(id: String, jobs: State<'_, Jobs>) -> Result<(), String> 
         let _ = cancel.send(());
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn ai_conversations(
+    value: Option<Value>,
+    store: State<'_, Store>,
+) -> Result<Value, String> {
+    const FILE: &str = "ai-conversations.json";
+    if let Some(value) = value {
+        if !value.is_object() {
+            return Err("会话记录格式无效".into());
+        }
+        store.write(FILE, &value)?;
+        Ok(Value::Null)
+    } else {
+        store.read(FILE)
+    }
 }
 
 #[cfg(test)]

@@ -968,14 +968,17 @@ async function dispatch(action: ShellAction) {
       const paths = await open({ multiple: true, filters: [markdownFilter] })
       if (!paths?.length) break
       const items = await Promise.all(paths.map(path => native.read(path)))
-      writing.files(items.map(item => item.name).join('、'), items.map(item => '# ' + item.name + '\n\n' + item.text).join('\n\n'))
+      writing.files(items.map(({ name, text }) => ({ name, text })))
       break
     }
     case 'ai-context-clear': writing.clearContext(); break
-    case 'ai-send': await writing.send(action.intent, action.prompt, editor, documentId, revision); break
+    case 'ai-send': await writing.send(action.intent, action.prompt, editor, documentId, revision,
+      { agent: action.agent, writable: !state.presentation.readonly }); break
     case 'ai-cancel': await writing.cancel(); break
     case 'ai-retry': await writing.retry(); break
-    case 'ai-clear': writing.clear(); break
+    case 'ai-clear': await writing.clear(); break
+    case 'ai-chat-new': case 'ai-chat-select': case 'ai-chat-rename': case 'ai-chat-remove': case 'ai-compress':
+      await writing.manageChat(action); break
     case 'plugin-install': {
       const path = await open({ filters: [{ name: '页屿插件', extensions: ['json'] }] })
       if (path) await installPlugin(path)

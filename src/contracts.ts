@@ -48,11 +48,21 @@ export type AiProvider = AiProviderDraft & { hasKey: boolean }
 export type AiSettings = { providers: AiProvider[]; active: AiSelection | null; notice?: string }
 export type AiContext = { scope: AiScope; label: string; text: string }
 export type AiMessage = { role: 'user' | 'assistant'; text: string }
+export type AiAgentStep = { title: string; detail: string; failed?: boolean }
+export type AiAgentPlanItem = { step: string; status: 'pending' | 'in_progress' | 'completed' }
+export type AiAgentActivity = {
+  round: number; steps: AiAgentStep[]; plan?: AiAgentPlanItem[]; status: 'running' | 'complete' | 'cancelled' | 'failed'
+}
+export type AiConversations = {
+  active: string | null; items: { id: string; title: string; count: number }[];
+  covered: number; canCompress: boolean
+}
 export type DiffPart = { kind: 'keep' | 'add' | 'remove'; text: string; hunk?: number }
 export type Suggestion = { id: string; title: string; parts: DiffPart[]; hunks: number; source: 'ai' | 'mcp' | 'plugin' }
 export type AiView = {
   settings: AiSettings; prompts: AiPrompts; context: AiContext | null; messages: AiMessage[]; stream: string;
-  pending: boolean; error: string; suggestion: Suggestion | null; canRetry: boolean
+  pending: boolean; error: string; suggestion: Suggestion | null; canRetry: boolean; agent?: AiAgentActivity;
+  conversations?: AiConversations; compacting?: boolean
 }
 export type McpServer = { id: string; name: string; transport: 'stdio' | 'http'; command?: string; args?: string[]; url?: string }
 export type McpItem = { kind: 'tool' | 'resource' | 'prompt'; name: string; title?: string; description?: string; schema?: unknown }
@@ -110,7 +120,10 @@ export type ShellAction =
   | { type: 'ai-prompts'; prompts: AiPrompts }
   | { type: 'ai-context'; scope: AiScope }
   | { type: 'ai-context-clear' }
-  | { type: 'ai-send'; intent: AiIntent; prompt: string }
+  | { type: 'ai-send'; intent: AiIntent; prompt: string; agent?: boolean }
+  | { type: 'ai-chat-new' | 'ai-compress' }
+  | { type: 'ai-chat-select' | 'ai-chat-remove'; id: string }
+  | { type: 'ai-chat-rename'; id: string; title: string }
   | { type: 'ai-cancel' | 'ai-retry' | 'ai-clear' }
   | { type: 'suggestion-apply'; id: string; hunks: number[] }
   | { type: 'suggestion-dismiss'; id: string }

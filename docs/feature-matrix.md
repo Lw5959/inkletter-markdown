@@ -86,6 +86,8 @@
 | 模型配置与默认提示词 | AI 侧栏 → 模型配置、模型菜单、默认提示词 | 迁移旧配置，新增供应商及模型，切换发送请求，保存并恢复默认提示词 | Chromium、WebKit 通过键盘导航。macOS 原生窗口通过旧配置迁移、三种协议流式请求、不同供应商会话隔离及重启保留选择 |
 | 获取供应商模型 | AI → 模型配置 → 获取模型 | 读取 Chat、Responses 或 Anthropic 模型列表，筛选、多选并保存，断网时手动填写 | 本地 HTTP 鉴权和分页测试、桌面及 Android 浏览器流程通过 |
 | AI 远端 HTTP | AI → 模型配置 → API 地址 | 使用非回环 HTTP 地址，验证模型列表和流式对话 | Rust 测试使用非回环网卡地址通过，Android 真机待验 |
+| 写作智能体 | AI 输入框 → 智能体 | 附带选区或文档，更新计划并多轮查找和读取，审阅后应用，取消及按原快照重试 | 三协议续接与桌面、移动浏览器通过 |
+| 回复排版与对话管理 | AI 回复、对话管理 | 实时渲染标题、列表、表格和代码。保存并恢复多条对话，压缩旧记录后用摘要续接 | Chromium 桌面及移动浏览器通过 |
 | 凭据、取消、重试，选区变化检查 | AI 配置与建议卡 | 系统凭据读写，取消长生成，编辑后尝试应用陈旧建议 | macOS 钥匙串鉴权通过。Windows、Linux 凭据及取消专项待验 |
 | 本地插件热插拔 | 编辑 → 插件管理、运行插件 | 安装 JavaScript 和 WebAssembly 包，启用或替换后直接执行命令，审阅、应用及撤销 | macOS 原生窗口通过 |
 | 表格转换、中文排版和文档目录 | 编辑 → 插件市场 → 内置插件 | CSV 往返，保护代码的中文排版，目录生成、锚点跳转和移除 | macOS 原生窗口通过 |
@@ -104,6 +106,7 @@
 | 模型配置 | `ai_settings`、`ai_provider_save({ provider, key })`、`ai_provider_remove({ id })`、`ai_model_select({ selection })` | 使用桌面供应商和模型类型。新增供应商 ID 须为 UUID。省略 `key` 时，同地址同协议保留旧密钥。传空串清除。更换地址或协议时重新填写密钥。Android Keystore 保护凭据，前端仅接收 `hasKey` |
 | 获取模型列表 | `ai_list_models({ request: { id, endpoint, protocol, key } })` | 调用供应商 API 前缀下的 `/models`，返回去重的模型 ID。省略 `key` 时在同地址同协议沿用存储的密钥。获取时传入的密钥仅用于本次请求 |
 | AI 流式写作 | `ai_stream({ id, selection, messages, event })`、`ai_cancel({ id })` | 支持 `chat`、`anthropic`、`responses`。`id` 每次生成使用新 UUID。`messages` 的元素为 `{ role, text }`。Tauri Channel 发送 `delta`、`done` 或 `cancelled`，出错时 invoke 拒绝。等 `done` 后进入差异审阅 |
+| 智能体模型轮次 | `ai_agent_turn({ request, event })` | 一次请求返回完整工具调用或最终文本。前端执行已确认的文档工具并续接工具结果。`ai_cancel` 停止活动轮次，已生成的建议需审阅后应用 |
 | 插件安装和运行 | `plugin_list`、`plugin_install_content({ text })`、`plugin_set_enabled({ id, enabled })`、`plugin_remove({ id })`、`plugin_run({ id, command, text })` | `text` 为 SAF 读出的 UTF-8 JSON，最多 2 MiB。支持 JavaScript 与 Rust 编译的 Wasm。安装后先启用，运行仅返回文本结果。接口 3 的多文档和图片命令需要前端提供对应的文件或图片工作流 |
 | 插件市场 | `plugin_market_list({ source, refresh })`、`plugin_market_install({ source, id, sha256 })` | `source: null` 使用内置离线目录。在线安装传入列表返回的源地址、插件 ID 和摘要。安装返回 `{ installed, catalog }` |
 | MCP 客户端 | `mcp_connect({ server })`、`mcp_connected`、`mcp_call({ id, item, args })`、`mcp_disconnect({ id })` | `server` 为 `{ id, name, transport: 'http', url }`。连接后返回服务端发布的工具、资源和提示词。调用参数只在本次调用传给服务。stdio 客户端、stdio 服务及工作区授权仅限桌面 |

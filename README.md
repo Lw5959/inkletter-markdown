@@ -43,6 +43,14 @@ AI 写作沿用桌面端的供应商、模型、提示词和差异审阅，API �
 
 在「默认提示词」中可编辑九种操作的提示词，或恢复内置内容。改稿前从输入框旁添加上下文并核对全文预览。结果生成后可选择应用整份建议或指定差异块，应用操作可以撤销。
 
+桌面和 Android 会渲染 AI 回复里的标题、列表、表格、代码、公式和链接。流式回复也会逐步排版，宽表和代码块可横向滚动。每次只发送一条请求，等待时可以先输入下一条草稿。
+
+在侧栏进入「对话管理」可新建、切换、重命名或删除对话。记录保存在本机，并按供应商和地址保留。可点「压缩上下文」把旧消息总结为摘要。长会话会在发送前自动压缩较早的记录。后续请求使用摘要和最近消息，完整记录仍可翻阅。
+
+从输入框打开「智能体」，用自然语言提出需要多步完成的任务。添加上下文后，智能体可以列出计划、搜索关键词、查看大纲、按行读取并继续处理。只有工具实际读取的片段会随本次任务发送给模型。改稿建议在当前文档预览范围内定位，新内容可建议插入光标处。展开步骤查看计划和工具结果，审阅后选择应用，运行中可取消或按相同快照重试。[Codex CLI 轮次执行](https://github.com/openai/codex/blob/main/codex-rs/core/src/session/turn.rs) · [上下文压缩实现](https://github.com/openai/codex/blob/main/codex-rs/core/src/compact.rs)
+
+智能体需要支持工具调用的模型，与「模型配置」中的 Chat Completions、Responses 和 Anthropic Messages 共用设置。每次任务最多执行八轮，自带工具查询这次选中的文档和选区。[OpenAI 工具调用](https://developers.openai.com/api/docs/guides/function-calling) · [Anthropic 工具调用](https://platform.claude.com/docs/en/agents-and-tools/tool-use/handle-tool-calls)
+
 ## Markdown 默认打开方式
 
 安装后打开「文件 → 设为 Markdown 默认打开方式」。macOS 12 及以上由系统弹窗确认，较早版本可按应用提示在 Finder 设置。Windows 会打开「默认应用」，将 `.md` 和 `.markdown` 都选择为页屿。Linux 从已安装的桌面入口设置 `text/markdown`。

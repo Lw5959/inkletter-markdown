@@ -1,5 +1,8 @@
 import { aiIntents, aiTasks } from '../ai-prompts'
-import type { AiContext, AiIntent, AiMessage, AiScope, AiSelection, AiSettings, AiView, ShellAction, ShellActions, Suggestion } from '../contracts'
+import type { AiAgentActivity, AiContext, AiIntent, AiMessage, AiScope, AiSelection, AiSettings, AiView, ShellAction, ShellActions, Suggestion } from '../contracts'
+import { invoke, reason } from '../native'
+import { renderReply, replyBody, replyLink, StreamingReply } from './ai-markdown'
+import { openConversations } from './ai-conversations'
 import { openModelSettings, openPromptSettings } from './ai-settings'
 import { ChoicePicker } from './choice-picker'
 import type { DialogPresenter } from './dialogs'
@@ -30,18 +33,27 @@ export class AiPanel {
     prompts: {}, context: null, messages: [], stream: '', pending: false, error: '', suggestion: null, canRetry: false,
   }
   private shownMessages: AiMessage[] | null = null
+  private messageNodes = new WeakMap<AiMessage, HTMLElement>()
   private shownSettings: AiSettings | null = null
   private shownContext: AiContext | null = null
+  private shownAgent: AiAgentActivity | undefined
+  private refreshChats?: () => void
+  private shownChat?: string | null
+  private drafts = new Map<string, string>()
   private activeSuggestionId: string | null = null
   private selectedHunks = new Set<number>()
   private submitting = false
   private actionError = ''
   private intent: AiIntent = 'chat'
   private changingModel = false
+  private agentMode = false
 
   private modelButton = el('button', {
     className: 'yy-btn yy-btn-sm yy-btn-ghost', type: 'button', text: '模型配置',
   })
+  private chatLabel = el('span', { text: '对话' })
+  private chatButton = el('button', { className: 'yy-btn yy-btn-sm yy-btn-ghost yy-ai-chat-switch', type: 'button',
+    attrs: { 'aria-label': '对话管理' } }, el('span', { className: 'yy-icon', html: icons.history }), this.chatLabel)
   private clearButton = iconButton('清空会话', icons.trash)
   private retryButton = iconButton('重试上次请求', icons.refresh)
   private conversation = el('div', {
@@ -50,8 +62,13 @@ export class AiPanel {
   private empty = el('div', { className: 'yy-ai-empty' })
   private emptyHint = el('p')
   private messages = el('div', { className: 'yy-ai-messages', attrs: { role: 'log' } })
+  private agentActivity = el('details', { className: 'yy-ai-agent-activity', attrs: { hidden: '' } })
+  private agentStatus = el('span', { attrs: { role: 'status' } })
+  private agentPlan = el('ol', { className: 'yy-ai-agent-plan', attrs: { role: 'list', 'aria-label': '执行计划', hidden: '' } })
+  private agentSteps = el('ol', { className: 'yy-ai-agent-steps', attrs: { role: 'list', 'aria-label': '智能体步骤' } })
   private generation = el('article', { className: 'yy-msg yy-msg-assistant', attrs: { hidden: '' } })
-  private stream = el('div', { className: 'yy-msg-body' })
+  private generationStatus = el('div', { className: 'yy-msg-role', attrs: { role: 'status' }, text: '正在生成…' })
+  private stream = new StreamingReply()
   private suggestionWrap = el('div', { className: 'yy-suggestion-host', attrs: { hidden: '' } })
   private errorBanner = el('div', { className: 'yy-ai-error', attrs: { role: 'alert', hidden: '' } })
   private contextHost = el('div', { className: 'yy-ai-context', attrs: { hidden: '' } })
@@ -71,11 +88,13 @@ export class AiPanel {
   private taskPicker = new ChoicePicker('写作操作', aiTasks.chat.label, value => {
     this.intent = value as AiIntent
     this.taskPicker.setValue(value)
-    this.promptInput.placeholder = aiTasks[this.intent].placeholder
     this.updateDraft()
   }, { className: 'yy-composer-picker' })
   private contextPicker = new ChoicePicker('添加上下文', '上下文', value => { void this.selectContext(value as AiScope) },
     { className: 'yy-composer-picker', icon: icons.plus })
+  private agentToggle = el('button', { className: 'yy-btn yy-btn-sm yy-btn-ghost yy-ai-agent-toggle', type: 'button',
+    attrs: { 'aria-pressed': 'false', title: '多轮搜索和读取上下文，提出修改建议' } },
+    el('span', { className: 'yy-icon', html: icons.sparkles }), '智能体')
   private sendButton = iconButton('发送', icons.arrowUp, 'yy-ai-send', 'submit')
   private cancelButton = iconButton('取消生成', icons.stop, 'yy-ai-send')
 
@@ -89,7 +108,11 @@ export class AiPanel {
     prompts.addEventListener('click', () => {
       openPromptSettings(this.options.modals, this.view.prompts, this.intent, this.options.dispatch)
     })
-    settings.append(this.modelButton, prompts)
+    this.chatButton.addEventListener('click', () => {
+      this.refreshChats = openConversations(this.options.modals, () => this.view, this.options.dispatch,
+        () => { this.refreshChats = undefined })
+    })
+    settings.append(this.chatButton, this.modelButton, prompts)
     const actions = el('div', { className: 'yy-ai-toolbar-group' })
     this.clearButton.addEventListener('click', () => { void this.request({ type: 'ai-clear' }) })
     this.retryButton.addEventListener('click', () => { void this.request({ type: 'ai-retry' }) })
@@ -102,10 +125,19 @@ export class AiPanel {
       this.emptyHint,
     )
     this.generation.append(
-      el('div', { className: 'yy-msg-role', text: '正在生成…', attrs: { role: 'status' } }),
-      this.stream,
+      this.generationStatus,
+      this.stream.element,
     )
-    this.conversation.append(this.empty, this.messages, this.generation, this.suggestionWrap)
+    this.agentActivity.append(el('summary', {},
+      el('span', { className: 'yy-icon', html: icons.chevronRight }), this.agentStatus), this.agentPlan, this.agentSteps)
+    this.conversation.append(this.empty, this.messages, this.agentActivity, this.generation, this.suggestionWrap)
+    this.conversation.addEventListener('click', event => {
+      const url = replyLink(event)
+      if (url) void invoke('visit_link', { url }).catch(error => {
+        this.actionError = reason(error)
+        this.renderError()
+      })
+    })
 
     const clearContext = iconButton('移除上下文', icons.close)
     clearContext.addEventListener('click', () => { void this.request({ type: 'ai-context-clear' }) })
@@ -143,7 +175,12 @@ export class AiPanel {
     const tools = el('div', { className: 'yy-ai-composer-tools' })
     this.taskPicker.setItems(aiIntents.map(value => ({ value, label: aiTasks[value].label })), this.intent)
     this.contextPicker.setItems(Object.entries(scopes).map(([value, label]) => ({ value, label })))
-    tools.append(this.taskPicker.button, this.contextPicker.button)
+    this.agentToggle.addEventListener('click', () => {
+      this.agentMode = !this.agentMode
+      this.agentToggle.setAttribute('aria-pressed', String(this.agentMode))
+      this.updateDraft()
+    })
+    tools.append(this.agentToggle, this.taskPicker.button, this.contextPicker.button)
     this.sendButton.setAttribute('aria-keyshortcuts', 'Meta+Enter Control+Enter')
     this.cancelButton.addEventListener('click', () => { void this.request({ type: 'ai-cancel' }) })
     bar.append(tools, this.sendButton, this.cancelButton)
@@ -154,6 +191,7 @@ export class AiPanel {
       if (event.isComposing || event.keyCode === 229) return
       if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
         event.preventDefault()
+        if (event.repeat) return
         void this.submitPrompt()
       }
     })
@@ -178,7 +216,7 @@ export class AiPanel {
       return
     }
     this.submitting = true
-    const request = this.request({ type: 'ai-send', intent: this.intent, prompt: draft.trim() })
+    const request = this.request({ type: 'ai-send', intent: this.intent, prompt: draft.trim(), ...(this.agentMode ? { agent: true } : {}) })
     const started = this.view.pending
     if (started) this.clearDraft(draft)
     if (await request && !started) this.clearDraft(draft)
@@ -192,6 +230,7 @@ export class AiPanel {
   }
 
   private updateDraft() {
+    this.promptInput.placeholder = this.agentMode && this.intent === 'chat' ? '想让智能体查找或修改什么？' : aiTasks[this.intent].placeholder
     // 重算高度时先清除旧高度，删除多行文字后也能收回一行。
     this.promptInput.style.height = 'auto'
     const { scrollHeight, clientHeight } = this.promptInput
@@ -214,9 +253,20 @@ export class AiPanel {
   }
 
   setView(view: AiView) {
-    const { settings, context, messages, stream, pending, suggestion, canRetry } = view
+    const { settings, context, messages, stream, pending, suggestion, canRetry, agent, conversations, compacting } = view
     const nearEnd = this.conversation.scrollHeight - this.conversation.clientHeight - this.conversation.scrollTop < 48
     this.view = view
+    const active = conversations?.active
+    if (active !== this.shownChat) {
+      if (this.shownChat) this.drafts.set(this.shownChat, this.promptInput.value)
+      this.shownChat = active
+      this.promptInput.value = active ? this.drafts.get(active) ?? '' : ''
+      this.updateDraft()
+    }
+    const title = conversations?.items.find(item => item.id === active)?.title ?? '对话'
+    if (this.chatLabel.textContent !== title) this.chatLabel.textContent = title
+    this.chatButton.title = title
+    this.refreshChats?.()
     if (settings !== this.shownSettings) {
       this.shownSettings = settings
       this.modelOptions.clear()
@@ -230,6 +280,7 @@ export class AiPanel {
       this.modelPicker.button.hidden = !items.length
     }
     this.modelPicker.setDisabled(pending || this.changingModel)
+    this.agentToggle.disabled = pending
     this.clearButton.hidden = !messages.length
     this.clearButton.disabled = pending
     this.retryButton.hidden = pending || !canRetry
@@ -242,17 +293,24 @@ export class AiPanel {
     // 流式更新只写入正在生成的消息。保留历史消息的选区与上下文的滚动位置。
     if (messages !== this.shownMessages) {
       this.messages.replaceChildren(...messages.map(message => {
+        const existing = this.messageNodes.get(message)
+        if (existing) return existing
         const item = el('article', { className: 'yy-msg yy-msg-' + message.role })
+        const body = message.role === 'assistant' ? replyBody() : el('div', { className: 'yy-msg-body', text: message.text })
+        if (message.role === 'assistant') void renderReply(body, message.text)
         item.append(
           el('div', { className: 'yy-msg-role', text: message.role === 'user' ? '你' : '页屿 AI' }),
-          el('div', { className: 'yy-msg-body', text: message.text }),
+          body,
         )
+        this.messageNodes.set(message, item)
         return item
       }))
       this.shownMessages = messages
     }
-    if (this.stream.textContent !== stream) this.stream.textContent = stream
-    this.generation.hidden = !pending
+    this.stream.set(pending ? stream : '')
+    this.generationStatus.textContent = compacting ? '正在压缩上下文…' : '正在生成…'
+    this.generation.hidden = !pending || (!!agent && !stream && !compacting)
+    this.renderAgent(agent)
     if (context !== this.shownContext) {
       this.shownContext = context
       this.contextHost.hidden = !context
@@ -276,6 +334,25 @@ export class AiPanel {
     }
     if (nearEnd) this.conversation.scrollTop = this.conversation.scrollHeight
     this.renderError()
+  }
+
+  private renderAgent(agent: AiAgentActivity | undefined) {
+    if (agent === this.shownAgent) return
+    if (agent?.status === 'running' && (!this.shownAgent || agent.round === 0)) this.agentActivity.open = true
+    this.shownAgent = agent
+    this.agentActivity.hidden = !agent
+    if (!agent) { this.agentSteps.replaceChildren(); this.agentPlan.replaceChildren(); return }
+    this.agentStatus.textContent = agent.status === 'running' ? (agent.round ? '智能体 · 第 ' + agent.round + ' 轮' : '正在准备智能体任务…')
+      : { complete: '智能体已完成', cancelled: '智能体已取消', failed: '智能体任务中断' }[agent.status]
+    this.agentPlan.hidden = !agent.plan?.length
+    this.agentPlan.replaceChildren(...(agent.plan ?? []).map(item => el('li', {
+      attrs: { 'data-status': item.status },
+    }, el('span', { className: 'yy-muted-note', text: { pending: '待处理', in_progress: '进行中', completed: '已完成' }[item.status] }),
+    el('span', { text: item.step }))))
+    this.agentSteps.replaceChildren(...agent.steps.map(step => el('li', {
+      className: step.failed ? 'is-failed' : '',
+    }, el('span', { className: 'yy-icon', html: step.failed ? icons.close : icons.check }),
+    el('strong', { text: step.title }), el('span', { text: step.detail }))))
   }
 
   private renderError() {
