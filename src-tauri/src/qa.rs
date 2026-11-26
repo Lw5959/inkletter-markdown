@@ -1,5 +1,5 @@
 // 测试驱动只编译到独立的 QA 构建。发布安装包没有这些命令。
-use crate::store::{Store, err};
+use crate::store::Store;
 use serde_json::Value;
 use std::path::PathBuf;
 
@@ -57,6 +57,7 @@ pub async fn qa_input(
 #[cfg(target_os = "macos")]
 mod mac {
     use super::*;
+    use crate::store::err;
     use objc2::{msg_send, runtime::AnyObject, sel};
     use objc2_foundation::{NSRange, NSString};
     use tokio::sync::oneshot;
