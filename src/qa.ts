@@ -473,6 +473,8 @@ async function verifyWindows(ports: Ports, scenario: Case) {
     const decision = choose('关闭文档', '保留当前窗口的修改。', [{ label: '继续编辑', value: 'cancel', primary: true }])
     const confirmation = opened.at(-1)!
     check(confirmation !== plugins && confirmation.document.querySelector('dialog[open]'), '确认弹窗在独立窗口显示')
+    // GTK 首次布局在 window.open 返回之后，先等真实视口可读。
+    await until(() => confirmation.innerHeight > 0)
     const confirmHeight = confirmation.innerHeight
     button(confirmation.document, '继续编辑').click()
     check(await decision === 'cancel', '子窗口归还确认结果')
@@ -493,7 +495,8 @@ async function verifyWindows(ports: Ports, scenario: Case) {
     showUpdate(async () => null)
     const currentUpdate = opened.at(-1)!
     check(currentUpdate !== confirmation, '更新另开原生窗口')
-    await until(() => currentUpdate.document.querySelector('.yy-update-status h3')?.textContent === '已是最新版本')
+    await until(() => currentUpdate.innerHeight > 0 &&
+      currentUpdate.document.querySelector('.yy-update-status h3')?.textContent === '已是最新版本')
     const updateHeight = currentUpdate.innerHeight
     const dismiss = button(currentUpdate.document, '关闭')
     check(dismiss.getBoundingClientRect().bottom <= updateHeight, '紧凑窗口直接显示关闭按钮')
