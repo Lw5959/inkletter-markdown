@@ -3,6 +3,7 @@ import { markdownDiff } from './suggestions'
 import { el } from './ui/helpers'
 import { dismissOnBackdrop } from './ui/dialog-dismiss'
 import type { createPages } from './ui/pages'
+import { openDesktopWindow } from './ui/desktop-window'
 
 type Choice = { label: string; value: string; primary?: boolean; autofocus?: boolean }
 
@@ -33,13 +34,26 @@ function addButton(controls: HTMLElement, label: string, value: string, primary 
 }
 
 function present(element: HTMLDialogElement) {
-  dismissOnBackdrop(element)
-  document.body.append(element)
-  element.showModal()
-  return new Promise<string>(resolve => element.addEventListener('close', () => {
-    resolve(element.returnValue)
-    element.remove()
-  }, { once: true }))
+  const previous = document.activeElement
+  return new Promise<string>(resolve => {
+    const review = element.classList.contains('app-review-dialog')
+    const done = () => {
+      resolve(element.returnValue)
+      popup?.close()
+      element.remove()
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus({ preventScroll: true })
+    }
+    const popup = openDesktopWindow(element, {
+      title: element.getAttribute('aria-label') ?? '页屿', width: review ? 880 : 520,
+      height: review ? 650 : 280, modal: true, onClose: done,
+    })
+    if (!popup) {
+      dismissOnBackdrop(element)
+      document.body.append(element)
+    }
+    element.addEventListener('close', done, { once: true })
+    element.showModal()
+  })
 }
 
 export function choose(title: string, detail: string, choices: Choice[]) {

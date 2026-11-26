@@ -25,6 +25,19 @@ pub fn qa_report(name: String, data: Value) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub async fn qa_windows(app: tauri::AppHandle) -> Vec<Value> {
+    use tauri::Manager;
+    app.webview_windows()
+        .into_values()
+        .map(|window| {
+            serde_json::json!({
+                "label": window.label(), "title": window.title().unwrap_or_default()
+            })
+        })
+        .collect()
+}
+
+#[tauri::command]
 pub async fn qa_input(
     window: tauri::WebviewWindow,
     operation: String,

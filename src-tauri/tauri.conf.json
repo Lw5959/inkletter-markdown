@@ -10,7 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [{ "label": "main", "title": "页屿", "width": 1200, "height": 800, "minWidth": 640, "minHeight": 480, "dragDropEnabled": true }],
+    "windows": [{ "label": "main", "create": false, "title": "页屿", "width": 1200, "height": 800, "minWidth": 640, "minHeight": 480, "dragDropEnabled": true }],
     "security": {
       "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; font-src 'self' data:; connect-src ipc: http://ipc.localhost https://api.github.com; worker-src 'self' blob:; object-src 'none'; base-uri 'none'"
     }

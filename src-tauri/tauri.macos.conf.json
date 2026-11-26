@@ -3,6 +3,7 @@
   "app": {
     "windows": [{
       "label": "main",
+      "create": false,
       "title": "页屿",
       "width": 1200,
       "height": 800,
@@ -14,5 +15,11 @@
       "transparent": true,
       "trafficLightPosition": { "x": 16, "y": 24 }
     }]
+  },
+  "bundle": {
+    "fileAssociations": [
+      { "ext": ["md", "markdown"], "contentTypes": ["net.daringfireball.markdown"], "mimeType": "text/markdown", "name": "Markdown", "role": "Editor" },
+      { "ext": ["txt"], "contentTypes": ["public.plain-text", "public.utf8-plain-text"], "mimeType": "text/plain", "name": "纯文本", "role": "Editor", "rank": "Alternate" }
+    ]
   }
 }

@@ -49,6 +49,7 @@ regex = "1"
 mime_guess = "2"
 plist = "1"
 tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
 reqwest = { version = "0.13", default-features = false, features = ["multipart"] }
 tokio = { version = "1", features = ["process"] }
 keyring = "4.2"
@@ -68,3 +69,4 @@ objc2-foundation = { version = "0.3", features = ["NSBundle", "NSError", "NSGeom
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gio = "0.18"
+webkit2gtk = "2"

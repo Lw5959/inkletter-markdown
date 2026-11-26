@@ -204,7 +204,7 @@ body {
 }
 
 /* Focus mode gently dims chrome until interacted with */
-.yy-shell[data-focus="true"] .yy-topbar,
+.yy-shell[data-focus="true"]:not([data-tool-page]) .yy-topbar,
 .yy-shell[data-focus="true"] .yy-statusbar {
   opacity: 0.42;
 }
@@ -796,10 +796,24 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 
 .yy-shell .yy-editor-covered { visibility: hidden; }
 
+.yy-shell .yy-body.yy-editor-covered > .yy-sidebar-slot {
+  visibility: hidden;
+  transition: none;
+}
+
+.yy-shell[data-tool-page] :is(.yy-topbar-left > [data-toggle="left"], .yy-doc-title-btn, .yy-topbar-right, .yy-statusbar) {
+  display: none;
+}
+
 .yy-shell .yy-tool-pages {
   grid-area: 2 / 1;
   position: relative;
   min-height: 0;
+}
+
+.yy-shell:not(.yy-mobile) > .yy-tool-pages {
+  grid-row-end: 4;
+  z-index: 2;
 }
 
 .yy-shell .yy-tool-page {
@@ -850,7 +864,23 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 
 .yy-shell .yy-tool-page-panel > .yy-plugin-tabs { flex: none; }
 .yy-shell .yy-tool-page-panel > .yy-plugin-body { flex: 1; min-height: 0; overscroll-behavior: contain; }
-.yy-shell .yy-tool-page-panel > :is(.yy-plugin-tabs, .yy-plugin-body) { width: min(100%, 960px); margin-inline: auto; }
+
+/* 桌面工具页按窗口居中，标题、标签与列表共用边距。 */
+.yy-shell:not(.yy-mobile) .yy-tool-page {
+  --yy-tool-gutter: max(clamp(16px, 4vw, 48px), calc((100% - 1080px) / 2));
+}
+
+.yy-shell:not(.yy-mobile) .yy-tool-page-header {
+  padding: 18px var(--yy-tool-gutter) 12px;
+  gap: 12px;
+  border-bottom: 0;
+}
+
+.yy-shell:not(.yy-mobile) .yy-tool-page-header h2 { font-size: 21px; }
+.yy-shell.yy-mobile .yy-tool-page-panel > :is(.yy-plugin-tabs, .yy-plugin-body) {
+  width: min(100%, 960px);
+  margin-inline: auto;
+}
 
 /* Left Panel -------------------------------------------------------------- */
 
@@ -1804,6 +1834,31 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
   padding: 10vh 16px 24px;
 }
 
+:root.yy-native-panel,
+.yy-native-panel body {
+  height: 100%;
+  overflow: hidden;
+  background: var(--yy-chrome-bg);
+}
+
+.yy-shell.yy-native-panel-host { display: block; overflow: hidden; }
+
+.yy-native-panel .yy-shell .yy-modal,
+.yy-native-panel .app-dialog {
+  box-sizing: border-box;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.yy-native-panel .app-dialog::backdrop { background: var(--yy-chrome-bg); }
+
 .yy-shell .yy-modal {
   width: min(540px, 100%);
   max-height: 78vh;
@@ -1969,6 +2024,30 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
   font-size: 14px;
   line-height: 1.55;
 }
+
+.yy-shell:not(.yy-mobile) .yy-plugin-tabs {
+  grid-template-columns: repeat(3, max-content);
+  gap: 14px;
+  padding-inline: var(--yy-tool-gutter);
+}
+
+.yy-shell:not(.yy-mobile) .yy-plugin-tab { padding-inline: 14px; }
+.yy-shell:not(.yy-mobile) .yy-plugin-body { padding: 20px var(--yy-tool-gutter) 28px; gap: 16px; }
+.yy-shell:not(.yy-mobile) .yy-market-tools { width: min(100%, 620px); gap: 8px; }
+.yy-shell:not(.yy-mobile) .yy-market-list {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 390px), 1fr));
+  gap: 14px;
+  border: 0;
+}
+
+.yy-shell:not(.yy-mobile) .yy-market-card {
+  padding: 15px 17px;
+  row-gap: 9px;
+  border: 1px solid var(--yy-border);
+  border-radius: var(--yy-radius-lg);
+}
+
+.yy-shell:not(.yy-mobile) .yy-market-action { border-radius: var(--yy-radius-md); }
 
 .yy-shell .yy-plugin-toolbar,
 .yy-shell .yy-plugin-controls {

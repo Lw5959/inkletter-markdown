@@ -77,10 +77,17 @@ fn selection_file(root: &Path) -> String {
 }
 
 fn command_for(root: &Path, store: &Store) -> Result<String, String> {
+    let executable = std::env::current_exe().map_err(err)?;
+    // AppImage 的挂载目录随进程退出而消失。客户端必须启动原始安装包。
+    #[cfg(target_os = "linux")]
+    let executable = std::env::var_os("APPIMAGE")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute() && path.is_file())
+        .unwrap_or(executable);
     // 以 MCP 客户端可直接粘贴的 JSON 配置携带独立参数，路径含空格时也无需转义 shell。
     serde_json::to_string_pretty(&json!({
         "mcpServers": {"yeyu": {
-            "command": std::env::current_exe().map_err(err)?,
+            "command": executable,
             "args": ["--mcp", "--workspace", &root.to_string_lossy(), "--state-dir", &store.0.to_string_lossy()],
         }},
     })).map_err(err)

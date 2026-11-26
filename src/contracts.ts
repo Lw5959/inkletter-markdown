@@ -76,7 +76,7 @@ export type ImageMode = 'copy' | 'move' | 'upload'
 type PluginScope = 'selection' | 'document'
 export type PluginInfo = {
   id: string; name: string; version: string; enabled: boolean;
-  commands: { id: string; label: string; scope?: PluginScope; workflow?: 'files' | 'images' }[]
+  commands: { id: string; label: string; scope?: PluginScope; workflow?: 'files' | 'images' | 'mcp' }[]
 }
 export type MarketPlugin = {
   id: string; name: string; version: string; apiVersion: number; sha256: string;

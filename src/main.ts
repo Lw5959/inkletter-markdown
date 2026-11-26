@@ -5,9 +5,10 @@ import { dirname, join } from '@tauri-apps/api/path'
 import type { Editor, ExportFormat, ImageMode, MarketPlugin, OutlineEntry, PluginCatalog, PluginInfo, ShellAction, ShellState, Theme, TitlebarMaterial, TitlebarView, WorkspaceEntry } from './contracts'
 import { createEditor, renderMarkdown } from './editor'
 import { mountShell } from './ui'
+import { copyTextToClipboard } from './ui/helpers'
 import { detectMac } from './ui/shortcuts'
 import { ask, Channel, invoke, native, open, reason, save } from './native'
-import type { FileSnapshot, Preferences, Recovery } from './native'
+import type { FileSnapshot, LocalMcp, Preferences, Recovery } from './native'
 import { choose, readSetting, reviewChanges } from './dialogs'
 import { find, interval, lineOffset } from './document-tools'
 import { exportHtml, formatExtensions, print, visual } from './export'
@@ -37,6 +38,7 @@ const defaults: Preferences = {
 }
 
 let settings: Preferences = { ...defaults }
+let savedPreferences: Preferences = { ...defaults }
 let file: FileSnapshot | null = null
 let recoveryBase: Recovery | null = null
 let documentId = 0
@@ -51,6 +53,7 @@ let diskConflict: string | null | undefined
 let saving: Promise<boolean> | null = null
 let switching = false
 let opening = false
+let drainingWindowRequest: Promise<void> | undefined
 let importingThemes = false
 let themeSelection = 0
 let loaded = false
@@ -61,8 +64,10 @@ let statsTask = 0
 let workspaceSearch = 0
 let recoveryQueue = Promise.resolve()
 let preferenceQueue = Promise.resolve()
+let windowStateQueue = Promise.resolve()
 let checking = false
 let exits = false
+let confirmingClose = false
 let outlineKey = ''
 let outline: OutlineEntry[] = []
 let plugins: PluginInfo[] = []
@@ -148,6 +153,7 @@ function onChange() {
   revision++
   if (!state.dirty) {
     state.dirty = true
+    void syncWindow()
     update('未保存')
   }
   window.clearTimeout(checkpointTimer)
@@ -187,6 +193,7 @@ function checkpoint() {
   const dirty = state.dirty && (current !== saved || !!recoveryBase)
   if (state.dirty !== dirty) {
     state.dirty = dirty
+    void syncWindow()
     update('已恢复到保存版本')
   }
   const draft = dirty ? {
@@ -198,9 +205,20 @@ function checkpoint() {
 }
 
 function persist() {
-  const snapshot = { ...settings }
-  preferenceQueue = preferenceQueue.catch(() => {}).then(() => native.persist(snapshot))
+  const snapshot = structuredClone(settings)
+  preferenceQueue = preferenceQueue.catch(() => {}).then(async () => {
+    const changed = Object.fromEntries(Object.entries(snapshot).filter(([key, value]) =>
+      key !== 'recent' && JSON.stringify(value) !== JSON.stringify(savedPreferences[key as keyof Preferences])))
+    if (Object.keys(changed).length) await native.persist(changed)
+    savedPreferences = snapshot
+  })
   return preferenceQueue
+}
+
+function syncWindow() {
+  const { path, dirty } = state
+  windowStateQueue = windowStateQueue.catch(() => {}).then(() => invoke<void>('document_window_state', { path, dirty }))
+  return windowStateQueue.catch(error => update(reason(error)))
 }
 
 function setDocument(value: FileSnapshot | null, draft: Recovery | null = null) {
@@ -231,6 +249,7 @@ function setDocument(value: FileSnapshot | null, draft: Recovery | null = null) 
     editor.select({ anchor: Math.min(draft.anchor, length), head: Math.min(draft.head, length) })
   }
   switching = false
+  void syncWindow()
   writing.clearContext()
   writing.review(null)
   update(draft ? '已恢复未保存草稿' : value ? '已打开' : '新文档')
@@ -245,32 +264,70 @@ async function canLeave() {
     { value: 'cancel', label: '继续编辑' }, { value: 'discard', label: '放弃更改' },
     { value: 'save', label: '保存', primary: true },
   ])
-  return option === 'discard' || (option === 'save' && await saveFile())
+  if (option === 'discard') return confirmDiscard(state.title)
+  return option === 'save' && await saveFile() && !state.dirty
 }
 
-async function openPath(path: string, line = 1, checkUnsaved = true) {
-  if (switching) return false
-  if (path === file?.path && checkUnsaved) {
-    const from = lineOffset(text(), line)
-    editor.select({ anchor: from, head: from })
-    editor.focus()
-    return true
-  }
+async function confirmDiscard(title: string) {
+  return await choose('放弃未保存的编辑？', '「' + title + '」中未保存的修改将被丢弃。', [
+    { value: 'cancel', label: '继续编辑', autofocus: true },
+    { value: 'discard', label: '确认放弃' },
+  ]) === 'discard'
+}
+
+async function openPaths(paths: string[], line?: number, reuse = !state.path && !state.dirty) {
+  await syncWindow()
+  await invoke('document_windows_open', { paths, line, reuse })
+  await loadWindowRequest()
+}
+
+async function openPath(path: string, line?: number, newWindow = true) {
+  if (!newWindow) return loadPath(path, line, true)
+  await openPaths([path], line)
+  return true
+}
+
+async function loadPath(path: string, line: number | undefined, replace = false) {
   if (opening) return false
   opening = true
   try {
-    if (checkUnsaved && !await canLeave()) return false
+    if (path === state.path && !replace) {
+      if (line) {
+        const from = lineOffset(text(), line)
+        editor.select({ anchor: from, head: from })
+      }
+      editor.focus()
+      return true
+    }
     const started = revision
     const value = await native.read(path)
-    if (checkUnsaved && started !== revision && !await canLeave()) return false
+    // 等待读盘时用户仍可能在空白窗口输入。此时另开窗口保留当前草稿。
+    if (!replace && (state.dirty || state.path || started !== revision)) {
+      await syncWindow()
+      await invoke('document_windows_open', { paths: [value.path], line, reuse: false })
+      return true
+    }
     setDocument(value)
-    const offset = lineOffset(value.text, line)
+    const offset = lineOffset(value.text, line ?? 1)
     editor.select({ anchor: offset, head: offset })
     await checkpoint()
-    settings.recent = [value.path, ...settings.recent.filter(item => item !== value.path)].slice(0, 24)
-    await persist()
+    settings.recent = await native.recent(value.path) ?? settings.recent
     return true
   } finally { opening = false }
+}
+
+function loadWindowRequest() {
+  if (!loaded || opening) return
+  if (!drainingWindowRequest) {
+    drainingWindowRequest = (async () => {
+      const request = await invoke<{ path: string; line?: number } | null>('document_window_request')
+      if (request) {
+        try { await loadPath(request.path, request.line) }
+        finally { await syncWindow() }
+      }
+    })().finally(() => { drainingWindowRequest = undefined })
+  }
+  return drainingWindowRequest
 }
 
 async function saveFile(as = false, silently = false): Promise<boolean> {
@@ -329,6 +386,7 @@ async function resolveConflict(path: string, current: string, bom: boolean) {
   ])
   if (id !== documentId) return false
   if (selected === 'reload' && previousVersion !== null) {
+    if (state.dirty && !await confirmDiscard(state.title)) return false
     await openPath(path, 1, false)
     return true
   }
@@ -347,7 +405,8 @@ async function resolveConflict(path: string, current: string, bom: boolean) {
 
 async function afterSave(saved: FileSnapshot, id: number, content: string) {
   if (id !== documentId) return
-  if (state.path !== saved.path) {
+  const changedPath = state.path !== saved.path
+  if (changedPath) {
     images.clear()
     stagedImageMoves.clear()
   }
@@ -357,6 +416,8 @@ async function afterSave(saved: FileSnapshot, id: number, content: string) {
   state.path = saved.path
   state.title = saved.name
   state.dirty = text() !== content
+  await syncWindow()
+  if (changedPath) settings.recent = await native.recent(saved.path).catch(() => settings.recent) ?? settings.recent
   update('已保存')
   await checkpoint()
   if (stagedImageMoves.size && !state.dirty) {
@@ -620,7 +681,10 @@ async function exportTo(path: string, format: ExportFormat) {
 async function reviewMcp() {
   const proposal = protocol.proposals[0]
   if (!proposal) return
-  if (file?.path !== proposal.path && !await openPath(proposal.path)) return
+  if (file?.path !== proposal.path) {
+    await openPath(proposal.path)
+    if (file?.path !== proposal.path) return
+  }
   if (file?.version !== proposal.version) {
     if (await choose('建议引用的版本已变化', '请让 MCP 客户端重新读取后提交建议。', [
       { value: 'keep', label: '保留建议' }, { value: 'dismiss', label: '移除此建议', primary: true },
@@ -725,11 +789,11 @@ function checkAppUpdate() {
 async function dispatch(action: ShellAction) {
   switch (action.type) {
     case 'new':
-      if (await canLeave()) { setDocument(null); await checkpoint() }
+      await invoke('document_window_new')
       break
     case 'open': {
-      const path = await open({ filters: [markdownFilter] })
-      if (path) await openPath(path)
+      const paths = await open({ filters: [markdownFilter], multiple: true })
+      if (paths?.length) await openPaths(paths)
       break
     }
     case 'open-path': await openPath(action.path, action.line); break
@@ -744,6 +808,7 @@ async function dispatch(action: ShellAction) {
       break
     }
     case 'reopen': {
+      settings.recent = (await native.preferences())?.recent ?? settings.recent
       const path = settings.recent.find(path => path !== state.path)
       if (path) await openPath(path)
       else update('没有其他最近打开的文档')
@@ -773,12 +838,12 @@ async function dispatch(action: ShellAction) {
       break
     case 'import': {
       const path = await open({ filters: [{ name: 'Pandoc', extensions: ['docx', 'epub', 'odt', 'html', 'tex', 'rtf', 'rst', 'textile', 'opml', 'org'] }] })
-      if (!path || !await canLeave()) break
+      if (!path) break
       const stem = path.split(/[/\\]/).pop()!.replace(/\.[^.]+$/, '')
       const destination = await save({ defaultPath: stem + '.md', filters: [markdownFilter] })
       if (!destination) break
       await invoke('pandoc_import', { path, destination })
-      await openPath(destination, 1, false)
+      await openPath(destination)
       break
     }
     case 'theme-import':
@@ -926,6 +991,7 @@ async function dispatch(action: ShellAction) {
         state.path = updated
         state.title = file?.name ?? state.title
         images.clear()
+        await syncWindow()
         await checkpoint()
       }
       await refreshTree()
@@ -999,12 +1065,24 @@ async function dispatch(action: ShellAction) {
       setPlugins(await invoke<PluginInfo[]>('plugin_remove', { id: action.id }))
       break
     case 'plugin-run': {
-      if (state.presentation.readonly) throw new Error('请先关闭只读模式')
-      if (writing.pending || writing.view.pending) throw new Error('请先处理当前修改建议或等待生成结束')
       if (runningPluginTools) throw new Error('已有插件命令正在运行')
       const command = plugins.find(item => item.id === action.id && item.enabled)?.commands.find(item => item.id === action.command)
       if (!command) throw new Error('插件已停用、卸载或更新')
       const run = (input: string) => invoke<string>('plugin_run', { id: action.id, command: command.id, text: input })
+      if (command.workflow === 'mcp') {
+        const root = state.workspace
+        if (!root) throw new Error('请先打开一个文件夹作为工作区')
+        // 复用实际的工作区授权。插件只接收启动参数，访问权限仍由 MCP 服务逐次检查。
+        const bridge = await invoke<LocalMcp>('mcp_local', { root })
+        if (!bridge.allowed) throw new Error('请先在 MCP 侧栏授权当前工作区')
+        const configuration = await run(bridge.command)
+        if (state.workspace !== root) throw new Error('工作区已切换，请重新生成配置')
+        if (await copyTextToClipboard(configuration)) update('已复制 MCP 配置')
+        else await choose(command.label, configuration, [{ label: '关闭', value: 'close', autofocus: true }])
+        break
+      }
+      if (state.presentation.readonly) throw new Error('请先关闭只读模式')
+      if (writing.pending || writing.view.pending) throw new Error('请先处理当前修改建议或等待生成结束')
       if (command.workflow) {
         runningPluginTools = true
         try {
@@ -1219,10 +1297,10 @@ async function monitor() {
   if (checking || !loaded) return
   checking = true
   try {
-    const paths = await invoke<string[]>('launch_paths')
-    for (const path of new Set(paths)) await openPath(path)
+    await loadWindowRequest()
     const openFile = file
-    if (openFile && !saving && !switching && diskConflict === undefined) {
+    const focused = document.hasFocus()
+    if (focused && openFile && !saving && !switching && diskConflict === undefined) {
       const version = await native.version(openFile.path)
       if (!saving && openFile === file && version !== openFile.version) {
         if (state.dirty || version === null) {
@@ -1240,8 +1318,11 @@ async function monitor() {
         }
       }
     }
-    if (protocol.view.workspaceAllowed) await shareSelection()
-    await protocol.check()
+    // 窗口恢复焦点时立即检查，避免后台窗口不断重读长文件和覆盖 MCP 选区。
+    if (focused) {
+      if (protocol.view.workspaceAllowed) await shareSelection()
+      await protocol.check()
+    }
   } catch (error) {
     update(reason(error))
   } finally {
@@ -1257,6 +1338,7 @@ async function startup() {
     settings = { ...defaults, ...preferences }
     state.animations = settings.animations
     settings.aiPrompts = normalizePrompts(settings.aiPrompts)
+    savedPreferences = structuredClone(settings)
     writing.setPrompts(settings.aiPrompts)
     themes = [...builtinThemes, ...imported]
     state.workspaceFilter = { hidden: settings.hidden, all: settings.allFiles, glob: settings.fileGlob }
@@ -1289,8 +1371,8 @@ async function startup() {
         const option = await choose('恢复未保存文档', '恢复上次退出时保留的“' + recovery.title + '”。', [
           { value: 'discard', label: '放弃草稿' }, { value: 'recover', label: '恢复草稿', primary: true, autofocus: true },
         ])
-        if (option !== 'discard') setDocument(base, recovery)
-        else await checkpoint()
+        if (option !== 'discard' || !await confirmDiscard(recovery.title)) setDocument(base, recovery)
+        else { await syncWindow(); await checkpoint() }
       }
     }
     await monitor()
@@ -1298,7 +1380,7 @@ async function startup() {
     loaded = true
     update(reason(error))
   }
-  if (__YEYU_QA__) {
+  if (__YEYU_QA__ && getCurrentWindow().label === 'main') {
     void import('./qa').then(({ runNativeQa }) => runNativeQa({
       editor, state, action: dispatch, openPath, setWorkspace, addTheme: path => addThemes([path]), installPlugin, formatFiles, exportTo,
       saveFile, checkpoint, text, writing, protocol, monitor, shareSelection, setDocument,
@@ -1307,32 +1389,48 @@ async function startup() {
   window.setInterval(() => { void monitor() }, 1_650)
   window.addEventListener('focus', () => {
     void monitor()
-    if (loaded) void refreshTyporaThemes().catch(() => {})
+    if (loaded) {
+      void refreshTyporaThemes().catch(() => {})
+      void invoke<PluginInfo[]>('plugin_list').then(setPlugins).catch(() => {})
+    }
     if (state.workspace) void refreshTree().catch(error => update(reason(error)))
   })
   const currentWindow = getCurrentWindow()
   void currentWindow.onCloseRequested(event => {
     if (exits) return
     event.preventDefault()
+    if (confirmingClose) return
+    confirmingClose = true
     void canLeave().then(async allowed => {
-      if (!allowed) return
+      if (!allowed) { await invoke('document_quit_cancel'); return }
       exits = true
-      await Promise.allSettled([recoveryQueue.then(() => native.checkpoint(null)), protocol.current(null)])
+      await Promise.allSettled([
+        recoveryQueue.then(() => native.checkpoint(null)),
+        currentWindow.isFocused().then(focused => focused ? protocol.current(null) : undefined),
+      ])
       await currentWindow.destroy()
-    }).catch(error => update(reason(error)))
+    }).catch(error => {
+      exits = false
+      void invoke('document_quit_cancel').catch(() => {})
+      update(reason(error))
+    }).finally(() => { confirmingClose = false })
   }).catch(error => update(reason(error)))
   void getCurrentWebview().onDragDropEvent(event => {
     if (event.payload.type !== 'drop') return
     const paths = event.payload.paths
     if (paths.length && paths.every(path => /\.(png|jpe?g|gif|webp|svg|bmp|avif|tiff|heic|ico)$/i.test(path))) {
       void addImagePaths(paths).catch(error => update(reason(error)))
-    } else if (paths[0]) void openPath(paths[0]).catch(error => update(reason(error)))
+    } else if (paths.length) void openPaths(paths).catch(error => update(reason(error)))
   }).catch(error => update(reason(error)))
 }
 
-if (__YEYU_QA__) void import('./qa').then(({ prepareRecovery }) => prepareRecovery())
+if (__YEYU_QA__ && getCurrentWindow().label === 'main') void import('./qa').then(({ prepareRecovery }) => prepareRecovery())
+void getCurrentWebviewWindow().listen('yeyu:document-open', () => {
+  void loadWindowRequest()?.catch(error => update(reason(error)))
+}).catch(() => {})
 if (macTitlebar) {
   void getCurrentWebviewWindow().listen<string>('yeyu:menu-action', ({ payload }) => {
+    if (document.querySelector<HTMLElement>('#app')?.inert) return
     switch (payload) {
       case 'check-update': case 'new': case 'open': case 'open-folder': case 'save': case 'save-as': case 'print':
         void act({ type: payload })

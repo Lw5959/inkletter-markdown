@@ -21,6 +21,8 @@ use tokio::sync::Mutex;
 const INDEX_VERSION: u32 = 1;
 const MAX_INDEX: usize = 1024 * 1024;
 const BUNDLED: &[&[u8]] = &[
+    #[cfg(not(target_os = "android"))]
+    include_bytes!("../../../examples/plugins/opencode.yeyu-plugin.json"),
     include_bytes!("../../../examples/plugins/batch-format.yeyu-plugin.json"),
     include_bytes!("../../../examples/plugins/image-organizer.yeyu-plugin.json"),
     include_bytes!("../../../examples/plugins/table-layout.yeyu-plugin.json"),

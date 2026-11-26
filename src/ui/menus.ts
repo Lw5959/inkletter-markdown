@@ -279,7 +279,7 @@ export class MenuBar {
         ...plugin.commands.map(command => ({
           kind: 'item' as const,
           label: command.label,
-          disabled: state.presentation.readonly,
+          disabled: state.presentation.readonly && command.workflow !== 'mcp',
           onSelect: () => this.ctx.dispatch({
             type: 'plugin-run', id: plugin.id, command: command.id, scope: command.scope ?? 'selection',
           }),

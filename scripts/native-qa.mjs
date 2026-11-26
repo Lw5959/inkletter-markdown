@@ -12,10 +12,11 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 
 const [exe, kind = 'full'] = process.argv.slice(2)
-if (!exe || !['full', 'measure'].includes(kind)) throw new Error('用法：node scripts/native-qa.mjs <QA 程序> [full|measure]')
+if (!exe || !['full', 'measure', 'titlebar', 'opencode', 'windows'].includes(kind)) throw new Error('用法：node scripts/native-qa.mjs <QA 程序> [full|measure|titlebar|opencode|windows]')
 const folder = mkdtempSync(join(tmpdir(), 'yeyu-native-'))
 const root = join(folder, 'workspace')
 const guide = join(root, '验收.md')
+const plainText = join(root, '纯文本.txt')
 const mb1 = join(root, '1-mib.md')
 const mb10 = join(root, '10-mib.md')
 const report = join(folder, 'case.json')
@@ -25,6 +26,7 @@ copyFileSync('assets/app-icon.png', join(assets, 'icon.png'))
 const sample = readFileSync('tests/fixtures/acceptance.md', 'utf8').trimEnd().split('\n')
 const guideText = sample.map((line, index) => line + (index % 7 ? '\r\n' : '\n')).join('')
 writeFileSync(guide, '\uFEFF' + guideText)
+writeFileSync(plainText, '\uFEFF第二个原生窗口\r\n')
 for (const [size, path] of [[1 << 20, mb1], [10 << 20, mb10]]) {
   const section = Buffer.from('## Section\r\n\r\n| Model | Value |\r\n| -- | -- |\r\n| Alpha | 42 |\r\n\r\n' +
     ('同一页中的长文档段落，使用**实时编辑**记录进度。\n'.repeat(14)) + '\n')
@@ -61,7 +63,7 @@ writeFileSync(gallery, galleryText)
 copyFileSync('assets/app-icon.png', join(folder, '源 图.png'))
 copyFileSync('assets/app-icon.png', join(folder, 'copy.png'))
 const setup = {
-  phase: kind, root, guide, mb1, mb10, exports, plugin, updatedPlugin, batchPaths, gallery,
+  phase: kind, root, guide, mb1, mb10, exports, plugin, updatedPlugin, batchPaths, gallery, plainText,
   themes: [...themes, { path: customTheme, name: '相对资源与级联夹具' }],
   typora: process.env.YEYU_TEST_TYPORA ? JSON.parse(process.env.YEYU_TEST_TYPORA) : undefined,
   typoraConfig: process.env.YEYU_TEST_TYPORA_CONFIG === '1',
@@ -74,7 +76,9 @@ let child
 let launchFailure
 function boot(phase, details = {}) {
   writeFileSync(report, JSON.stringify({ ...setup, ...details, phase, epoch: Date.now() }))
-  child = spawn(resolve(exe), [], { env: { ...process.env, YEYU_QA_CASE: folder }, stdio: ['ignore', 'pipe', 'pipe'] })
+  child = spawn(resolve(exe), [], { env: { ...process.env, YEYU_QA_CASE: folder,
+    ...(phase === 'windows' ? { YEYU_QA_NATIVE_PANELS: '1' } : {}),
+  }, stdio: ['ignore', 'pipe', 'pipe'] })
   child.once('error', error => { launchFailure = error })
   // 日志只写入本次临时目录，包含原生加载错误。
   const log = createLog(logfile(phase))
@@ -231,6 +235,16 @@ try {
     const rssStartupKiB = rss()
     const metrics = await result('measurement')
     console.log(JSON.stringify({ ...ready, ...metrics, rssStartupKiB, rssAfter10MbKiB: rss() }, null, 2))
+  } else if (kind === 'titlebar' || kind === 'windows') {
+    boot(kind)
+    console.log(JSON.stringify(await result(kind), null, 2))
+  } else if (kind === 'opencode') {
+    boot(kind)
+    const configuration = await result('opencode-config')
+    const [command, ...args] = configuration.v2.mcp.servers.yeyu.command
+    assert.deepEqual(configuration.v1.mcp.yeyu.command, [command, ...args])
+    await explicitClient({ command, args })
+    console.log(JSON.stringify({ ...configuration, ...await result(kind), stdio: true }, null, 2))
   } else {
     const aiFixtureKey = process.env.YEYU_TEST_KEYS === '1' ? 'qa-only-' + randomUUID() : undefined
     remote = await serveFixtures(aiFixtureKey)

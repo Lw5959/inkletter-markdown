@@ -157,18 +157,23 @@ pub async fn save_document(
 }
 
 #[tauri::command]
-pub async fn load_recovery(store: State<'_, Store>) -> Result<Option<Recovery>, String> {
-    store.read("recovery.json")
+pub async fn load_recovery(
+    window: tauri::WebviewWindow,
+    store: State<'_, Store>,
+) -> Result<Option<Recovery>, String> {
+    store.read(&crate::windows::recovery_file(window.label()))
 }
 
 #[tauri::command]
 pub async fn save_recovery(
+    window: tauri::WebviewWindow,
     store: State<'_, Store>,
     recovery: Option<Recovery>,
 ) -> Result<(), String> {
+    let name = crate::windows::recovery_file(window.label());
     match recovery {
-        Some(recovery) => store.write("recovery.json", &recovery),
-        None => store.remove("recovery.json"),
+        Some(recovery) => store.write(&name, &recovery),
+        None => store.remove(&name),
     }
 }
 

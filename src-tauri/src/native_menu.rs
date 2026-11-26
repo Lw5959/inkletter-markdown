@@ -74,8 +74,11 @@ pub fn handle_event(app: &AppHandle<Wry>, event: MenuEvent) {
             }
         }
         "check-update" | "new" | "open" | "open-folder" | "save" | "save-as" | "print" => {
+            let Some(window) = crate::windows::front_editor(app) else {
+                return;
+            };
             if let Err(error) = app.emit_to(
-                EventTarget::webview_window("main"),
+                EventTarget::webview_window(window.label()),
                 MENU_ACTION_EVENT,
                 action,
             ) {

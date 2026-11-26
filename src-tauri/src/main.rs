@@ -19,6 +19,7 @@ mod themes;
 mod titlebar;
 mod typora;
 mod updates;
+mod windows;
 mod workspace;
 
 use std::{path::PathBuf, time::Duration};
@@ -65,15 +66,28 @@ fn main() {
         return;
     }
 
-    let launch = settings::LaunchPaths::default();
-    if let Ok(mut pending) = launch.0.lock() {
-        pending.extend(
-            arguments
-                .map(PathBuf::from)
-                .filter(|path| path.is_file() && workspace::markdown(path)),
-        );
-    }
-    let builder = tauri::Builder::default();
+    let launch = windows::argument_paths(
+        arguments.map(PathBuf::from),
+        &std::env::current_dir().unwrap_or_default(),
+    );
+    let builder =
+        tauri::Builder::default().plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+            let handle = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let paths = windows::argument_paths(
+                    args.into_iter().skip(1).map(PathBuf::from),
+                    std::path::Path::new(&cwd),
+                );
+                if paths.is_empty() {
+                    if let Some(window) = windows::front_editor(&handle) {
+                        let _ = window.unminimize();
+                        let _ = window.set_focus();
+                    }
+                } else if let Err(error) = windows::open_paths(&handle, paths, None, None) {
+                    eprintln!("打开文档失败：{error}");
+                }
+            });
+        }));
     #[cfg(target_os = "linux")]
     let builder = builder.manage(updates::package::Downloads::default());
     #[cfg(target_os = "macos")]
@@ -88,7 +102,8 @@ fn main() {
         .manage(mcp::Sessions::default())
         .manage(plugins::Plugins::default())
         .manage(plugins::market::Market::default())
-        .manage(launch)
+        .manage(windows::Windows::default())
+        .manage(settings::SettingsLock::default())
         .manage(
             reqwest::Client::builder()
                 .connect_timeout(Duration::from_secs(12))
@@ -96,14 +111,18 @@ fn main() {
                 .build()
                 .expect("HTTP 客户端初始化失败"),
         )
-        .setup(|app| {
+        .setup(move |app| {
             let data = app.path().app_data_dir()?;
             #[cfg(feature = "qa")]
             let data = qa::directory()
                 .map(|folder| folder.join("app-data"))
                 .unwrap_or(data);
-            app.manage(store::Store(data));
+            app.manage(store::Store(data.clone()));
+            windows::startup(app.handle(), &data, launch).map_err(std::io::Error::other)?;
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            windows::on_window_event(window.label(), window.app_handle(), event)
         })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -115,6 +134,8 @@ fn main() {
             qa::qa_report,
             #[cfg(feature = "qa")]
             qa::qa_input,
+            #[cfg(feature = "qa")]
+            qa::qa_windows,
             #[cfg(all(feature = "qa", target_os = "macos"))]
             titlebar::qa_titlebar,
             files::open_document,
@@ -124,7 +145,12 @@ fn main() {
             files::save_recovery,
             settings::settings_load,
             settings::settings_save,
-            settings::launch_paths,
+            settings::settings_recent,
+            windows::document_windows_open,
+            windows::document_window_request,
+            windows::document_window_state,
+            windows::document_window_new,
+            windows::document_quit_cancel,
             updates::update_package,
             updates::update_check,
             updates::update_install,
@@ -193,15 +219,29 @@ fn main() {
         .expect("无法启动页屿");
 
     app.run(|_app, _event| {
+        if let tauri::RunEvent::ExitRequested {
+            code: None,
+            ref api,
+            ..
+        } = _event
+            && windows::front_editor(_app).is_some()
+        {
+            api.prevent_exit();
+            windows::request_quit(_app);
+        }
         #[cfg(target_os = "macos")]
         if let tauri::RunEvent::Opened { urls } = _event {
-            if let Ok(mut pending) = _app.state::<settings::LaunchPaths>().0.lock() {
-                pending.extend(
-                    urls.into_iter()
-                        .filter_map(|url| url.to_file_path().ok())
-                        .filter(|path| workspace::markdown(path)),
-                );
-            }
+            let app = _app.clone();
+            let paths = urls
+                .into_iter()
+                .filter_map(|url| url.to_file_path().ok())
+                .filter(|path| workspace::markdown(path))
+                .collect();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = windows::open_paths(&app, paths, None, None) {
+                    eprintln!("打开 Finder 文档失败：{error}");
+                }
+            });
         }
     });
 }

@@ -11,7 +11,7 @@ export class PluginManager {
   private processing = false
 
   constructor(
-    private pages: Pick<ReturnType<typeof createPages>, 'open' | 'back'>,
+    private pages: Pick<ReturnType<typeof createPages>, 'open'> & { back(): void },
     private dispatch: ShellActions['dispatch'],
     private marketPort?: PluginMarketPort,
   ) {}

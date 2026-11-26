@@ -6,9 +6,11 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { imageLinks } from './images'
 import { aiTasks } from './ai-prompts'
 import { readTyporaProfiles, typoraThemeKey } from './typora'
+import { choose } from './dialogs'
+import { showUpdate } from './ui/update-dialog'
 
 type Case = {
-  phase: 'full' | 'recover' | 'measure'
+  phase: 'full' | 'recover' | 'measure' | 'titlebar' | 'opencode' | 'windows'
   epoch: number
   root: string
   guide: string
@@ -30,6 +32,7 @@ type Case = {
   plugin: string
   updatedPlugin: string
   gallery: string
+  plainText: string
   batchPaths: string[]
 }
 type Ports = {
@@ -295,6 +298,165 @@ async function verifyTyporaConfig(ports: Ports) {
   if (expected.matchCase !== undefined) check(settings?.findOptions?.matchCase === expected.matchCase, '保存查找偏好')
   await ports.action({ type: 'autosave', enabled: false })
   return { theme: selected?.name, sidebar: settings?.sidebarTab, findOptions: settings?.findOptions }
+}
+
+async function verifyTitlebarResize() {
+  const bar = document.querySelector<HTMLElement>('.yy-topbar[data-tauri-drag-region]')
+  check(bar, 'macOS 标题栏拖拽区域')
+  type NativeLayout = { contentSize: [number, number]; rootSize: [number, number]; webviewFrame: [number, number, number, number]; zoomed: boolean }
+  const layout = async (holdWebviewSize = false) => {
+    const view = await invoke<NativeLayout>('qa_titlebar', { holdWebviewSize })
+    const body = document.querySelector<HTMLElement>('.yy-body')!.getBoundingClientRect()
+    const footer = document.querySelector<HTMLElement>('.yy-statusbar')!.getBoundingClientRect()
+    return { ...view, html: [innerWidth, innerHeight], body: [body.width, body.height], footer: footer.bottom }
+  }
+  const doubleClick = () => {
+    // 走 Tauri 监听的标题栏双击事件，覆盖 AppKit 放大路径与网页视口。
+    const event = { bubbles: true, button: 0, detail: 2, clientX: 400, clientY: 16 }
+    bar.dispatchEvent(new MouseEvent('mousedown', event))
+    bar.dispatchEvent(new MouseEvent('mouseup', event))
+  }
+  const afterClick = async () => {
+    doubleClick()
+    const samples = []
+    for (let i = 0; i < 12; i++) {
+      await wait(50)
+      samples.push(await layout())
+    }
+    return samples
+  }
+  const start = await layout(true)
+  const maximized = await afterClick()
+  const restored = await afterClick()
+  const lastMax = maximized.at(-1)!
+  const lastRestored = restored.at(-1)!
+  await mark('titlebar-observed', { start, maximized, restored })
+  check(lastMax.zoomed !== start.zoomed && lastRestored.zoomed === start.zoomed, '双击标题栏切换原生放大状态')
+  const close = (a: number, b: number) => Math.abs(a - b) <= 2
+  for (const sample of [lastMax, lastRestored]) {
+    check(sample.contentSize.every((dim, index) => close(dim, sample.rootSize[index]) &&
+      close(dim, sample.webviewFrame[index + 2]) && close(dim, sample.html[index])),
+    '窗口、WebView 和网页视口尺寸一致 ' + JSON.stringify(sample))
+    check(close(sample.body[0], sample.html[0]) && close(sample.footer, sample.html[1]), '文档区域和状态栏填满窗口')
+  }
+  return { start, maximized: lastMax, restored: lastRestored }
+}
+
+async function verifyOpenCode(ports: Ports, scenario: Case) {
+  await ports.setWorkspace(scenario.root)
+  await ports.openPath(scenario.guide, 1, false)
+  document.querySelector<HTMLButtonElement>('[data-toggle="ai"]')!.click()
+  const composer = document.querySelector<HTMLTextAreaElement>('.yy-ai-composer textarea')!
+  check(!composer.spellcheck && ['autocorrect', 'autocapitalize', 'autocomplete'].every(name => composer.getAttribute(name) === 'off'), 'AI 输入框关闭输入替换')
+  document.querySelector<HTMLButtonElement>('[data-menu="edit"]')!.click()
+  button(document.querySelector('.yy-menu-popover')!, '插件市场…').click()
+  const market = document.querySelector<HTMLElement>('.yy-plugin-manager')!
+  button(market, '内置插件').click()
+  const offer = () => market.querySelector<HTMLButtonElement>('[data-market-plugin="yeyu.opencode"]')!
+  await until(() => !!offer())
+  offer().click()
+  await until(() => offer()?.textContent === '已安装' && !offer().disabled)
+  const id = 'yeyu.opencode'
+  await ports.action({ type: 'plugin-enabled', id, enabled: true })
+  const run = (command: string) => ports.action({ type: 'plugin-run', id, command, scope: 'document' })
+  let denied = false
+  try { await run('copy_v2') } catch (error) { denied = reason(error).includes('授权当前工作区') }
+  check(denied, '未授权时拒绝导出 MCP 配置')
+  const original = ports.text()
+  const offset = original.indexOf('原始段落')
+  ports.editor.select({ anchor: offset, head: offset + '原始段落'.length })
+  await ports.action({ type: 'mcp-authorize', allow: true })
+  const copied: string[] = []
+  // 只在隔离的 QA 窗口记录复制结果，避免改动系统剪贴板。
+  Object.defineProperty(navigator, 'clipboard', { value: { async writeText(text: string) { copied.push(text) } } })
+  await run('copy_v1')
+  await run('copy_v2')
+  check(copied.length === 2 && ports.text() === original, '生成两份配置并保留正文')
+  await mark('opencode-config', { v1: JSON.parse(copied[0]), v2: JSON.parse(copied[1]) })
+  await verifyMcpSuggestion(ports, scenario.guide, original)
+}
+
+async function verifyMcpSuggestion(ports: Ports, path: string, original: string) {
+  await until(() => ports.protocol.proposals.length > 0, 25_000)
+  await ports.action({ type: 'mcp-next' })
+  const item = ports.writing.pending
+  check(item?.view.source === 'mcp', '工作区建议进入差异视图')
+  check(ports.text() === original, '审批前原文保持不变')
+  await ports.action({ type: 'suggestion-apply', id: item.view.id, hunks: [0] })
+  check(ports.text().includes('MCP 已审阅段落'), '应用 MCP 修改建议')
+  check(await ports.saveFile() && (await native.read(path)).text.includes('MCP 已审阅段落'), '批准后可保存 MCP 修改')
+}
+
+async function verifyWindows(ports: Ports, scenario: Case) {
+  const windows = () => invoke<{ label: string; title: string }[]>('qa_windows')
+  const editorWindows = async () => (await windows()).filter(item => !item.label.startsWith('panel-'))
+  await ports.action({ type: 'autosave', enabled: false })
+  await ports.openPath(scenario.guide, 1, false)
+  const original = ports.text()
+  const draft = '\r\n独立窗口中的未保存文本'
+  ports.editor.replace(original.length, original.length, draft)
+  await ports.checkpoint()
+  await ports.openPath(scenario.plainText)
+  const editors = await editorWindows()
+  check(editors.length === 2 && editors.some(item => item.title === '纯文本.txt'), 'TXT 文件独占一个原生文档窗口')
+  await ports.openPath(scenario.plainText)
+  check((await editorWindows()).length === 2, '同一路径重复打开时聚焦已有窗口')
+  check(ports.text() === original + draft, '打开其他文件保留当前未保存正文')
+  ports.editor.undo()
+  check(ports.text() === original, '原窗口撤销栈保留')
+
+  await getCurrentWindow().setFocus()
+  const opened: Window[] = []
+  const originalOpen = window.open
+  window.open = (...args) => {
+    const child = originalOpen.apply(window, args)
+    if (child) opened.push(child)
+    return child
+  }
+  try {
+    document.querySelector<HTMLButtonElement>('[data-toggle="ai"]')!.click()
+    document.querySelector<HTMLButtonElement>('[data-menu="edit"]')!.click()
+    button(document.querySelector('.yy-menu-popover')!, '插件市场…').click()
+    check(opened.length === 1, '插件中心打开独立子窗口')
+    const plugins = opened[0]
+    check(plugins.document.querySelector('.yy-plugin-manager') &&
+      !plugins.document.querySelector('.yy-sidebar-slot, .yy-paper'), '插件窗口有完整页面和独立布局')
+    button(plugins.document, '内置插件').click()
+    await until(() => !!plugins.document.querySelector('[data-market-plugin="yeyu.opencode"]'))
+    check((await windows()).some(item => item.label.startsWith('panel-')), '原生枚举包含插件窗口')
+    plugins.close()
+    await until(() => plugins.closed)
+
+    const decision = choose('关闭文档', '保留当前窗口的修改。', [{ label: '继续编辑', value: 'cancel', primary: true }])
+    const confirmation = opened.at(-1)!
+    check(confirmation !== plugins && confirmation.document.querySelector('dialog[open]'), '确认弹窗在独立窗口显示')
+    button(confirmation.document, '继续编辑').click()
+    check(await decision === 'cancel', '子窗口归还确认结果')
+
+    ports.editor.replace(original.length, original.length, draft)
+    for (const finish of ['继续编辑', '确认放弃']) {
+      const count = opened.length
+      const attempt = ports.action({ type: 'reload' })
+      await until(() => opened.length === count + 1)
+      button(opened[count].document, '放弃更改').click()
+      await until(() => opened.length === count + 2)
+      check(ports.text() === original + draft, '二次确认前正文仍保留')
+      button(opened[count + 1].document, finish).click()
+      await attempt
+      check(ports.text() === (finish === '确认放弃' ? original : original + draft), '放弃或取消按最终选择执行')
+    }
+
+    showUpdate(async () => ({ version: '9.0.0', notes: '## 验收更新\n\n**Markdown**', kind: 'install', async apply() {} }))
+    const update = opened.at(-1)!
+    check(update !== confirmation, '更新另开原生窗口')
+    await until(() => !!update.document.querySelector('.yy-update-notes-body strong'))
+    button(update.document, '关闭').click()
+    await until(() => update.closed)
+    check((await editorWindows()).length === 2 && ports.state.path?.endsWith('验收.md'), '关闭工具窗口保留两个文档窗口')
+  } finally {
+    window.open = originalOpen
+  }
+  return { documents: 2, txt: true, deduplicate: true, undo: true, plugins: true, confirm: true, doubleConfirm: true, update: true }
 }
 
 async function verifyFull(ports: Ports, scenario: Case) {
@@ -593,7 +755,7 @@ async function verifyFull(ports: Ports, scenario: Case) {
   button(pluginPage, '卸载').click()
   await until(() => pluginPage.textContent?.includes('暂无已安装插件') === true)
   check((await invoke<PluginInfo[]>('plugin_list')).length === 0, '卸载后清除插件登记')
-  pluginPage.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click()
+  pluginPage.querySelector<HTMLButtonElement>('[aria-label="返回"]')!.click()
   result.plugins = { install: true, hotUpdate: true, reviewAndUndo: true, disableAndRemove: true }
   if (scenario.market) result.pluginMarket = await verifyPluginMarket(ports, scenario)
 
@@ -624,14 +786,7 @@ async function verifyFull(ports: Ports, scenario: Case) {
     result.httpMcp = true
   }
   await mark('mcp-ready', service)
-  await until(() => ports.protocol.proposals.length > 0, 25_000)
-  await ports.action({ type: 'mcp-next' })
-  const item = ports.writing.pending
-  check(item?.view.source === 'mcp', '工作区建议进入差异视图')
-  check(ports.text() === original.text, '审批前原文保持不变')
-  await ports.action({ type: 'suggestion-apply', id: item.view.id, hunks: [0] })
-  check(ports.text().includes('MCP 已审阅段落'), '应用 MCP 修改建议')
-  check(await ports.saveFile() && (await native.read(scenario.guide)).text.includes('MCP 已审阅段落'), '批准后可保存 MCP 修改')
+  await verifyMcpSuggestion(ports, scenario.guide, original.text)
   result.mcp = { local: true, externalProposal: true, saved: true }
   await mark('external-ready', {})
   await until(() => ports.text().includes('外部程序写入'))
@@ -681,7 +836,7 @@ async function verifyPluginMarket(ports: Ports, scenario: Case) {
   button(dialog, '内置插件').click()
   await until(() => !!find('yeyu.heading-levels'))
   const bundledCount = panel.querySelectorAll('.yy-market-card').length
-  check(bundledCount === 9, '内置市场提供九款插件')
+  check(bundledCount === 10 && !!find('yeyu.opencode'), '内置市场包含 OpenCode 和九款文档插件')
   query.value = '任务'
   query.dispatchEvent(new Event('input'))
   check(panel.querySelectorAll('.yy-market-card').length === 1 && !!find('yeyu.task-list'), '按关键词搜索市场')
@@ -909,6 +1064,12 @@ export async function runNativeQa(ports: Ports) {
     const scenario = await config()
     await frame()
     if (scenario.phase === 'measure') await measure(ports, scenario)
+    else if (scenario.phase === 'titlebar') await mark('titlebar', await verifyTitlebarResize())
+    else if (scenario.phase === 'opencode') {
+      await verifyOpenCode(ports, scenario)
+      await mark('opencode', { reviewed: true })
+    }
+    else if (scenario.phase === 'windows') await mark('windows', await verifyWindows(ports, scenario))
     else if (scenario.phase === 'recover') {
       check(ports.text() === scenario.recoveryText && ports.state.dirty && ports.state.mode === 'source', '强制结束后恢复内容和源码模式')
       check((await native.preferences())?.animations === false && document.documentElement.dataset.yeyuMotion === 'off', '重启保留动画开关')

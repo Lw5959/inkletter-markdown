@@ -284,7 +284,14 @@ async function canLeave() {
   const answer = await choosePage('未保存的编辑', '离开当前文档前要保存吗？', [
     { label: '继续编辑', value: 'cancel' }, { label: '放弃更改', value: 'discard' }, { label: '保存', value: 'save', primary: true },
   ])
-  return answer === 'discard' || (answer === 'save' && await writeDocument(false))
+  if (answer === 'discard') return confirmDiscard()
+  return answer === 'save' && await writeDocument(false) && !dirty
+}
+
+async function confirmDiscard() {
+  return await choosePage('放弃未保存的编辑？', '当前文档中未保存的修改将被丢弃。', [
+    { label: '继续编辑', value: 'cancel' }, { label: '确认放弃', value: 'discard' },
+  ]) === 'discard'
 }
 
 async function openFile() {
@@ -402,7 +409,7 @@ async function writeDocument(copy: boolean): Promise<boolean> {
       { label: '继续编辑', value: 'cancel' }, { label: '载入磁盘', value: 'reload' }, { label: '另存副本', value: 'copy', primary: true },
     ])
     if (answer === 'copy') return writeDocument(true)
-    if (answer === 'reload') {
+    if (answer === 'reload' && await confirmDiscard()) {
       showDocument(await read(uri))
       await checkpoint()
     }

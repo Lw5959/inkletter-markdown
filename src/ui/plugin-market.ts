@@ -68,7 +68,7 @@ export function createPluginMarket(port: PluginMarketPort, options: {
           () => port.install(source, plugin),
           (update ? '已更新 ' : '已安装 ') + plugin.name,
         )
-        if (panel.isConnected && !panel.hidden && document.activeElement === document.body) {
+        if (panel.isConnected && !panel.hidden && panel.ownerDocument.activeElement === panel.ownerDocument.body) {
           const action = [...list.querySelectorAll<HTMLButtonElement>('button')]
             .find(button => button.dataset.marketPlugin === plugin.id)
           action?.focus({ preventScroll: true })

@@ -4,6 +4,7 @@ import '../dialogs.css'
 import './update-dialog.css'
 import { el } from './helpers'
 import { dismissOnBackdrop } from './dialog-dismiss'
+import { openDesktopWindow } from './desktop-window'
 import { markdownLink, renderMarkdownContent } from './markdown-content'
 import type { createPages } from './pages'
 
@@ -17,6 +18,7 @@ export type UpdateSource = 'auto' | 'github' | 'gitee'
 
 const preferenceKey = 'yeyu.update.source.v1'
 const sources = { auto: '自动', github: 'GitHub', gitee: 'Gitee' } as const
+const updateWindows = new WeakMap<Document, HTMLDialogElement>()
 
 function preferredSource(): UpdateSource {
   try {
@@ -47,7 +49,10 @@ function formatBytes(bytes: number) {
 
 /** 打开更新界面并立即检查，用户点击确认后才调用 apply。 */
 export function showUpdate(check: (source: UpdateSource) => Promise<UpdateOffer | null>, pages?: Pick<ReturnType<typeof createPages>, 'open'>) {
-  if (!pages && document.querySelector('dialog.yy-update-dialog[open]')) return
+  if (!pages && updateWindows.has(document)) {
+    updateWindows.get(document)?.ownerDocument.defaultView?.focus()
+    return
+  }
 
   const dialog = pages ? null : el('dialog', { className: 'app-dialog yy-update-dialog', attrs: { 'aria-label': '软件更新' } })
   const panel = dialog ?? el('div', { className: 'yy-mobile-brief-page yy-update-page' })
@@ -234,11 +239,20 @@ export function showUpdate(check: (source: UpdateSource) => Promise<UpdateOffer 
   })
   if (dialog) {
     dismiss.onclick = () => dialog.close()
-    dismissOnBackdrop(dialog)
     dialog.addEventListener('keydown', event => event.stopPropagation())
     dialog.addEventListener('cancel', event => { if (applying) event.preventDefault() })
-    dialog.addEventListener('close', () => dialog.remove(), { once: true })
-    document.body.append(dialog)
+    const close = () => {
+      updateWindows.delete(document)
+      dialog.remove()
+      popup?.close()
+    }
+    const popup = openDesktopWindow(dialog, { title: '软件更新', width: 650, height: 585, modal: true, onClose: close })
+    if (!popup) {
+      dismissOnBackdrop(dialog)
+      document.body.append(dialog)
+    }
+    updateWindows.set(document, dialog)
+    dialog.addEventListener('close', close, { once: true })
     dialog.showModal()
   } else pages?.open('软件更新', panel)
   void checkForUpdate()

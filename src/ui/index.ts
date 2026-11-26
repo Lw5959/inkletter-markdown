@@ -17,6 +17,7 @@ import type {
 import { AiPanel } from './ai-panel'
 import { createAppearance } from './appearance'
 import { ModalManager } from './dialogs'
+import { openDesktopWindow } from './desktop-window'
 import { FindBar } from './find-bar'
 import { el, isEditableFormElement } from './helpers'
 import { icons } from './icons'
@@ -147,8 +148,42 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
 
   const modals = new ModalManager(shellEl, focusEditor)
   const bodyEl = el('div', { className: 'yy-body' })
-  const pages = createPages(bodyEl, focusEditor)
-  const plugins = new PluginManager(pages, actions.dispatch, actions.pluginMarket)
+  const pages = createPages(bodyEl, focusEditor, current => {
+    // 工具页接管整个工作区，返回后恢复原来的左右栏状态。
+    shellEl.toggleAttribute('data-tool-page', !!current)
+    if (current) aiPanel.closePickers()
+  })
+  let pluginWindow: ReturnType<typeof openDesktopWindow>
+  let disposePluginPage: (() => void) | undefined
+  function closePlugins() {
+    if (!pluginWindow) return pages.back()
+    pluginWindow.close()
+    pluginWindow = null
+    disposePluginPage?.()
+    disposePluginPage = undefined
+    focusEditor()
+  }
+  const plugins = new PluginManager({
+    open(title, content, dispose) {
+      const section = el('section', { className: 'yy-tool-page yy-chrome', attrs: { 'aria-label': title } },
+        el('header', { className: 'yy-tool-page-header' }, el('h2', { text: title })),
+        el('div', { className: 'yy-tool-page-body' }, content))
+      if (pluginWindow?.child.closed) closePlugins()
+      if (pluginWindow) {
+        disposePluginPage?.()
+        pluginWindow.host.replaceChildren(section)
+        pluginWindow.child.focus()
+      } else {
+        pluginWindow = openDesktopWindow(section, { title, width: 1110, height: 750, onClose: closePlugins })
+        pluginWindow?.child.addEventListener('keydown', event => {
+          if (event.key === 'Escape') closePlugins()
+        })
+      }
+      if (pluginWindow) disposePluginPage = dispose
+      else pages.open(title, content, dispose)
+    },
+    back: closePlugins,
+  }, actions.dispatch, actions.pluginMarket)
 
   const openQuickOpen = () => {
     modals.openQuickOpen({
@@ -165,6 +200,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   }
 
   const toggleLeftSidebar = (tab?: LeftTab) => {
+    pages.closeAll()
     if (tab) {
       if (leftOpen && leftPanel.getTab() === tab) {
         leftOpen = false
@@ -179,8 +215,8 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   }
 
   const toggleRightPanel = (tab: RightTab) => {
-    pages.back()
-    rightOpen = !rightOpen || rightTab !== tab
+    const fromToolPage = pages.closeAll()
+    rightOpen = fromToolPage || !rightOpen || rightTab !== tab
     rightTab = tab
     syncLayout()
     if (rightOpen && tab === 'ai') aiPanel.focusInput()
@@ -191,6 +227,18 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
     rightOpen = true
     rightTab = tab
     syncLayout()
+  }
+
+  function openFind(replace: boolean) {
+    pages.closeAll()
+    findBar.open(replace)
+  }
+
+  function openWorkspaceSearch() {
+    pages.closeAll()
+    leftOpen = true
+    syncLayout()
+    leftPanel.focusSearch()
   }
 
   // Menus
@@ -204,12 +252,8 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
       imageMode = mode
     },
     onOpenQuickOpen: openQuickOpen,
-    onOpenFind: replace => findBar.open(replace),
-    onOpenWorkspaceSearch: () => {
-      leftOpen = true
-      syncLayout()
-      leftPanel.focusSearch()
-    },
+    onOpenFind: openFind,
+    onOpenWorkspaceSearch: openWorkspaceSearch,
     onOpenShortcuts: openShortcuts,
     getEnabledPlugins: () => plugins.enabledPlugins(),
     onOpenPlugins: () => plugins.open(),
@@ -513,7 +557,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
 
   function applyState(next: ShellState) {
     document.documentElement.dataset.yeyuMotion = next.animations === false ? 'off' : 'on'
-    if (next.path !== state.path) pages.back()
+    if (next.path !== state.path) pages.closeAll()
     if (next.workspace !== state.workspace && next.workspace !== null && window.innerWidth >= 880) {
       leftPanel.setTab('files')
       leftOpen = true
@@ -566,13 +610,9 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
       case 'file.exportAgain': dispatch({ type: 'export-again' }); break
       case 'file.print': dispatch({ type: 'print' }); break
       case 'nav.quickOpen': openQuickOpen(); break
-      case 'nav.find': findBar.open(false); break
-      case 'nav.replace': findBar.open(true); break
-      case 'nav.searchWorkspace':
-        leftOpen = true
-        syncLayout()
-        leftPanel.focusSearch()
-        break
+      case 'nav.find': openFind(false); break
+      case 'nav.replace': openFind(true); break
+      case 'nav.searchWorkspace': openWorkspaceSearch(); break
       case 'view.toggleMode':
         dispatch({ type: 'mode', mode: state.mode === 'source' ? 'live' : 'source' })
         break
@@ -707,7 +747,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
       leftPanel.destroy()
       aiPanel.closePickers()
       modals.destroy()
-      pages.back()
+      closePlugins()
       if (actions.macTitlebar) delete document.documentElement.dataset.yeyuTitlebar
       delete document.documentElement.dataset.yeyuMotion
       themeStyle.remove()

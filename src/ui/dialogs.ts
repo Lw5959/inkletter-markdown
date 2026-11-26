@@ -1,6 +1,7 @@
 import type { WorkspaceEntry } from '../contracts'
 import { el, filterWorkspaceFiles, flattenWorkspaceFiles, type FlatFileEntry } from './helpers'
 import { icons } from './icons'
+import { openDesktopWindow } from './desktop-window'
 import {
   SHORTCUT_DEFINITIONS,
   detectMac,
@@ -21,7 +22,7 @@ function getFocusableElements(container: HTMLElement): HTMLElement[] {
     '[tabindex]:not([tabindex="-1"])',
   ].join(',')
   return Array.from(container.querySelectorAll<HTMLElement>(selector)).filter(
-    item => item.offsetParent !== null || item === document.activeElement,
+    item => item.offsetParent !== null || item === container.ownerDocument.activeElement,
   )
 }
 
@@ -30,6 +31,7 @@ export class ModalManager {
   private activeDialog: HTMLElement | null = null
   private returnFocusTo: HTMLElement | null = null
   private onCloseCallback: (() => void) | null = null
+  private popup: ReturnType<typeof openDesktopWindow> = null
   private keydownHandler: (event: KeyboardEvent) => void
 
   constructor(private host: HTMLElement, private fallbackFocus: () => void) {
@@ -61,7 +63,7 @@ export class ModalManager {
         }
         const first = focusables[0]
         const last = focusables[focusables.length - 1]
-        const active = document.activeElement as HTMLElement | null
+        const active = this.activeDialog.ownerDocument.activeElement
         if (event.shiftKey) {
           if (!active || active === first || !this.activeDialog.contains(active)) {
             event.preventDefault()
@@ -86,8 +88,14 @@ export class ModalManager {
     this.returnFocusTo = active instanceof HTMLElement ? active : null
     this.activeDialog = dialog
     this.onCloseCallback = options?.onClose ?? null
-    this.backdrop.replaceChildren(dialog)
-    this.backdrop.removeAttribute('hidden')
+    this.popup = openDesktopWindow(dialog, {
+      title: dialog.getAttribute('aria-label') ?? '页屿', width: 720, height: 580, modal: true, onClose: () => this.close(),
+    })
+    if (this.popup) this.popup.child.addEventListener('keydown', this.keydownHandler, true)
+    else {
+      this.backdrop.replaceChildren(dialog)
+      this.backdrop.removeAttribute('hidden')
+    }
     const target = options?.initialFocus ?? getFocusableElements(dialog)[0] ?? dialog
     if (!target.hasAttribute('tabindex') && target === dialog) {
       dialog.tabIndex = -1
@@ -100,6 +108,9 @@ export class ModalManager {
     const cb = this.onCloseCallback
     this.activeDialog = null
     this.onCloseCallback = null
+    this.popup?.child.removeEventListener('keydown', this.keydownHandler, true)
+    this.popup?.close()
+    this.popup = null
     this.backdrop.replaceChildren()
     this.backdrop.setAttribute('hidden', '')
     cb?.()
@@ -530,7 +541,7 @@ export class ModalManager {
       renderRows()
     }
 
-    window.addEventListener('keydown', recordKeyHandler, true)
+    dialog.addEventListener('keydown', recordKeyHandler, true)
 
     filterInput.addEventListener('input', () => renderRows())
     resetAllBtn.addEventListener('click', () => {
@@ -546,7 +557,7 @@ export class ModalManager {
     this.open(dialog, {
       initialFocus: filterInput,
       onClose: () => {
-        window.removeEventListener('keydown', recordKeyHandler, true)
+        dialog.removeEventListener('keydown', recordKeyHandler, true)
       },
     })
   }

@@ -229,7 +229,9 @@ pnpm tauri build --features qa --config "$qa_config" --no-bundle --ci
 node scripts/native-qa.mjs src-tauri/target/release/yeyu measure
 ```
 
-完整验收用 `full` 参数。可设置 `YEYU_PANDOC`、`YEYU_TEST_MODEL_URL`、`YEYU_TEST_MODEL`。`YEYU_TEST_THEMES` 接受 `[{ "path": "/path/to/theme.css", "name": "主题名" }]`，`YEYU_TEST_TYPORA` 接受期望从本机发现的主题名列表，例如 `["github", "night"]`。测试本机设置预览与迁移时可设置 `YEYU_TEST_TYPORA_CONFIG=1`。脚本会打印临时证据路径。
+完整验收用 `full` 参数。用 `titlebar` 模拟 WebView 停在旧尺寸，再通过标题栏双击放大和还原，核对 AppKit、WebView、网页视口和状态栏的位置。用 `windows` 在真实窗口核对 Markdown、TXT 同时打开、重复打开聚焦、独立撤销、插件和更新开窗，以及取消或确认放弃编辑。用 `opencode` 离线安装插件，检查工作区授权，再按生成的配置测试 MCP 搜索、读取、选区、建议和审阅保存。
+
+可设置 `YEYU_PANDOC`、`YEYU_TEST_MODEL_URL`、`YEYU_TEST_MODEL`。`YEYU_TEST_THEMES` 接受 `[{ "path": "/path/to/theme.css", "name": "主题名" }]`，`YEYU_TEST_TYPORA` 接受期望从本机发现的主题名列表，例如 `["github", "night"]`。测试本机设置预览与迁移时可设置 `YEYU_TEST_TYPORA_CONFIG=1`。脚本会打印临时证据路径。
 
 可把 `YEYU_TEST_THEME_SNAPSHOTS` 指向验收目录下的 `app-data/themes`，再运行 `pnpm test` 将导入主题加入交互回归。设置 `YEYU_TEST_WEBKIT=1` 并安装 Playwright 的 WebKit 后，可以用同一批主题复测 WebKit。
 

@@ -21,6 +21,7 @@ const FILE: &str = "plugins.json";
 const WASM_API_VERSION: u32 = 1;
 const JS_API_VERSION: u32 = 2;
 const DOCUMENT_TOOLS_API_VERSION: u32 = 3;
+const MCP_CONFIG_API_VERSION: u32 = 4;
 const MAX_PACKAGE: usize = 2 * 1024 * 1024;
 const MAX_TEXT: usize = 4 * 1024 * 1024;
 
@@ -63,6 +64,7 @@ enum CommandScope {
 enum CommandWorkflow {
     Files,
     Images,
+    Mcp,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -123,10 +125,13 @@ fn supports_api(version: u32) -> bool {
     matches!(
         version,
         WASM_API_VERSION | JS_API_VERSION | DOCUMENT_TOOLS_API_VERSION
-    )
+    ) || (version == MCP_CONFIG_API_VERSION && cfg!(not(target_os = "android")))
 }
 
 fn program(package: &Package) -> Result<Program<'_>, String> {
+    if !supports_api(package.api_version) {
+        return Err("当前平台不支持此插件接口".into());
+    }
     let mut commands = BTreeSet::new();
     if !identifier(&package.id, true)
         || !label(&package.name)
@@ -141,27 +146,31 @@ fn program(package: &Package) -> Result<Program<'_>, String> {
     {
         return Err("插件清单包含无效的身份或命令".into());
     }
-    if package.api_version != DOCUMENT_TOOLS_API_VERSION
-        && package
-            .commands
-            .iter()
-            .any(|command| command.workflow.is_some())
-    {
-        return Err("多文档和图片命令需要插件接口 3".into());
+    if package.commands.iter().any(|command| {
+        let required = match command.workflow {
+            Some(CommandWorkflow::Mcp) => MCP_CONFIG_API_VERSION,
+            Some(CommandWorkflow::Files | CommandWorkflow::Images) => DOCUMENT_TOOLS_API_VERSION,
+            None => WASM_API_VERSION,
+        };
+        package.api_version < required
+    }) {
+        return Err("插件工作流与接口版本不匹配".into());
     }
     match (
         package.api_version,
         package.wasm.as_deref(),
         package.javascript.as_deref(),
     ) {
-        (WASM_API_VERSION | DOCUMENT_TOOLS_API_VERSION, Some(wasm), None) if !wasm.is_empty() => {
-            Ok(Program::Wasm(wasm))
-        }
-        (JS_API_VERSION | DOCUMENT_TOOLS_API_VERSION, None, Some(script))
-            if !script.trim().is_empty() =>
-        {
-            Ok(Program::JavaScript(script))
-        }
+        (
+            WASM_API_VERSION | DOCUMENT_TOOLS_API_VERSION | MCP_CONFIG_API_VERSION,
+            Some(wasm),
+            None,
+        ) if !wasm.is_empty() => Ok(Program::Wasm(wasm)),
+        (
+            JS_API_VERSION | DOCUMENT_TOOLS_API_VERSION | MCP_CONFIG_API_VERSION,
+            None,
+            Some(script),
+        ) if !script.trim().is_empty() => Ok(Program::JavaScript(script)),
         _ => Err("插件清单须提供与接口版本匹配的单个 wasm 或 javascript 模块".into()),
     }
 }

@@ -30,7 +30,8 @@ export const native = {
   recover: () => invoke<Recovery | null>('load_recovery'),
   checkpoint: (recovery: Recovery | null) => invoke<void>('save_recovery', { recovery }),
   preferences: () => invoke<Partial<Preferences> | null>('settings_load'),
-  persist: (settings: Preferences) => invoke<void>('settings_save', { settings }),
+  persist: (settings: Partial<Preferences>) => invoke<void>('settings_save', { settings }),
+  recent: (path: string) => invoke<string[]>('settings_recent', { path }),
   typoraProfiles: (path: string | null = null) => invoke<TyporaProfile[]>('typora_profiles', { path }),
 }
 
