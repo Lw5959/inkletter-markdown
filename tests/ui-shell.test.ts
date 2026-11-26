@@ -1015,6 +1015,96 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     expect(shortened).not.toContain('需要自动压缩的旧段')
   }, 20000)
 
+  it('提取待办只显示本轮核对过的事项，普通和智能体模式共用校验', async () => {
+    await mountTestHarness()
+    await page.evaluate(String.raw`(async () => {
+      const { mockIPC } = await import('/node_modules/@tauri-apps/api/mocks.js')
+      const { Writing } = await import('/src/ai.ts')
+      const { shell, editor } = window.__test
+      const endpoint = 'https://models.example.test/v1'
+      const scope = 'fixture\n' + endpoint
+      const archive = {
+        conversations: [{ id: 'old', scope, title: '旧对话', summary: '', covered: 0, updated: 1,
+          messages: [{ role: 'assistant', text: '- [ ] 上次会话的待办' }] }],
+        selected: { [scope]: 'old' },
+      }
+      const requests = window.__actionRequests = []
+      mockIPC(async (command, data) => {
+        if (command === 'ai_settings') return {
+          providers: [{ id: 'fixture', endpoint, protocol: 'chat', name: '测试模型', models: ['writer'], hasKey: false }],
+          active: { providerId: 'fixture', model: 'writer' },
+        }
+        if (command === 'ai_conversations') return data?.value ? null : archive
+        if (command !== 'ai_stream' && command !== 'ai_agent_turn') return null
+        requests.push({ command, messages: data.messages ?? data.request.messages })
+        if (command === 'ai_agent_turn') return { text: '[1]', calls: [], output: [] }
+        const send = frame => window.__TAURI_INTERNALS__.runCallback(data.event.id, frame)
+        send({ index: 0, message: { kind: 'delta', text: '[99,1' } })
+        await new Promise(resolve => { window.__finishActions = resolve })
+        send({ index: 1, message: { kind: 'delta', text: ',1]' } })
+        send({ index: 2, message: { kind: 'done' } })
+        send({ index: 3, end: true })
+        return null
+      })
+      editor.setMarkdown('# 会议记录\n- [ ] 提交新报价\n- [x] 整理安装笔记\n\n## 已归档\n- [ ] 封装旧版海报')
+      const writing = new Writing(view => shell.setAI(view))
+      window.__test.dispatch = async action => {
+        if (action.type === 'ai-send') await writing.send(action.intent, action.prompt, editor, 1, 1, { agent: action.agent })
+        if (action.type === 'ai-context') writing.preview(action.scope, editor, 1, 1, '会议记录.md')
+      }
+      await writing.load()
+    })()`)
+    await page.locator('[data-toggle="ai"]').click()
+    await page.getByRole('combobox', { name: '写作操作' }).click()
+    await page.getByRole('option', { name: '提取待办' }).click()
+    const attach = async () => {
+      await page.getByRole('combobox', { name: '添加上下文' }).click()
+      await page.getByRole('option', { name: '全文' }).click()
+    }
+    const send = page.getByRole('button', { name: '发送', exact: true })
+    const composer = page.getByLabel('AI 指令输入')
+    const replies = page.locator('.yy-ai-messages .yy-msg-assistant')
+    await composer.fill('请根据以下材料提取待办。周五提交报价单。旧版海报已经归档。安装文档已完成。明天还需检查库存。')
+    await send.click()
+    await replies.last().getByText('明天还需检查库存', { exact: true }).waitFor()
+    expect((await replies.last().locator('li').allTextContents()).map(text => text.trim()))
+      .toEqual(['周五提交报价单', '明天还需检查库存'])
+    expect(await page.evaluate('window.__actionRequests.length')).toBe(0)
+
+    await attach()
+    await send.click()
+    await replies.last().getByText('提交新报价', { exact: true }).waitFor()
+    expect(await page.evaluate('window.__actionRequests.length')).toBe(0)
+
+    await composer.fill('只看报价相关的待办')
+    await send.click()
+    await expect.poll(() => page.evaluate('typeof window.__finishActions')).toBe('function')
+    expect(await page.locator('.yy-ai-conversation').getByText('[99,1').count()).toBe(0)
+    await page.evaluate('window.__finishActions()')
+    await expect.poll(() => replies.count()).toBe(4)
+    await replies.last().getByText('提交新报价', { exact: true }).waitFor()
+    expect(await replies.last().locator('li').count()).toBe(1)
+    expect(await replies.last().locator('input[type="checkbox"]').count()).toBe(1)
+    const requests = () => page.evaluate('window.__actionRequests') as Promise<{ command: string; messages: { text: string }[] }[]>
+    const [request] = await requests()
+    expect(request.messages).toHaveLength(2)
+    expect(request.messages.at(-1)?.text).toContain('1. 提交新报价')
+    expect(request.messages.at(-1)?.text).not.toMatch(/安装笔记|旧版海报|上次会话/)
+
+    await page.getByRole('button', { name: '智能体', exact: true }).click()
+    await composer.fill('只看报价相关的待办')
+    await send.click()
+    await expect.poll(() => replies.count()).toBe(5)
+    expect((await requests())[1].command).toBe('ai_agent_turn')
+    expect(await replies.last().locator('li').count()).toBe(1)
+
+    await page.evaluate("window.__test.editor.setMarkdown('- [x] 提交新报价\\n\\n## 已归档\\n- [ ] 上一期记录')")
+    await attach()
+    await send.click()
+    await replies.last().getByText('没有找到明确的待办事项。', { exact: true }).waitFor()
+    expect(await requests()).toHaveLength(2)
+  }, 15000)
+
   it('AI 模型配置与提示词页面、上下文全文预览、流式会话和差异逐段应用', async () => {
     await mountTestHarness()
 

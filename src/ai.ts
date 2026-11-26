@@ -1,4 +1,6 @@
 import type { AiAgentActivity, AiContext, AiIntent, AiMessage, AiModelDiscovery, AiPrompts, AiSettings, AiSelection, AiView, Editor, ShellAction } from './contracts'
+import { actionCandidates, actionChoices, actionMarkdown, actionReply } from './ai-actions'
+import type { ActionCandidate } from './ai-actions'
 import { runAgent } from './ai-agent'
 import type { AgentDocument, AgentInput, AgentMessage } from './ai-agent'
 import { compressionEnd, ConversationArchive } from './ai-conversations'
@@ -14,6 +16,7 @@ type Context = { view: AiContext; binding: Binding | null; documents: AgentDocum
 type Request = Pick<AgentInput, 'id' | 'selection' | 'messages'>
 type Run = Request & {
   intent: AiIntent; binding: Binding | null; eol: string; agent?: Pick<AgentInput, 'documents' | 'target'>
+  actions?: { candidates: ActionCandidate[]; filter: boolean }
   compact?: { system: string; prompt: string; previous: number; until: number }
   reply?: AiMessage; suggestionId?: string
 }
@@ -236,13 +239,25 @@ export class Writing {
           : options.agent && intent === 'chat' ? (range ?? insert()) : null
     if (binding && this.pending) throw new Error('请先处理当前修改建议')
     const eol = documentEol(text)
+    const documents = context?.documents ?? []
+    if (options.agent && (documents.length > 24 || documents.reduce((size, item) => size + item.text.length, 0) > 4_000_000)) {
+      throw new Error('智能体上下文最多 400 万字符或 24 份文档，请缩小范围')
+    }
+    const actions = intent === 'actions' ? {
+      candidates: actionCandidates(context?.documents ?? [{ name: '本轮输入', text: input }]),
+      filter: !!(this.view.prompts.actions || (context && input)),
+    } : undefined
     let agent: Run['agent']
     let request: string
-    if (options.agent) {
-      const documents = context?.documents ?? []
-      if (documents.reduce((size, item) => size + item.text.length, 0) > 4_000_000 || documents.length > 24) {
-        throw new Error('智能体上下文最多 400 万字符或 24 份文档，请缩小范围')
+    if (actions) {
+      const choices = actions.filter ? actionChoices(actions.candidates) : ''
+      const filter = context && input ? '\n本轮筛选要求\n' + input : ''
+      // 编号只对应本轮已校验的材料，旧对话和工具读取都不能引入新的待办。
+      request = operation.label + filter + '\n\n待办候选\n' + choices
+      if (options.agent && actions.filter && actions.candidates.length) {
+        agent = { documents: [{ name: '本轮待办候选', text: choices }], target: null }
       }
+    } else if (options.agent) {
       const target = binding ? { text: binding.text, insert: binding.from === binding.to, eol } : null
       agent = { documents, target }
       // 文档全文保留在本地，模型按需读取。
@@ -255,11 +270,13 @@ export class Writing {
     // 失败或取消后再次发送同一句时沿用未回答的消息，历史只保留一个气泡。
     const reuse = last?.role === 'user' && last.text === task
     const previous = this.view.messages.length - (reuse ? 1 : 0)
-    const until = this.chat ? compressionEnd(this.chat, true, previous) : 0
-    const messages = this.history(system, request, previous, !!agent)
+    const until = !actions && this.chat ? compressionEnd(this.chat, true, previous) : 0
+    const messages: AgentMessage[] = actions
+      ? [{ role: 'system', text: system }, { role: 'user', text: request }]
+      : this.history(system, request, previous, !!agent)
     if (!reuse) this.appendMessage({ role: 'user', text: task })
     const compact = until > (this.chat?.covered ?? 0) ? { system, prompt: request, previous, until } : undefined
-    await this.run({ id: crypto.randomUUID(), selection, intent, messages, binding, eol, agent, compact })
+    await this.run({ id: crypto.randomUUID(), selection, intent, messages, binding, eol, agent, compact, actions })
   }
 
   private appendMessage(message: AiMessage, previous?: AiMessage) {
@@ -352,7 +369,8 @@ export class Writing {
     this.view.agent = job.agent ? { round: 0, steps: [], status: 'running' } : undefined
     this.update()
     const delta = (value: string) => {
-      if (controller.signal.aborted) return
+      // 待办编号完成校验后再一次性呈现，生成中也不会出现未经核对的清单。
+      if (job.actions || controller.signal.aborted) return
       this.view.stream += value
       if (!this.frame) this.frame = requestAnimationFrame(() => {
         this.frame = 0
@@ -377,7 +395,12 @@ export class Writing {
       controller.signal.throwIfAborted()
       let text: string | null
       let output: string | null = null
-      if (job.agent) {
+      const actions = job.actions
+      const local = actions && (!actions.filter || !actions.candidates.length)
+      if (local) {
+        // 基础清单由已核对的原文直接生成。模型只参与用户追加的筛选要求。
+        text = actionMarkdown(actions.candidates)
+      } else if (job.agent) {
         const result = await runAgent({ ...job, ...job.agent }, {
           signal: controller.signal, delta,
           plan: plan => {
@@ -403,6 +426,7 @@ export class Writing {
       }
       if (text === null || controller.signal.aborted) this.view.error = '已取消生成'
       else {
+        if (actions && !local) text = actionReply(text, actions.candidates)
         // 编辑建议使用任务开始时的绑定，由应用层在用户确认时重新定位。
         const reply: AiMessage = { role: 'assistant', text }
         this.appendMessage(reply, job.reply)
