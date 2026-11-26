@@ -15,6 +15,50 @@
   font-variant-numeric: tabular-nums;
 }
 
+.yy-update-source-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin: 0 0 12px;
+  color: var(--yy-ink-muted);
+  font-size: 13px;
+}
+
+.yy-update-sources {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--yy-chrome-subtle);
+}
+
+.yy-update-sources button {
+  min-height: 28px;
+  padding: 3px 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--yy-ink-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.yy-update-sources button:hover,
+.yy-update-sources button[aria-pressed="true"] {
+  color: var(--yy-ink);
+  border-color: var(--yy-border);
+  background: var(--yy-chrome-bg);
+}
+
+.yy-update-sources button:focus-visible {
+  outline: 2px solid var(--yy-accent);
+  outline-offset: 1px;
+}
+
+.yy-update-sources button:disabled { cursor: default; }
+
 .yy-update-status {
   padding: 12px 14px;
   border-radius: 8px;
@@ -75,4 +119,5 @@
 
 @media (pointer: coarse) {
   .yy-update-dialog .app-dialog-actions button { min-height: 44px; }
+  .yy-update-sources button { min-height: 44px; }
 }

@@ -11,6 +11,18 @@ export type UpdateProgress =
   | { kind: 'install' }
 
 export type PackageLaunch = 'installer' | 'permission' | 'save'
+export type UpdateSource = 'auto' | 'github' | 'gitee'
+
+const preferenceKey = 'yeyu.update.source.v1'
+const sources = { auto: '自动', github: 'GitHub', gitee: 'Gitee' } as const
+
+function preferredSource(): UpdateSource {
+  try {
+    const saved = localStorage.getItem(preferenceKey)
+    if (saved === 'github' || saved === 'gitee') return saved
+  } catch { /* 无持久存储时仍可选择本次更新源。 */ }
+  return 'auto'
+}
 
 type PackageOffer = {
   kind: 'package'
@@ -32,13 +44,27 @@ function formatBytes(bytes: number) {
 }
 
 /** 打开更新界面并立即检查，用户点击确认后才调用 apply。 */
-export function showUpdate(check: () => Promise<UpdateOffer | null>, pages?: Pick<ReturnType<typeof createPages>, 'open'>) {
+export function showUpdate(check: (source: UpdateSource) => Promise<UpdateOffer | null>, pages?: Pick<ReturnType<typeof createPages>, 'open'>) {
   if (!pages && document.querySelector('dialog.yy-update-dialog[open]')) return
 
   const dialog = pages ? null : el('dialog', { className: 'app-dialog yy-update-dialog', attrs: { 'aria-label': '软件更新' } })
   const panel = dialog ?? el('div', { className: 'yy-mobile-brief-page yy-update-page' })
   const active = () => dialog?.open ?? panel.isConnected
   const current = el('p', { className: 'yy-update-version', text: '正在读取当前版本…' })
+  let source = preferredSource()
+  const choices = el('div', { className: 'yy-update-sources', attrs: { role: 'group', 'aria-label': '更新源' } })
+  const sourceButtons = (Object.keys(sources) as UpdateSource[]).map(id => {
+    const button = el('button', { type: 'button', text: sources[id], attrs: { 'aria-pressed': String(source === id) } })
+    button.onclick = () => {
+      if (applying || source === id) return
+      source = id
+      try { localStorage.setItem(preferenceKey, id) } catch { /* 保留本次选择。 */ }
+      for (const choice of sourceButtons) choice.setAttribute('aria-pressed', String(choice === button))
+      void checkForUpdate(false)
+    }
+    choices.append(button)
+    return button
+  })
   const headline = el('h3', { attrs: { tabindex: '-1' } })
   const detail = el('p', { className: 'yy-update-detail', attrs: { hidden: '' } })
   const status = el('div', { className: 'yy-update-status', attrs: { role: 'status' } }, headline, detail)
@@ -52,11 +78,12 @@ export function showUpdate(check: () => Promise<UpdateOffer | null>, pages?: Pic
   const primary = el('button', { type: 'button', className: 'app-dialog-primary', attrs: { hidden: '' } })
   if (dialog) dialog.append(el('h2', { text: '软件更新' }))
   dismiss.hidden = !dialog
-  panel.append(current, status, notes, download,
+  panel.append(current, el('div', { className: 'yy-update-source-row' }, el('span', { text: '更新源' }), choices), status, notes, download,
     el('div', { className: 'app-dialog-actions' }, dismiss, primary))
 
   let installedVersion: string | undefined
   let applying = false
+  let checkId = 0
 
   function showStatus(title: string, message = '') {
     headline.textContent = title
@@ -96,6 +123,7 @@ export function showUpdate(check: () => Promise<UpdateOffer | null>, pages?: Pic
     applying = true
     primary.hidden = true
     dismiss.disabled = true
+    for (const choice of sourceButtons) choice.disabled = true
     showStatus(title)
     headline.focus()
 
@@ -110,6 +138,7 @@ export function showUpdate(check: () => Promise<UpdateOffer | null>, pages?: Pic
       applying = false
       download.hidden = true
       dismiss.disabled = false
+      for (const choice of sourceButtons) choice.disabled = false
       if (active() && dialog) dismiss.focus()
     }
   }
@@ -157,19 +186,22 @@ export function showUpdate(check: () => Promise<UpdateOffer | null>, pages?: Pic
     })
   }
 
-  async function checkForUpdate() {
-    if (dialog) dismiss.focus()
+  async function checkForUpdate(focus = true) {
+    const id = ++checkId
+    const selected = source
+    const currentCheck = () => active() && id === checkId
+    if (focus && dialog) dismiss.focus()
     primary.hidden = true
     notes.hidden = true
     if (!installedVersion) current.textContent = '正在读取当前版本…'
     showStatus('正在检查更新…')
     try {
       installedVersion ??= await getVersion()
-      if (!active()) return
+      if (!currentCheck()) return
       current.textContent = '当前版本 ' + installedVersion
-      const release = await check()
-      // 检查可能在用户离开后才返回，此时丢弃结果。
-      if (!active()) return
+      const release = await check(selected)
+      // 更换更新源或离开界面后，旧请求不能覆盖当前结果。
+      if (!currentCheck()) return
       if (!release) {
         showStatus('已是最新版本')
         return
@@ -183,7 +215,7 @@ export function showUpdate(check: () => Promise<UpdateOffer | null>, pages?: Pic
       notes.hidden = false
       showAction(installs ? '安装更新' : '下载更新', () => apply(release))
     } catch {
-      if (!active()) return
+      if (!currentCheck()) return
       if (!installedVersion) current.textContent = '无法读取当前版本'
       showStatus('检查更新失败', '请检查网络连接，或稍后重试。')
       showAction('重试', checkForUpdate)

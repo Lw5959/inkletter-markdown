@@ -1,11 +1,14 @@
-use super::{UpdateInfo, UpdateProgress};
+use super::{UpdateInfo, UpdateProgress, UpdateSource, candidates, endpoint};
 use crate::store::err;
+use base64::{Engine as _, engine::general_purpose::STANDARD};
+use minisign_verify::{PublicKey, Signature};
 use reqwest::{Client, Response, Url, header};
 use semver::Version;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{
-    path::PathBuf,
+    collections::BTreeMap,
+    path::{Path, PathBuf},
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Manager, State, ipc::Channel};
@@ -17,6 +20,7 @@ use tokio::{
 
 const RELEASES: &str = "https://github.com/Lw5959/yeyu/releases/download";
 const LATEST: &str = "https://api.github.com/repos/Lw5959/yeyu/releases/latest";
+const GITEE_RELEASES: &str = "https://gitee.com/Lw5959/yeyu/releases/download";
 const PACKAGE_SUFFIX: &str = if cfg!(target_os = "android") {
     "android-arm64.apk"
 } else if cfg!(target_arch = "aarch64") {
@@ -26,6 +30,8 @@ const PACKAGE_SUFFIX: &str = if cfg!(target_os = "android") {
 };
 const MAX_PACKAGE_BYTES: u64 = 512 * 1024 * 1024;
 const READ_TIMEOUT: Duration = Duration::from_secs(30);
+const CHECK_TIMEOUT: Duration = Duration::from_secs(10);
+const MAX_FEED_BYTES: usize = 128 * 1024;
 
 #[derive(Default)]
 pub struct Downloads(Mutex<Option<Downloaded>>);
@@ -84,6 +90,47 @@ struct Package {
     size: u64,
 }
 
+#[derive(Deserialize)]
+struct MirrorRelease {
+    version: Version,
+    #[serde(default)]
+    notes: String,
+    packages: BTreeMap<String, MirrorAsset>,
+}
+
+#[derive(Deserialize)]
+struct MirrorAsset {
+    url: Url,
+    sha256: String,
+    size: u64,
+}
+
+fn package_from(
+    version: Version,
+    notes: String,
+    name: String,
+    url: Url,
+    sha256: &str,
+    size: u64,
+) -> Result<Package, String> {
+    if sha256.len() != 64 || !sha256.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err("安装包缺少有效的 SHA-256 摘要".into());
+    }
+    if !(1..=MAX_PACKAGE_BYTES).contains(&size) {
+        return Err("安装包大小无效".into());
+    }
+    Ok(Package {
+        info: UpdateInfo {
+            version: version.to_string(),
+            notes,
+        },
+        name,
+        url,
+        sha256: sha256.to_ascii_lowercase(),
+        size,
+    })
+}
+
 impl Release {
     fn package(self, installed: &Version) -> Result<Option<Package>, String> {
         let version = Version::parse(self.tag_name.strip_prefix('v').unwrap_or(&self.tag_name))
@@ -103,31 +150,51 @@ impl Release {
             .digest
             .as_deref()
             .and_then(|digest| digest.strip_prefix("sha256:"))
-            .filter(|hash| hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit()))
-            .ok_or("安装包缺少有效的 SHA-256 摘要")?
-            .to_ascii_lowercase();
-        if !(1..=MAX_PACKAGE_BYTES).contains(&asset.size) {
-            return Err("安装包大小无效".into());
-        }
-        Ok(Some(Package {
-            info: UpdateInfo {
-                version: version.to_string(),
-                notes: self.body.unwrap_or_default(),
-            },
+            .ok_or("安装包缺少有效的 SHA-256 摘要")?;
+        package_from(
+            version,
+            self.body.unwrap_or_default(),
             name,
-            url: Url::parse(&url).map_err(err)?,
+            Url::parse(&url).map_err(err)?,
             sha256,
-            size: asset.size,
-        }))
+            asset.size,
+        )
+        .map(Some)
     }
 }
 
-async fn latest(app: &AppHandle, client: &Client) -> Result<Option<Package>, String> {
+impl MirrorRelease {
+    fn package(mut self, installed: &Version) -> Result<Option<Package>, String> {
+        if self.version <= *installed || !self.version.pre.is_empty() {
+            return Ok(None);
+        }
+        let name = format!("Yeyu_{}_{PACKAGE_SUFFIX}", self.version);
+        let asset = self
+            .packages
+            .remove(PACKAGE_SUFFIX)
+            .ok_or("Gitee 未提供此设备的安装包")?;
+        let expected = format!("{GITEE_RELEASES}/v{}/{name}", self.version);
+        if asset.url.as_str() != expected {
+            return Err("Gitee 安装包地址与发布版本不符".into());
+        }
+        package_from(
+            self.version,
+            self.notes,
+            name,
+            asset.url,
+            &asset.sha256,
+            asset.size,
+        )
+        .map(Some)
+    }
+}
+
+async fn github(app: &AppHandle, client: &Client) -> Result<Option<Package>, String> {
     let release = client
         .get(LATEST)
         .header(header::USER_AGENT, "Yeyu-Updater")
         .header(header::ACCEPT, "application/vnd.github+json")
-        .timeout(Duration::from_secs(15))
+        .timeout(CHECK_TIMEOUT)
         .send()
         .await
         .map_err(err)?
@@ -139,12 +206,84 @@ async fn latest(app: &AppHandle, client: &Client) -> Result<Option<Package>, Str
     release.package(&app.package_info().version)
 }
 
+async fn feed_bytes(client: &Client, url: Url) -> Result<Vec<u8>, String> {
+    let mut response = client
+        .get(url)
+        .timeout(CHECK_TIMEOUT)
+        .send()
+        .await
+        .map_err(err)?
+        .error_for_status()
+        .map_err(err)?;
+    let mut data = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(err)? {
+        if data.len() + chunk.len() > MAX_FEED_BYTES {
+            return Err("更新清单超过允许大小".into());
+        }
+        data.extend_from_slice(&chunk);
+    }
+    Ok(data)
+}
+
+fn gitee_payload(
+    body: &[u8],
+    encoded_sig: &[u8],
+    encoded_key: &str,
+) -> Result<MirrorRelease, String> {
+    let key = String::from_utf8(STANDARD.decode(encoded_key.trim()).map_err(err)?).map_err(err)?;
+    let signature = std::str::from_utf8(encoded_sig).map_err(err)?;
+    let signature =
+        String::from_utf8(STANDARD.decode(signature.trim()).map_err(err)?).map_err(err)?;
+    // APK 和 DEB 的摘要来自签名清单，Gitee 附件接口本身未提供可信摘要。
+    PublicKey::decode(&key)
+        .map_err(err)?
+        .verify(body, &Signature::decode(&signature).map_err(err)?, false)
+        .map_err(|_| "Gitee 更新清单签名校验失败")?;
+    serde_json::from_slice(body).map_err(err)
+}
+
+async fn gitee(app: &AppHandle, client: &Client) -> Result<Option<Package>, String> {
+    let url = endpoint(app, 1)?;
+    let mut signature_url = url.clone();
+    signature_url.set_path(&format!("{}.sig", url.path()));
+    let (body, signature) =
+        tokio::try_join!(feed_bytes(client, url), feed_bytes(client, signature_url))?;
+    let key = app
+        .config()
+        .plugins
+        .0
+        .get("updater")
+        .and_then(|config| config["pubkey"].as_str())
+        .ok_or("缺少更新公钥")?;
+    gitee_payload(&body, &signature, key)?.package(&app.package_info().version)
+}
+
+async fn latest(
+    app: &AppHandle,
+    client: &Client,
+    source: UpdateSource,
+) -> Result<Vec<Package>, String> {
+    match source {
+        UpdateSource::Github => Ok(github(app, client).await?.into_iter().collect()),
+        UpdateSource::Gitee => Ok(gitee(app, client).await?.into_iter().collect()),
+        UpdateSource::Auto => {
+            let (primary, mirror) = tokio::join!(github(app, client), gitee(app, client));
+            candidates([primary, mirror], |package| &package.info.version)
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn update_check_package(
     app: AppHandle,
     client: State<'_, Client>,
+    source: Option<UpdateSource>,
 ) -> Result<Option<UpdateInfo>, String> {
-    Ok(latest(&app, &client).await?.map(|package| package.info))
+    Ok(latest(&app, &client, source.unwrap_or_default())
+        .await?
+        .into_iter()
+        .next()
+        .map(|package| package.info))
 }
 
 fn asset_redirect(url: &Url) -> bool {
@@ -154,7 +293,11 @@ fn asset_redirect(url: &Url) -> bool {
         && url.password().is_none()
         && matches!(
             url.host_str(),
-            Some("release-assets.githubusercontent.com" | "objects.githubusercontent.com")
+            Some(
+                "release-assets.githubusercontent.com"
+                    | "objects.githubusercontent.com"
+                    | "gitee.com"
+            )
         )
 }
 
@@ -185,22 +328,45 @@ pub async fn update_download_package(
     client: State<'_, Client>,
     downloads: State<'_, Downloads>,
     version: String,
+    source: Option<UpdateSource>,
     progress: Channel<UpdateProgress>,
 ) -> Result<(), String> {
     let mut ready = downloads.0.try_lock().map_err(|_| "已有更新正在下载")?;
-    if let Some(item) = ready.as_ref().filter(|item| item.version == version) {
-        if item.matches_file().await {
-            return Ok(());
-        }
-    }
-    let package = latest(&app, &client)
-        .await?
-        .filter(|item| item.info.version == version)
-        .ok_or("发布版本已变化，请重新检查更新")?;
     let directory = app.path().app_cache_dir().map_err(err)?.join("updates");
     fs::create_dir_all(&directory).await.map_err(err)?;
+    let mut error = "发布版本已变化，请重新检查更新".into();
+    for package in latest(&app, &client, source.unwrap_or_default())
+        .await?
+        .into_iter()
+        .filter(|item| item.info.version == version)
+    {
+        if let Some(item) = ready
+            .as_ref()
+            .filter(|item| item.version == version && item.sha256 == package.sha256)
+        {
+            if item.matches_file().await {
+                return Ok(());
+            }
+        }
+        match download_package(&client, &directory, package, &progress).await {
+            Ok(item) => {
+                *ready = Some(item);
+                return Ok(());
+            }
+            Err(reason) => error = reason,
+        }
+    }
+    Err(error)
+}
+
+async fn download_package(
+    client: &Client,
+    directory: &Path,
+    package: Package,
+    progress: &Channel<UpdateProgress>,
+) -> Result<Downloaded, String> {
     let destination = directory.join(&package.name);
-    let (file, partial) = tempfile::NamedTempFile::new_in(&directory)
+    let (file, partial) = tempfile::NamedTempFile::new_in(directory)
         .map_err(err)?
         .into_parts();
     let mut file = fs::File::from_std(file);
@@ -209,7 +375,7 @@ pub async fn update_download_package(
         downloaded: 0,
         total,
     });
-    let mut response = download_response(&client, package.url).await?;
+    let mut response = download_response(client, package.url).await?;
     let mut received = 0u64;
     let mut hasher = Sha256::new();
     let mut last_report = Instant::now();
@@ -240,13 +406,12 @@ pub async fn update_download_package(
     file.sync_all().await.map_err(err)?;
     drop(file);
     partial.persist(&destination).map_err(err)?;
-    *ready = Some(Downloaded {
-        version,
+    Ok(Downloaded {
+        version: package.info.version,
         path: destination,
         size: received,
         sha256: package.sha256,
-    });
-    Ok(())
+    })
 }
 
 pub(crate) async fn verified_path(downloads: &Downloads, version: &str) -> Result<PathBuf, String> {
@@ -347,6 +512,36 @@ mod tests {
         let mut release = released_asset();
         release.assets[0].browser_download_url = "https://example.invalid/file.deb".into();
         assert!(release.package(&installed).is_err());
+    }
+
+    #[test]
+    fn mirror_requires_matching_project_release_and_package() {
+        let installed = Version::new(0, 2, 18);
+        let mut feed = serde_json::json!({
+            "version": "9.0.0",
+            "packages": {
+                PACKAGE_SUFFIX: {
+                    "url": format!("{GITEE_RELEASES}/v9.0.0/Yeyu_9.0.0_{PACKAGE_SUFFIX}"),
+                    "size": 1024,
+                    "sha256": "a".repeat(64),
+                }
+            }
+        });
+        let package = serde_json::from_value::<MirrorRelease>(feed.clone())
+            .unwrap()
+            .package(&installed)
+            .unwrap()
+            .unwrap();
+        assert_eq!(package.info.version, "9.0.0");
+        assert_eq!(package.size, 1024);
+        feed["packages"][PACKAGE_SUFFIX]["url"] =
+            serde_json::json!("https://gitee.com/other/project/file.apk");
+        assert!(
+            serde_json::from_value::<MirrorRelease>(feed)
+                .unwrap()
+                .package(&installed)
+                .is_err()
+        );
     }
 
     #[tokio::test]

@@ -1,8 +1,8 @@
 # 本地打包与更新
 
-页屿使用 [Lw5959/yeyu](https://github.com/Lw5959/yeyu) 发布安装包。macOS 的 Apple Silicon 和 Intel 各有一个 DMG，各自的签名应用归档也独立，更新按当前运行架构选择。
+页屿在 GitHub 和 Gitee 发布安装包。macOS 的 Apple Silicon 和 Intel 各有一个 DMG，各自的签名应用归档也独立，更新按当前运行架构选择。 [GitHub](https://github.com/Lw5959/yeyu/releases) · [Gitee](https://gitee.com/Lw5959/yeyu/releases)
 
-每次提升应用版本都在本机生成对应的安装包，并以 `v<版本号>` 发布 GitHub Release。发布说明写明本版改动、可下载的平台和实际验收范围。
+每次提升应用版本都在本机生成对应的安装包，并以 `v<版本号>` 发布。发布说明写明本版改动、可下载的平台和实际验收范围。
 
 ## 准备签名
 
@@ -19,25 +19,24 @@
 | macOS Apple Silicon | `pnpm tauri build --ci --target aarch64-apple-darwin --bundles app,dmg -- --locked` |
 | macOS Intel | `pnpm tauri build --ci --target x86_64-apple-darwin --bundles app,dmg -- --locked` |
 | Windows x64 | `pnpm tauri build --ci --target x86_64-pc-windows-msvc --bundles nsis -- --locked` |
-| Linux x64 | `APPIMAGE_EXTRACT_AND_RUN=1 pnpm tauri build --ci --target x86_64-unknown-linux-gnu --bundles deb,appimage -- --locked` |
-| Linux ARM64 | `APPIMAGE_EXTRACT_AND_RUN=1 pnpm tauri build --ci --target aarch64-unknown-linux-gnu --bundles deb,appimage -- --locked` |
+| Linux x64 | 在 x64 Debian 环境运行 `sh scripts/build-linux-local.sh -- --locked` |
+| Linux ARM64 | 在 ARM64 Debian 环境运行 `sh scripts/build-linux-local.sh -- --locked` |
 | Android ARM64 | `pnpm tauri android build --ci --apk --target aarch64` |
 
-在 macOS 上交叉构建 Windows 包时，安装 `cargo-xwin` 和 Unix 版 `makensis`，使用 `sh scripts/build-windows-cross.sh --ci --config '{"bundle":{"createUpdaterArtifacts":true}}' -- --locked`。这个入口按 Unix 版 NSIS 的参数生成安装器，发布链接也按交叉工具链提供的 CRT 生成。
-
-Tauri 会在交叉打包日志中提示平台差异和 Authenticode 签名状态。使用 Windows 主机打包可校验原生安装流程。为公开分发配置可信签名证书后，使用 Windows 原生签名工具或 Tauri 的 `signCommand` 对安装器签名。
+在 macOS 上交叉构建 Windows 包时，安装 `cargo-xwin` 和 Unix 版 `makensis`，使用 `sh scripts/build-windows-cross.sh --ci -- --locked`。构建入口先编译 Windows 应用，再由 NSIS 严格编译固定版本的 Tauri 安装器模板。可用 `YEYU_NSIS_CACHE` 指定工具缓存。配置更新私钥时同时生成更新签名。Windows 系统级 Authenticode 签名使用独立的发布凭据。
 
 使用临时签名时，macOS 的每个架构先用 `env -u APPLE_SIGNING_IDENTITY -u APPLE_CERTIFICATE pnpm tauri build --ci --target <目标> --bundles app -- --locked` 生成应用包。设置 `TAURI_SIGNING_PRIVATE_KEY_PATH` 后，运行 `node scripts/package-macos-adhoc.mjs <应用包路径> <产物目录>` 写入临时签名，并生成对应的 DMG 和签名更新归档。持有 Developer ID 且已配置公证凭据时，使用上表的 Tauri 签名构建流程。
 
 Android 构建安装 JDK、Android SDK 37、Build Tools 37.0.0、NDK 28.2.13676358 和可供 bindgen 使用的 libclang。Gradle 使用 AGP 内置 Kotlin，Java 和 Kotlin 均生成 Java 17 字节码。为 `BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android` 指定所选 NDK 的 `--sysroot`。在 `src-tauri/gen/android/app/build/outputs/apk` 找到未签名 APK，签名后用 `apksigner verify` 核对。
 
-在 Debian 构建 AppImage 时，在同一构建环境解包并运行 `python3 scripts/prepare-linux-appimage.py <解包目录>`。脚本按 Debian 安装记录核对共享库的许可，补齐许可证正文和 AppStream 元数据。用 `appstreamcli validate` 检查 `usr/share/metainfo/io.yeyu.markdown.appdata.xml`，再用同架构的 `appimagetool` 重新打包，最后生成更新签名。重试打包前，确认使用的是带 `__TAURI_BUNDLE_TYPE_VAR_UNK` 的原始编译文件。最终 DEB 与 AppImage 分别含 `DEB` 和 `APP` 标记，用于应用内选择正确的更新包。
+Debian 构建需要 `appstreamcli`、`gpg` 和同架构的 `appimagetool`。用 `YEYU_APPIMAGETOOL` 或 `PATH` 指定 `appimagetool`。使用独立 runtime 时，用 `YEYU_APPIMAGE_RUNTIME` 指定同架构的官方文件。构建入口从 DEB 生成 AppDir，一次收集 WebKitGTK 依赖和许可证，并用 xz 打包。DEB 与 AppImage 分别含 `DEB` 和 `APP` 标记，用于应用内选择正确的更新包。
 
-## 发布到 GitHub
+## 发布到 GitHub 和 Gitee
 
 1. 将安装包归入 `release/<版本号>/`，保留架构及扩展名。用 `node scripts/stage-desktop-release.mjs <bundle目录> <平台> <产物目录>` 整理桌面包。Android 包命名为 `Yeyu_<版本号>_android-arm64.apk`。
-2. 所有平台就绪后，用 `node scripts/release-manifest.mjs <产物目录> v<版本号> Lw5959/yeyu` 生成 `latest.json` 与 `SHA256SUMS`。在产物目录执行 `shasum -a 256 -c SHA256SUMS`，并用配置中的公钥验证五个桌面更新包的签名。
-3. 推送源码并将标签指向实际构建提交。在 GitHub 创建对应标签的 Release 草稿，上传安装包、更新包、签名和两个清单。核对远端资产列表和 SHA-256 后再公开发布。
-4. 将安装包和更新包齐全的稳定版本设为最新，并从公开的 `releases/latest/download/latest.json` 读回版本和下载地址。
+2. 所有平台就绪后，用 `node scripts/release-manifest.mjs <产物目录> v<版本号> Lw5959/yeyu <Gitee 清单目录>` 生成两套 `latest.json` 与 `SHA256SUMS`。在产物目录执行 `shasum -a 256 -c SHA256SUMS`，并用配置中的公钥核对五个桌面更新包的签名。
+3. 将源码和同一标签推到两个仓库。分别创建发行版，上传同一批安装包和签名，以及对应站点的清单。Gitee 的附件名须与清单中的文件名一致，单个附件须在 100 MB 以内。
+4. 用 `pnpm tauri signer sign --app-version <版本号> <Gitee 清单目录>/latest.json` 为 Gitee 清单签名。在 Gitee 的 `updates` 分支提交 `latest.json` 和 `latest.json.sig`。确认所有附件可匿名下载后，再推动这个分支，让客户端见到完整版本。
+5. 将完整的 GitHub Release 设为最新。从 GitHub 的 `releases/latest/download/latest.json` 和 Gitee 的 `raw/updates/latest.json` 回读版本，核对附件摘要与签名。
 
-应用内「检查更新」从 GitHub Releases 获取最新稳定版。macOS、Windows 和 Linux AppImage 使用 `latest.json` 下载签名更新包。Linux DEB 和 Android 在页屿里显示下载进度，依据发布资产的 SHA-256 核对文件，下载完成后可打开系统安装器。Android 首次从页屿安装时需要在系统设置中授权来源，返回后可继续安装。Linux 缺少关联的安装程序时，可将 DEB 保存到指定位置。
+应用内「检查更新」可选自动、GitHub 或 Gitee。自动会检查两个源，同版本下载失败时可切换。手动选择按指定的来源检查和下载。macOS、Windows 和 Linux AppImage 使用发布签名验证更新包。Linux DEB 和 Android 在页屿里显示下载进度并核对 SHA-256。Gitee 上的 DEB 和 APK 摘要来自签名清单。Android 首次从页屿安装时需要在系统设置中授权来源，返回后可继续安装。Linux 缺少关联的安装程序时，可将 DEB 保存到指定位置。

@@ -497,7 +497,7 @@ async function exportDocument(format: 'html' | 'pdf') {
 }
 
 function showMobileUpdate() {
-  showUpdate(() => checkPublishedPackage({ beforeInstall: checkpoint }), { open: pages.push })
+  showUpdate(source => checkPublishedPackage({ source, beforeInstall: checkpoint }), { open: pages.push })
 }
 
 async function openService(page: MobileServicePage) {

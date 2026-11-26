@@ -6381,7 +6381,7 @@ dependencies = [
 
 [[package]]
 name = "yeyu"
-version = "0.2.18"
+version = "0.2.19"
 dependencies = [
  "base64 0.22.1",
  "blake3",
@@ -6393,6 +6393,7 @@ dependencies = [
  "glob",
  "keyring",
  "mime_guess",
+ "minisign-verify",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",

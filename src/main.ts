@@ -698,8 +698,9 @@ async function applyTitlebar(material: TitlebarMaterial) {
 }
 
 function checkAppUpdate() {
-  showUpdate(async () => {
+  showUpdate(async source => {
     if (await invoke<boolean>('update_package')) return checkPublishedPackage({
+      source,
       beforeInstall: checkpoint,
       async save(version) {
         const path = await save({ defaultPath: `Yeyu_${version}.deb`, filters: [{ name: 'DEB', extensions: ['deb'] }] })
@@ -707,7 +708,7 @@ function checkAppUpdate() {
         return path
       },
     })
-    const release = await invoke<ReleaseInfo | null>('update_check')
+    const release = await invoke<ReleaseInfo | null>('update_check', { source })
     return release && {
       ...release,
       kind: 'install',
@@ -715,7 +716,7 @@ function checkAppUpdate() {
         // 原生更新会退出或重启应用，必须先处理未保存的文档和恢复草稿。
         if (!await canLeave()) return false
         await checkpoint()
-        await invoke('update_install', { version: release.version, progress: new Channel<UpdateProgress>(report) })
+        await invoke('update_install', { version: release.version, source, progress: new Channel<UpdateProgress>(report) })
       },
     }
   })

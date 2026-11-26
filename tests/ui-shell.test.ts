@@ -1300,9 +1300,12 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
               return { ...args, version: '1', name: '页屿更新测试.md' }
             case 'save_recovery': if (!args.recovery) test.operations.push('checkpoint'); return
             case 'update_package': return test.package
-            case 'update_check_package': return { version: '9.0.1', notes: 'DEB 发布说明' }
+            case 'update_check_package':
+              test.packageSource = args.source
+              return { version: '9.0.1', notes: 'DEB 发布说明' }
             case 'update_download_package': {
               test.downloadedVersion = args.version
+              test.downloadedSource = args.source
               const send = event => window.__TAURI_INTERNALS__.runCallback(args.progress.id, event)
               send({ index: 0, message: { kind: 'download', downloaded: 524288, total: 1048576 } })
               return new Promise(resolve => {
@@ -1315,7 +1318,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
             }
             case 'update_open_package': test.openedVersion = args.version; return 'save'
             case 'update_save_package': test.savedPackage = args; return
-            case 'update_check': return new Promise((resolve, reject) => test.checks.push({ resolve, reject }))
+            case 'update_check': return new Promise((resolve, reject) => test.checks.push({ source: args.source, resolve, reject }))
             case 'update_install': {
               test.operations.push('install')
               test.installedVersion = args.version
@@ -1340,6 +1343,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
         await expect.poll(() => page.evaluate('window.__updates.checks.length')).toBe(count)
       }
       await openUpdate(1)
+      expect(await page.evaluate('window.__updates.checks[0].source')).toBe('auto')
       await dialog.getByText('当前版本 0.2.5').waitFor()
       await dialog.getByText('正在检查更新…').waitFor()
       const box = (await dialog.boundingBox())!
@@ -1395,10 +1399,12 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       expect(await dialog.innerText()).not.toContain('fixture-secret')
 
       await page.evaluate('window.__updates.package = true')
-      await dialog.getByRole('button', { name: '重试' }).click()
+      await dialog.getByRole('button', { name: 'Gitee', exact: true }).click()
       await dialog.getByRole('button', { name: '下载更新' }).click()
       await dialog.getByText('512.0 KiB / 1.0 MiB · 50%').waitFor()
       expect(await page.evaluate('window.__updates.downloadedVersion')).toBe('9.0.1')
+      expect(await page.evaluate('window.__updates.packageSource')).toBe('gitee')
+      expect(await page.evaluate('window.__updates.downloadedSource')).toBe('gitee')
       expect(await dialog.getByRole('button', { name: '打开安装包' }).count()).toBe(0)
       await page.evaluate('window.__updates.finishDownload()')
       await dialog.getByText('安装包已校验，可以开始安装。').waitFor()
@@ -1410,6 +1416,13 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       expect(await page.evaluate('window.__updates.visited')).toBeUndefined()
       expect(await progress.count()).toBe(0)
       await dialog.getByRole('button', { name: '关闭' }).click()
+      await page.getByRole('menuitem', { name: '帮助', exact: true }).click()
+      await page.getByRole('menuitem', { name: '检查更新…', exact: true }).click()
+      expect(await dialog.getByRole('button', { name: 'Gitee', exact: true }).getAttribute('aria-pressed')).toBe('true')
+      await dialog.getByRole('button', { name: 'GitHub', exact: true }).click()
+      await expect.poll(() => page.evaluate('window.__updates.packageSource')).toBe('github')
+      await dialog.getByRole('button', { name: '关闭' }).click()
+      await page.evaluate('localStorage.removeItem("yeyu.update.source.v1")')
     } finally {
       await page.unroute(api)
     }
