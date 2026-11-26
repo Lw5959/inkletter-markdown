@@ -105,6 +105,15 @@ Chrome 158 使用 `node tests/export-browser.mjs` 的固定样本，比较导出
 
 ## 平台验收范围
 
+### 0.2.21
+
+- macOS Apple Silicon 用真实 Finder 打开 Markdown 和 TXT。Launch Services 将页屿列为 TXT 的可用打开方式。两份文档分别编辑保存，重复打开聚焦已有窗口。强制结束后，两份草稿和源码模式分别恢复。
+- macOS 原生测试核对标题栏双击放大和还原，网页视口从 1200 × 800 变为 1728 × 1084 后恢复原尺寸。插件中心、软件更新和确认框均创建独立窗口。取消二次确认保留草稿，确认放弃后重载。
+- Linux ARM64 容器中的原生窗口通过多文件、独立工具窗口、保存和草稿恢复。Linux ARM64 和 x64 的 DEB 与 AppImage 在隔离的 X11 会话通过打开、编辑、保存和 BOM 核对。
+- macOS Intel DMG、Windows x64 安装器和 Android ARM64 APK 完成构建及签名核对。Windows 安装器完成归档测试，Android 与 0.2.20 使用同一签名证书。三个目标的设备实测未执行。
+- OpenCode 1.19.6 使用插件生成的配置连接。OpenCode 2.4.2 通过运行时注册后显示已连接，配置文件的自动发现未通过。原生 QA 覆盖插件离线安装、搜索、读文档、读选区、提交建议、审阅和保存。 [OpenCode 接入说明](../examples/plugins/opencode.md)
+- Rust 21 项、WebKit 49 项、Chromium 4 项针对性测试通过。六种目标架构的发布构建记录均为零警告。构建源为 `e20e512`。 [GitHub 发布](https://github.com/Lw5959/yeyu/releases/tag/v0.2.21) · [Gitee 发布](https://gitee.com/Lw5959/yeyu/releases/tag/v0.2.21)
+
 ### 0.2.10
 
 Android 的首页、编辑器及工具页通过滑动和淡入切换。预测返回接入 AndroidX 的开始、进度、取消及提交回调，手势进度驱动当前页的合成动画。结束手势时按页面栈返回，首页交由系统处理。应用动画开关和系统减少动态效果均参与判断。
