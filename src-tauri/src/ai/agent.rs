@@ -48,8 +48,10 @@ struct Exchange {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Request {
     id: String,
+    session_id: String,
     selection: Selection,
     messages: Vec<Message>,
     tools: Vec<Tool>,
@@ -381,8 +383,15 @@ async fn turn(
         &request.tools,
         &request.history,
     );
-    let request = stream_request(http, endpoint, protocol, key.as_deref(), &body)?
-        .timeout(Duration::from_secs(120));
+    let request = stream_request(
+        http,
+        endpoint,
+        protocol,
+        key.as_deref(),
+        &body,
+        &request.session_id,
+    )?
+    .timeout(Duration::from_secs(120));
     let response = stream_response(request).await?;
     let mut events = response.bytes_stream().eventsource();
     let mut collected = Collected::default();
@@ -439,7 +448,8 @@ mod tests {
 
     fn request() -> Request {
         serde_json::from_value(json!({
-            "id": "agent-fixture", "selection": { "providerId": "fixture", "model": "test-model" },
+            "id": "agent-fixture", "sessionId": "0d19324b-93a1-485a-a086-df35839c6c77",
+            "selection": { "providerId": "fixture", "model": "test-model" },
             "messages": [{ "role": "system", "text": "使用授权文档" }, { "role": "user", "text": "读取第一行" }],
             "tools": [{ "name": "read_document", "description": "读取", "schema": { "type": "object" } }],
             "history": []

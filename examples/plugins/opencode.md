@@ -2,6 +2,8 @@
 
 适用于页屿桌面版 0.2.21 及以上。可从在线市场或「内置插件」安装。插件生成配置的过程可以离线完成。
 
+在页屿 AI 侧栏直接使用 OpenCode Go 模型时，请在「模型配置」中添加供应商。 [模型配置说明](../../README.md#ai-写作)
+
 1. 在页屿打开工作区文件夹，从「视图 → 协作侧栏 → MCP 工具与连接」授权此工作区。
 2. 安装并启用「OpenCode 工作区接入」。从「编辑 → 运行插件」选择「复制 OpenCode 2 配置」或「复制 OpenCode 1 配置」。
 3. 把复制出的条目合并到 OpenCode 项目的 `opencode.json` 或 `opencode.jsonc`。OpenCode 2 的条目位于 `mcp.servers.yeyu`，OpenCode 1 位于 `mcp.yeyu`。在该项目目录运行 `opencode mcp list` 确认连接。 [OpenCode MCP 配置](https://opencode.ai/docs/mcp-servers/)

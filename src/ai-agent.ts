@@ -8,6 +8,7 @@ export type AgentDocument = { name: string; text: string }
 export type AgentMessage = { role: 'system' | 'user' | 'assistant'; text: string }
 export type AgentInput = {
   id: string
+  sessionId: string
   selection: AiSelection
   messages: AgentMessage[]
   documents: AgentDocument[]
@@ -207,7 +208,7 @@ export async function runAgent(input: AgentInput, callbacks: {
       if (accepting && !callbacks.signal.aborted && item.kind === 'delta') callbacks.delta(item.text)
     }
     const reply = await invoke<Turn | null>('ai_agent_turn', {
-      request: { id: input.id, selection: input.selection, messages, history, tools: definitions }, event,
+      request: { id: input.id, sessionId: input.sessionId, selection: input.selection, messages, history, tools: definitions }, event,
     }).finally(() => { accepting = false })
     callbacks.signal.throwIfAborted()
     if (!reply) throw new DOMException('已取消生成', 'AbortError')

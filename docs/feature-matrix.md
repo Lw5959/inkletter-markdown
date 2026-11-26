@@ -104,9 +104,9 @@
 | 功能 | Android 原生命令 | 接入约束 |
 |---|---|---|
 | 模型配置 | `ai_settings`、`ai_provider_save({ provider, key })`、`ai_provider_remove({ id })`、`ai_model_select({ selection })` | 使用桌面供应商和模型类型。新增供应商 ID 须为 UUID。省略 `key` 时，同地址同协议保留旧密钥。传空串清除。更换地址或协议时重新填写密钥。Android Keystore 保护凭据，前端仅接收 `hasKey` |
-| 获取模型列表 | `ai_list_models({ request: { id, endpoint, protocol, key } })` | 调用供应商 API 前缀下的 `/models`，返回去重的模型 ID。省略 `key` 时在同地址同协议沿用存储的密钥。获取时传入的密钥仅用于本次请求 |
-| AI 流式写作 | `ai_stream({ id, selection, messages, event })`、`ai_cancel({ id })` | 支持 `chat`、`anthropic`、`responses`。`id` 每次生成使用新 UUID。`messages` 的元素为 `{ role, text }`。Tauri Channel 发送 `delta`、`done` 或 `cancelled`，出错时 invoke 拒绝。等 `done` 后进入差异审阅 |
-| 智能体模型轮次 | `ai_agent_turn({ request, event })` | 一次请求返回完整工具调用或最终文本。前端执行已确认的文档工具并续接工具结果。`ai_cancel` 停止活动轮次，已生成的建议需审阅后应用 |
+| 获取模型列表 | `ai_list_models({ request: { id, endpoint, protocol, key } })` | 调用供应商 API 前缀下的 `/models`，OpenCode Go 走统一模型目录。返回去重的模型 ID。省略 `key` 时在同地址同协议沿用存储的密钥。获取时传入的密钥仅用于本次请求 |
+| AI 流式写作 | `ai_stream({ id, sessionId, selection, messages, event })`、`ai_cancel({ id })` | 支持 `chat`、`anthropic`、`responses`。`id` 每次生成使用新 UUID，`sessionId` 沿用已保存的对话 UUID。OpenCode Go 官方地址接收由其派生的会话标识。Tauri Channel 发送 `delta`、`done` 或 `cancelled`，出错时 invoke 拒绝。等 `done` 后进入差异审阅 |
+| 智能体模型轮次 | `ai_agent_turn({ request, event })` | 一次请求返回完整工具调用或最终文本。同一对话的 `request.sessionId` 在流式写作、压缩和各工具轮之间一致。前端执行已确认的文档工具并续接工具结果。`ai_cancel` 停止活动轮次，已生成的建议需审阅后应用 |
 | 插件安装和运行 | `plugin_list`、`plugin_install_content({ text })`、`plugin_set_enabled({ id, enabled })`、`plugin_remove({ id })`、`plugin_run({ id, command, text })` | `text` 为 SAF 读出的 UTF-8 JSON，最多 2 MiB。支持 JavaScript 与 Rust 编译的 Wasm。安装后先启用，运行仅返回文本结果。接口 3 的多文档和图片命令需要前端提供对应的文件或图片工作流 |
 | 插件市场 | `plugin_market_list({ source, refresh })`、`plugin_market_install({ source, id, sha256 })` | `source: null` 使用内置离线目录。在线安装传入列表返回的源地址、插件 ID 和摘要。安装返回 `{ installed, catalog }` |
 | MCP 客户端 | `mcp_connect({ server })`、`mcp_connected`、`mcp_call({ id, item, args })`、`mcp_disconnect({ id })` | `server` 为 `{ id, name, transport: 'http', url }`。连接后返回服务端发布的工具、资源和提示词。调用参数只在本次调用传给服务。stdio 客户端、stdio 服务及工作区授权仅限桌面 |

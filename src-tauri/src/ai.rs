@@ -6,7 +6,10 @@ use crate::store::{Store, err};
 use config::{Models, Selection, Target};
 use eventsource_stream::Eventsource;
 use futures_util::StreamExt;
-use reqwest::{Client, RequestBuilder, Url, header::HeaderValue};
+use reqwest::{
+    Client, RequestBuilder, Url,
+    header::{HeaderValue, USER_AGENT},
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
@@ -18,6 +21,7 @@ use std::{
 use tauri::{State, ipc::Channel};
 use tokio::sync::oneshot;
 use url::Host;
+use uuid::Uuid;
 
 #[derive(Default)]
 pub struct Jobs(Mutex<HashMap<String, oneshot::Sender<()>>>);
@@ -121,6 +125,16 @@ fn direct_endpoint(url: Url) -> Result<Url, String> {
     Ok(url)
 }
 
+fn is_opencode_go(url: &Url) -> bool {
+    let path = url.path();
+    url.scheme() == "https"
+        && url.host_str() == Some("opencode.ai")
+        && url.port().is_none()
+        && (matches!(path, "/inference/go" | "/zen/go")
+            || path.starts_with("/inference/go/")
+            || path.starts_with("/zen/go/"))
+}
+
 fn model_endpoint(endpoint: &str, protocol: Protocol) -> Result<Url, String> {
     // AI 按供应商手动配置的地址连接，模型列表和生成请求共用同一地址规则。
     let mut url = direct_endpoint(http_endpoint(endpoint)?)?;
@@ -129,7 +143,14 @@ fn model_endpoint(endpoint: &str, protocol: Protocol) -> Result<Url, String> {
         return Ok(url);
     }
     // 配置页允许输入服务根地址、API 前缀或完整地址；切协议时复用原有前缀。
-    let prefix = if path.is_empty() {
+    let prefix = if is_opencode_go(&url) && path == "/inference/go" {
+        match protocol {
+            Protocol::Anthropic => "/inference/go/anthropic/v1",
+            Protocol::Chat | Protocol::Responses => "/inference/go/openai/v1",
+        }
+    } else if is_opencode_go(&url) && path == "/zen/go" {
+        "/zen/go/v1"
+    } else if path.is_empty() {
         "/v1"
     } else {
         [Protocol::Chat, Protocol::Anthropic, Protocol::Responses]
@@ -185,6 +206,10 @@ struct ModelId {
 }
 
 fn models_endpoint(mut endpoint: Url, protocol: Protocol) -> Url {
+    if is_opencode_go(&endpoint) {
+        endpoint.set_path("/inference/go/v1/models");
+        return endpoint;
+    }
     let path = endpoint.path().trim_end_matches('/');
     let prefix = path.strip_suffix(protocol.path()).unwrap_or(path);
     endpoint.set_path(&format!("{prefix}/models"));
@@ -287,6 +312,7 @@ fn model_request(
     settings: &Target,
     messages: &[Message],
     key: Option<String>,
+    session_id: &str,
 ) -> Result<RequestBuilder, String> {
     let protocol = settings.protocol;
     let conversation = model_messages(protocol, messages);
@@ -300,7 +326,7 @@ fn model_request(
             "model": model, "input": conversation, "instructions": system_messages(messages), "store": false, "stream": true
         }),
     };
-    stream_request(http, endpoint, protocol, key.as_deref(), &body)
+    stream_request(http, endpoint, protocol, key.as_deref(), &body, session_id)
 }
 
 fn model_messages(protocol: Protocol, messages: &[Message]) -> Vec<Value> {
@@ -326,12 +352,24 @@ fn stream_request(
     protocol: Protocol,
     key: Option<&str>,
     body: &Value,
+    session_id: &str,
 ) -> Result<RequestBuilder, String> {
-    let request = http
+    let go = is_opencode_go(&endpoint);
+    let mut request = http
         .post(endpoint)
         .timeout(Duration::from_secs(300))
         .header("Accept", "text/event-stream")
         .json(body);
+    if go {
+        // 只向 Go 官方 HTTPS 地址发送不含正文的会话标识，供应商据此复用路由和缓存。
+        let session = Uuid::try_parse(session_id).map_err(|_| "AI 对话编号无效，请新建对话")?;
+        request = request
+            .header(USER_AGENT, concat!("yeyu/", env!("CARGO_PKG_VERSION")))
+            .header(
+                "x-opencode-session",
+                format!("ses_yeyu_{}", session.simple()),
+            );
+    }
     authorize(request, protocol, key)
 }
 
@@ -417,8 +455,9 @@ async fn stream(
     key: Option<String>,
     messages: Vec<Message>,
     event: &Channel<Event>,
+    session_id: &str,
 ) -> Result<(), String> {
-    let request = model_request(http, endpoint, &settings, &messages, key)?;
+    let request = model_request(http, endpoint, &settings, &messages, key, session_id)?;
     let response = stream_response(request).await?;
     let mut events = response.bytes_stream().eventsource();
     let mut saw_delta = false;
@@ -466,6 +505,9 @@ async fn stream_response(request: RequestBuilder) -> Result<reqwest::Response, S
             .chars()
             .take(500)
             .collect();
+        if detail.contains("MissingSessionID") {
+            return Err("OpenCode Go 未收到会话标识。请使用其官方 API 地址，或确认服务代理会转发 x-opencode-session。".into());
+        }
         return Err(format!("模型服务返回 {status} {detail}"));
     }
     Ok(response)
@@ -474,6 +516,7 @@ async fn stream_response(request: RequestBuilder) -> Result<reqwest::Response, S
 #[tauri::command]
 pub async fn ai_stream(
     id: String,
+    session_id: String,
     selection: Selection,
     messages: Vec<Message>,
     event: Channel<Event>,
@@ -484,7 +527,16 @@ pub async fn ai_stream(
 ) -> Result<(), String> {
     let request = async {
         let (settings, endpoint, key) = config::target(&store, &models, selection)?;
-        stream(&http, endpoint, settings, key, messages, &event).await
+        stream(
+            &http,
+            endpoint,
+            settings,
+            key,
+            messages,
+            &event,
+            &session_id,
+        )
+        .await
     };
     match jobs.run(id, request).await? {
         Some(()) => Ok(()),
@@ -521,6 +573,8 @@ pub async fn ai_conversations(
 mod tests {
     use super::*;
 
+    const SESSION: &str = "0d19324b-93a1-485a-a086-df35839c6c77";
+
     #[test]
     fn endpoint_accepts_local_and_preserves_api_prefix() {
         assert_eq!(
@@ -553,6 +607,92 @@ mod tests {
         assert!(safe_endpoint("http://192.0.2.10:8080/team/v1").is_err());
         assert!(model_endpoint("file:///v1", Protocol::Chat).is_err());
         assert!(model_endpoint("https://user@example.org", Protocol::Responses).is_err());
+    }
+
+    #[test]
+    fn opencode_go_uses_the_same_session_for_all_protocols() {
+        let http = Client::new();
+        let second = "81d31869-b85f-4c20-b984-3d1f5b067c88";
+        let session_header = "x-opencode-session";
+        let cases = [
+            (Protocol::Chat, "/inference/go/openai/v1/chat/completions"),
+            (Protocol::Anthropic, "/inference/go/anthropic/v1/messages"),
+            (Protocol::Responses, "/inference/go/openai/v1/responses"),
+        ];
+        for (protocol, path) in cases {
+            let endpoint = model_endpoint("https://opencode.ai/inference/go", protocol).unwrap();
+            assert_eq!(endpoint.path(), path);
+            assert_eq!(
+                models_endpoint(endpoint.clone(), protocol).path(),
+                "/inference/go/v1/models"
+            );
+            let body = json!({ "stream": true });
+            let build = |session| {
+                stream_request(
+                    &http,
+                    endpoint.clone(),
+                    protocol,
+                    Some("fixture"),
+                    &body,
+                    session,
+                )
+                .unwrap()
+                .build()
+                .unwrap()
+            };
+            let request = build(SESSION);
+            let headers = request.headers();
+            assert_eq!(
+                headers[USER_AGENT],
+                concat!("yeyu/", env!("CARGO_PKG_VERSION"))
+            );
+            assert_eq!(
+                headers[session_header],
+                "ses_yeyu_0d19324b93a1485aa086df35839c6c77"
+            );
+            assert_eq!(
+                headers[session_header],
+                build(SESSION).headers()[session_header]
+            );
+            assert_ne!(
+                headers[session_header],
+                build(second).headers()[session_header]
+            );
+            if protocol == Protocol::Anthropic {
+                assert_eq!(headers["x-api-key"], "fixture");
+            } else {
+                assert_eq!(headers["authorization"], "Bearer fixture");
+            }
+        }
+
+        let legacy = model_endpoint("https://opencode.ai/zen/go/v1", Protocol::Chat).unwrap();
+        assert_eq!(legacy.path(), "/zen/go/v1/chat/completions");
+        let body = json!({});
+        assert!(
+            stream_request(&http, legacy.clone(), Protocol::Chat, None, &body, SESSION)
+                .unwrap()
+                .build()
+                .unwrap()
+                .headers()
+                .contains_key(session_header)
+        );
+        assert!(
+            stream_request(&http, legacy, Protocol::Chat, None, &body, "无法作为请求头").is_err()
+        );
+        for endpoint in [
+            "https://opencode.ai/zen/v1",
+            "https://opencode.ai:8443/zen/go/v1",
+            "https://opencode.ai/inference/go-other",
+            "https://opencode.ai.example.org/zen/go/v1",
+            "http://opencode.ai/zen/go/v1",
+        ] {
+            let endpoint = model_endpoint(endpoint, Protocol::Chat).unwrap();
+            let request = stream_request(&http, endpoint, Protocol::Chat, None, &body, SESSION)
+                .unwrap()
+                .build()
+                .unwrap();
+            assert!(!request.headers().contains_key(session_header));
+        }
     }
 
     #[tokio::test]
@@ -676,6 +816,7 @@ mod tests {
                 text: "测试流式响应".into(),
             }],
             Some("fixture".into()),
+            SESSION,
         )
         .unwrap()
         .timeout(Duration::from_secs(5))
@@ -720,6 +861,7 @@ mod tests {
                 &settings,
                 &messages,
                 Some("test-key".into()),
+                SESSION,
             )
             .unwrap()
             .build()

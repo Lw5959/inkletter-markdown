@@ -39,6 +39,8 @@ AI 写作沿用桌面端的供应商、模型、提示词和差异审阅，API �
 
 在 AI 侧栏打开「模型配置」，点击「添加供应商」。每个供应商有自己的 API 地址、协议和密钥，可添加多个模型 ID。协议支持 Chat Completions、Anthropic Messages 和 Responses。地址可填 HTTP 或 HTTPS 的服务根地址、API 前缀或完整接口地址。密钥保存到系统的 Keychain、Credential Manager 或 Secret Service。HTTP 会明文传输密钥及请求内容。已有单模型配置会自动显示为一个供应商。
 
+使用 OpenCode Go 时，API 地址可填 `https://opencode.ai/inference/go`，再选择协议并填入 Go 所用的 Console API 密钥。页屿会随同一对话的生成、重试和智能体请求发送稳定的会话标识。OpenCode 工作区接入插件用于让 OpenCode 通过 MCP 读取文档和提交修改建议。 [OpenCode Go 接入说明](https://opencode.ai/docs/console/go/#where-can-i-use-it) · [OpenCode 工作区接入](examples/plugins/opencode.md)
+
 填写供应商的地址和所需密钥后，点「获取模型」读取列表。可以筛选、勾选多个模型，点「添加所选」后保存配置。供应商没有提供模型列表时，可用「添加模型」填写 ID。[OpenAI 模型列表](https://developers.openai.com/api/reference/typescript/resources/models/methods/list) · [Anthropic 模型列表](https://platform.claude.com/docs/en/api/typescript/models/list)
 
 保存后，在对话顶部的模型菜单选择供应商和模型。下次启动时沿用最后选择。切换供应商会切换到对应的会话，原供应商的对话保留在当前应用会话中。

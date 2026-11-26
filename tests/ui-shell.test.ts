@@ -855,13 +855,14 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       const { Writing } = await import('/src/ai.ts')
       const { shell, editor } = window.__test
       const scope = 'fixture\nhttps://models.example.test/v1'
-      const archive = { conversations: [{ id: 'old', scope, title: '原项目',
+      const oldId = '81d31869-b85f-4c20-b984-3d1f5b067c88'
+      const archive = { conversations: [{ id: oldId, scope, title: '原项目',
         messages: [
           { role: 'user', text: '只保留在原始记录的标记' }, { role: 'assistant', text: '已确认需求' },
           { role: 'user', text: '采购完成了吗' }, { role: 'assistant', text: '尚待复核' },
           { role: 'user', text: '需要复核哪个项目' }, { role: 'assistant', text: '设备清单' }
         ], summary: '', covered: 0, updated: 1
-      }], selected: { [scope]: 'old' } }
+      }], selected: { [scope]: oldId } }
       const callbacks = new Map()
       let id = 0
       const observed = []
@@ -879,7 +880,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
           }
           if (cmd === 'ai_agent_turn') {
             const request = structuredClone(data.request)
-            observed.push({ command: cmd, request })
+            observed.push({ command: cmd, id: request.id, sessionId: request.sessionId, request })
             const send = callbacks.get(data.event.id)
             const plan = { id: 'plan', name: 'update_plan', arguments: JSON.stringify({ plan: [{ step: '整理摘要任务', status: 'completed' }] }) }
             const text = request.history.length ? '## 智能体结论\n\n已复核。' : ''
@@ -889,7 +890,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
           }
           if (cmd !== 'ai_stream') return null
           const messages = structuredClone(data.messages)
-          observed.push({ command: cmd, messages })
+          observed.push({ command: cmd, id: data.id, sessionId: data.sessionId, messages })
           const send = callbacks.get(data.event.id)
           if (window.__desktopAi.failNext) {
             window.__desktopAi.failNext = false
@@ -952,6 +953,11 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     await expect.poll(() => page.evaluate('window.__desktopAi.observed.length')).toBe(3)
     await page.evaluate('window.__finishOnce()')
     await page.getByText('新的回复', { exact: true }).waitFor()
+    const retries = await page.evaluate('window.__desktopAi.observed.slice(0, 3)') as { id: string; sessionId: string }[]
+    expect(new Set(retries.map(item => item.id)).size).toBe(3)
+    expect(retries[0].sessionId).toMatch(/^[0-9a-f-]{36}$/)
+    expect(retries.map(item => item.sessionId)).toEqual(Array(3).fill(retries[0].sessionId))
+    expect(retries[0].sessionId).not.toBe('81d31869-b85f-4c20-b984-3d1f5b067c88')
     expect(await page.locator('.yy-ai-messages .yy-msg-assistant').count()).toBe(1)
     expect(await page.locator('.yy-msg-user').count()).toBe(1)
     await page.getByRole('button', { name: '复制 Markdown' }).click()
@@ -1009,6 +1015,8 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     await page.getByRole('heading', { name: '智能体结论' }).waitFor()
     expect(await page.evaluate('window.__desktopAi.observed.slice(-3).map(item => item.command)'))
       .toEqual(['ai_stream', 'ai_agent_turn', 'ai_agent_turn'])
+    expect(await page.evaluate('window.__desktopAi.observed.slice(-3).map(item => item.sessionId)'))
+      .toEqual(Array(3).fill('81d31869-b85f-4c20-b984-3d1f5b067c88'))
     const shortened = JSON.stringify(await page.evaluate('window.__desktopAi.observed.at(-1).request'))
     expect(shortened).toContain('已压缩的历史重点')
     expect(shortened).toContain('保留的问题 2')
@@ -1707,10 +1715,13 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       expect(await diff.locator('[data-hunk]').count()).toBe(2)
       const requests = await phone.evaluate('window.__agentFixture.requests') as {
         id: string
+        sessionId: string
         messages: { text: string }[]
         history: { results: { id: string; error: boolean; content: string }[] }[]
       }[]
       expect(requests).toHaveLength(4)
+      expect(requests[0].sessionId).toMatch(/^[0-9a-f-]{36}$/)
+      expect(requests.map(item => item.sessionId)).toEqual(Array(4).fill(requests[0].sessionId))
       expect(JSON.stringify(requests)).not.toContain('待保留的内部文字')
       expect(requests[0].messages.at(-1)!.text).not.toContain('旧述第一段')
       expect(JSON.parse(requests[1].history[0].results[0].content).matches.map((item: { line: number }) => item.line)).toEqual([3, 7])
@@ -1737,6 +1748,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       await writing.getByText('重试完成', { exact: true }).waitFor()
       const last = await phone.evaluate('window.__agentFixture.requests.slice(-2)') as typeof requests
       expect(last[0].id).not.toBe(last[1].id)
+      expect(last.map(item => item.sessionId)).toEqual(Array(2).fill(requests[0].sessionId))
       expect(last[0].messages).toEqual(last[1].messages)
       await writing.locator('.yy-ai-messages .yy-msg-assistant').last().getByRole('button', { name: '插入文档' }).tap()
       const insertReview = writing.getByRole('region', { name: '差异审阅建议' })
