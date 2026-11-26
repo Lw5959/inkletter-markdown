@@ -207,15 +207,30 @@ async fn github(app: &AppHandle, client: &Client) -> Result<Option<Package>, Str
     release.package(&app.package_info().version)
 }
 
+fn gitee_raw_redirect(url: &Url, location: &str) -> Option<Url> {
+    let target = url.join(location).ok()?;
+    let mut official = url.clone();
+    official.set_host(Some("raw.giteeusercontent.com")).ok()?;
+    // 官方存储可能附带临时访问参数，文件路径仍须与请求一致。
+    official.set_query(target.query());
+    (target == official).then_some(target)
+}
+
 async fn feed_bytes(client: &Client, url: Url) -> Result<Vec<u8>, String> {
-    let mut response = client
-        .get(url)
-        .timeout(CHECK_TIMEOUT)
-        .send()
-        .await
-        .map_err(err)?
-        .error_for_status()
-        .map_err(err)?;
+    let mut response = client.get(url.clone()).send().await.map_err(err)?;
+    if response.status().is_redirection() {
+        // Gitee 会把 raw 地址跳转到官方存储。只允许同一文件的跳转，避免将 HTML 跳转页当成签名读取。
+        let target = response
+            .headers()
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|location| gitee_raw_redirect(&url, location))
+            .ok_or("Gitee 更新清单跳转地址无效")?;
+        response = client.get(target).send().await.map_err(err)?;
+    }
+    if !response.status().is_success() {
+        return Err("无法读取 Gitee 更新清单".into());
+    }
     let mut data = Vec::new();
     while let Some(chunk) = response.chunk().await.map_err(err)? {
         if data.len() + chunk.len() > MAX_FEED_BYTES {
@@ -247,8 +262,11 @@ async fn gitee(app: &AppHandle, client: &Client) -> Result<Option<Package>, Stri
     let url = endpoint(app, 1)?;
     let mut signature_url = url.clone();
     signature_url.set_path(&format!("{}.sig", url.path()));
-    let (body, signature) =
-        tokio::try_join!(feed_bytes(client, url), feed_bytes(client, signature_url))?;
+    let (body, signature) = tokio::time::timeout(CHECK_TIMEOUT, async {
+        tokio::try_join!(feed_bytes(client, url), feed_bytes(client, signature_url))
+    })
+    .await
+    .map_err(|_| "检查 Gitee 更新超时")??;
     let key = app
         .config()
         .plugins
@@ -577,6 +595,23 @@ mod tests {
         assert!(!asset_redirect(gitee, &unrelated));
         assert!(!asset_redirect(gitee, &github_storage));
         assert!(!asset_redirect(github, &storage));
+    }
+
+    #[test]
+    fn gitee_raw_redirect_only_accepts_the_requested_file() {
+        let path = "/Lw5959/yeyu/raw/updates/latest.json.sig";
+        let origin = Url::parse(&format!("https://gitee.com{path}")).unwrap();
+        let target = format!("https://raw.giteeusercontent.com{path}?download=1");
+        assert_eq!(
+            gitee_raw_redirect(&origin, &target).unwrap().as_str(),
+            target
+        );
+        assert!(gitee_raw_redirect(&origin, &format!("https://example.invalid{path}")).is_none());
+        assert!(
+            gitee_raw_redirect(&origin, &target.replace("latest.json.sig", "latest.json"))
+                .is_none()
+        );
+        assert!(gitee_raw_redirect(&origin, &target.replacen("https:", "http:", 1)).is_none());
     }
 
     #[tokio::test]
