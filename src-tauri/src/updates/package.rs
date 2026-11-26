@@ -287,22 +287,34 @@ pub async fn update_check_package(
         .map(|package| package.info))
 }
 
-fn asset_redirect(url: &Url) -> bool {
-    url.scheme() == "https"
+fn asset_redirect(source: Option<&str>, url: &Url) -> bool {
+    let allowed_host = match source {
+        Some("github.com") => matches!(
+            url.host_str(),
+            Some("release-assets.githubusercontent.com" | "objects.githubusercontent.com")
+        ),
+        // Gitee 经站内附件地址跳转到官方附件存储，整个链路仍使用同一个更新源。
+        Some("gitee.com") => match url.host_str() {
+            Some("gitee.com") => {
+                let prefix = "/Lw5959/yeyu/attach_files/";
+                url.path()
+                    .get(..prefix.len())
+                    .is_some_and(|path| path.eq_ignore_ascii_case(prefix))
+            }
+            Some("foruda.gitee.com") => url.path().starts_with("/attach_file/"),
+            _ => false,
+        },
+        _ => false,
+    };
+    allowed_host
+        && url.scheme() == "https"
         && url.port().is_none()
         && url.username().is_empty()
         && url.password().is_none()
-        && matches!(
-            url.host_str(),
-            Some(
-                "release-assets.githubusercontent.com"
-                    | "objects.githubusercontent.com"
-                    | "gitee.com"
-            )
-        )
 }
 
 async fn download_response(client: &Client, mut url: Url) -> Result<Response, String> {
+    let source = url.host_str().map(str::to_owned);
     for _ in 0..3 {
         let response = tokio::time::timeout(READ_TIMEOUT, client.get(url.clone()).send())
             .await
@@ -317,7 +329,9 @@ async fn download_response(client: &Client, mut url: Url) -> Result<Response, St
             .and_then(|header| header.to_str().ok());
         url = location
             .and_then(|target| url.join(target).ok())
-            .filter(|target| response.status().is_redirection() && asset_redirect(target))
+            .filter(|target| {
+                response.status().is_redirection() && asset_redirect(source.as_deref(), target)
+            })
             .ok_or("无法从页屿发布下载安装包")?;
     }
     Err("安装包下载重定向次数过多".into())
@@ -543,6 +557,26 @@ mod tests {
                 .package(&installed)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn package_redirects_stay_on_the_chosen_source() {
+        let gitee = Some("gitee.com");
+        let github = Some("github.com");
+        let attachment =
+            Url::parse("https://gitee.com/Lw5959/yeyu/attach_files/12/download/test.deb").unwrap();
+        let storage = Url::parse("https://foruda.gitee.com/attach_file/34/test.deb").unwrap();
+        let unrelated =
+            Url::parse("https://gitee.com/other/project/attach_files/12/download/test.deb")
+                .unwrap();
+        let github_storage =
+            Url::parse("https://release-assets.githubusercontent.com/download/test.deb").unwrap();
+        assert!(asset_redirect(gitee, &attachment));
+        assert!(asset_redirect(gitee, &storage));
+        assert!(asset_redirect(github, &github_storage));
+        assert!(!asset_redirect(gitee, &unrelated));
+        assert!(!asset_redirect(gitee, &github_storage));
+        assert!(!asset_redirect(github, &storage));
     }
 
     #[tokio::test]
