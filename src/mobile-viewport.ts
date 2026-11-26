@@ -6,8 +6,6 @@ type Insets = { left: number; top: number; right: number; bottom: number }
 export function installMobileViewport(paper: HTMLElement) {
   const root = document.documentElement
   const viewport = window.visualViewport
-  const container = paper.querySelector<HTMLElement>('.cm-editor')
-  const editor = container && EditorView.findFromDOM(container)
   let pendingFrame = 0
   let measuredHeight = 0
 
@@ -20,6 +18,9 @@ export function installMobileViewport(paper: HTMLElement) {
         measuredHeight = height
         root.style.setProperty('--yy-viewport-height', `${height}px`)
       }
+      // 正文和表格单元格各有自己的编辑器，跟随实际接收输入的那个光标。
+      const container = paper.ownerDocument.activeElement?.closest<HTMLElement>('.cm-editor')
+      const editor = container && paper.contains(container) ? EditorView.findFromDOM(container) : null
       if (!editor?.hasFocus) return
       // 键盘改变可用高度后，只在光标被遮住时移动文档，不改变选区或打断输入法组合。
       // WebKit 的折叠 DOM 选区可能返回空矩形，使用编辑器自身的光标几何。

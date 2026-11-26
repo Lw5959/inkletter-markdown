@@ -9,7 +9,7 @@ import { markdownSyntax } from './syntax'
 import type { Editor, EditorMode, EditorOptions, OutlineEntry, Presentation, Selection } from '../contracts'
 import { coalesceEndings, encode, encodedOffset, locate, originalOffset, originalSlice, rawBuffer, rawHistory, restoreRaw } from './buffer'
 import { applyFormat, blockFormats, lineFormats } from './formats'
-import { liveDecoration } from './live'
+import { liveDecoration, liveInsertionPoint } from './live'
 import { headingId, headingText, safeUrl } from './render'
 import { frontMatter } from './front-matter'
 import './document.css'
@@ -87,10 +87,12 @@ export function createEditor(host: HTMLElement, options: EditorOptions): Editor 
         const value = data.getData(clipboardType) || data.getData('text/plain')
         if (!value) return false
         const { anchor, head } = getSelection()
-        const from = Math.min(anchor, head)
+        const point = editor.state.selection.main.head
+        const shift = currentMode === 'live' && anchor === head ? liveInsertionPoint(editor, point) - point : 0
+        const from = Math.min(anchor, head) + shift
         event.preventDefault()
         const cursor = from + value.length
-        replace(from, Math.max(anchor, head), value, { anchor: cursor, head: cursor }, 'input.paste')
+        replace(from, Math.max(anchor, head) + shift, value, { anchor: cursor, head: cursor }, 'input.paste')
         return true
       },
       click(event) {

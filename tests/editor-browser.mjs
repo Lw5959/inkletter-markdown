@@ -114,6 +114,9 @@ try {
   assert.deepEqual(await page.evaluate(() => window.links), ['https://example.org'])
   await page.locator('.live-toc a').click()
   assert.deepEqual(await page.evaluate(() => window.editor.getSelection()), { anchor: 0, head: 0 })
+  await page.keyboard.insertText('新')
+  assert.match(await page.evaluate(() => window.editor.getMarkdown()), /^# 新标题/)
+  await page.locator('#write h1').getByText('新标题', { exact: true }).waitFor()
 
   await page.evaluate(() => {
     window.editor.setMarkdown('甲\r\n乙')
@@ -133,10 +136,20 @@ try {
   await page.locator('#write table').waitFor()
   await page.locator('#write pre code').waitFor()
   assert.doesNotMatch(await page.locator('#write .cm-content').innerText(), /\| 任务|[`]{3}js/)
+  await page.evaluate(() => {
+    const from = window.editor.getMarkdown().indexOf('| 主题接口')
+    window.editor.select({ anchor: from, head: from })
+  })
+  await page.locator('#write table').waitFor()
   await page.locator('#write table td').first().click()
-  await page.locator('#write .cm-line').filter({ hasText: '| 任务 | 状态 |' }).waitFor()
+  await page.locator('#write table .live-cell-editor .cm-content').waitFor()
+  await page.keyboard.press('End')
+  await page.keyboard.insertText('已对照|确认')
+  assert.equal(await page.evaluate(() => window.editor.getMarkdown()), blocks.replace('主题接口', '主题接口已对照\\|确认'))
+  await page.keyboard.press('Escape')
+  assert.doesNotMatch(await page.locator('#write .cm-content').innerText(), /\| 任务|[`]{3}js/)
+  await page.evaluate(() => window.editor.undo())
   assert.equal(await page.evaluate(() => window.editor.getMarkdown()), blocks)
-  await page.evaluate(() => window.editor.select({ anchor: 0, head: 0 }))
   await page.locator('#write table').waitFor()
 
   const html = await page.evaluate(() => window.renderMarkdown([

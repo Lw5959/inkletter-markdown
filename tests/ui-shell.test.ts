@@ -1315,6 +1315,50 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     }
   }, 15000)
 
+  it('Android 从大纲返回及触屏编辑表格时持续渲染，保存与源码切换保留原文', async () => {
+    const phone = await browser.newPage({ viewport: { width: 390, height: 736 }, isMobile: true, hasTouch: true })
+    phone.setDefaultTimeout(5000)
+    const markdown = '# 手机写作\r\n\r\n## 表格示例\n\n| 项目 | 状态 |\r| :--- | ---: |\r\n| **原值** | 就绪 |\n'
+    try {
+      await phone.addInitScript(text => {
+        const uri = 'content://qa/document/table-edit'
+        const document = { uri, name: '单元格.md', text, version: '1', bom: true, writable: true }
+        const native = window as unknown as Record<string, unknown>
+        native.__tableWrites = []
+        native.__TAURI_INTERNALS__ = { invoke: async (cmd: string, args: { text: string }) => {
+          if (cmd === 'android_pick') return uri
+          if (cmd === 'android_read') return document
+          if (cmd === 'android_write') { native.__tableWrites = [args]; return { ...document, text: args.text, version: '2' } }
+          return null
+        } }
+      }, markdown)
+      await phone.goto(`${baseUrl}/mobile.html`)
+      await phone.getByRole('button', { name: '打开文件', exact: true }).tap()
+      await phone.getByRole('button', { name: '大纲', exact: true }).tap()
+      await phone.getByRole('region', { name: '文档大纲' }).getByRole('button', { name: '表格示例' }).tap()
+      const table = phone.getByRole('table')
+      await table.getByRole('cell', { name: '就绪' }).tap()
+      const cellEditor = table.locator('.live-cell-editor .cm-content')
+      await cellEditor.waitFor()
+      await cellEditor.press('End')
+      await phone.keyboard.insertText('｜已核对|下一项')
+      await cellEditor.waitFor()
+      expect(await table.locator('strong').innerText()).toBe('原值')
+      expect(await table.innerText()).toContain('已核对')
+      const expected = markdown.replace('就绪', '就绪｜已核对\\|下一项')
+      await phone.getByRole('button', { name: '保存文档' }).tap()
+      await expect.poll(() => phone.evaluate('window.__tableWrites[0]')).toMatchObject({ text: expected, bom: true })
+      await phone.getByRole('button', { name: '源码', exact: true }).tap()
+      expect(await phone.locator('#write').innerText()).toContain('| **原值** | 就绪｜已核对\\|下一项 |')
+      await phone.getByRole('button', { name: '实时', exact: true }).tap()
+      await table.waitFor()
+      await phone.getByRole('button', { name: '撤销', exact: true }).tap()
+      await table.getByRole('cell', { name: '就绪', exact: true }).waitFor()
+    } finally {
+      await phone.close()
+    }
+  }, 15000)
+
   it('Android 在窄屏、横屏和大字号下保持工具可点，宽表格只在块内横向滚动', async () => {
     const title = '记录与分析_' + 'LONG_DOCUMENT_FILENAME_'.repeat(9) + '.md'
     const columns = Array.from({ length: 24 }, (_, i) => '独立配置说明第' + (i + 1) + '列')
