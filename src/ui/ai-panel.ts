@@ -81,7 +81,10 @@ export class AiPanel {
   })
   private promptInput = el('textarea', {
     className: 'yy-ai-input',
-    attrs: { rows: '1', placeholder: aiTasks.chat.placeholder, 'aria-label': 'AI 指令输入' },
+    attrs: {
+      rows: '1', placeholder: aiTasks.chat.placeholder, 'aria-label': 'AI 指令输入',
+      spellcheck: 'false', autocorrect: 'off', autocapitalize: 'off', autocomplete: 'off',
+    },
   })
   private modelOptions = new Map<string, AiSelection>()
   private modelPicker = new ChoicePicker('切换模型', '选择模型', value => { void this.selectModel(value) },
