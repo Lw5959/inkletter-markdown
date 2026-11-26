@@ -1295,7 +1295,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
             case 'plugin:dialog|save': return args.options?.defaultPath?.endsWith('.deb') ? '/tmp/页屿更新.deb' : '/tmp/页屿更新测试.md'
             case 'theme_list': case 'plugin_list': case 'typora_theme_paths': return []
             case 'ai_settings': return { providers: [], active: null }
-            case 'launch_paths': test.ready = true; return []
+            case 'document_window_request': test.ready = true; return null
             case 'document_version': return test.writes.length ? '1' : null
             case 'save_document':
               test.operations.push('save')
@@ -2153,6 +2153,9 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       expect(await recent.locator('.yy-mobile-recent-list button').allTextContents()).toEqual(['第一份.md', '第二份.md'])
       await recent.getByRole('button', { name: '第二份.md' }).click()
       await phone.getByRole('region', { name: '未保存的编辑' }).getByRole('button', { name: '继续编辑' }).click()
+      await recent.getByRole('button', { name: '第二份.md' }).click()
+      await phone.getByRole('region', { name: '未保存的编辑' }).getByRole('button', { name: '放弃更改' }).click()
+      await phone.getByRole('region', { name: '放弃未保存的编辑？' }).getByRole('button', { name: '继续编辑' }).click()
       await phone.evaluate(() => localStorage.setItem('revoked', 'content://qa/document/second'))
       await recent.getByRole('button', { name: '第二份.md' }).click()
       await phone.getByRole('region', { name: '无法打开最近文件' }).getByRole('button', { name: '移出记录' }).click()
