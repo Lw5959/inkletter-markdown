@@ -92,7 +92,7 @@ struct Package {
 
 #[derive(Deserialize)]
 struct MirrorRelease {
-    version: Version,
+    version: String,
     #[serde(default)]
     notes: String,
     packages: BTreeMap<String, MirrorAsset>,
@@ -100,7 +100,7 @@ struct MirrorRelease {
 
 #[derive(Deserialize)]
 struct MirrorAsset {
-    url: Url,
+    url: String,
     sha256: String,
     size: u64,
 }
@@ -165,23 +165,24 @@ impl Release {
 
 impl MirrorRelease {
     fn package(mut self, installed: &Version) -> Result<Option<Package>, String> {
-        if self.version <= *installed || !self.version.pre.is_empty() {
+        let version = Version::parse(&self.version).map_err(|_| "Gitee 发布版本号无效")?;
+        if version <= *installed || !version.pre.is_empty() {
             return Ok(None);
         }
-        let name = format!("Yeyu_{}_{PACKAGE_SUFFIX}", self.version);
+        let name = format!("Yeyu_{version}_{PACKAGE_SUFFIX}");
         let asset = self
             .packages
             .remove(PACKAGE_SUFFIX)
             .ok_or("Gitee 未提供此设备的安装包")?;
-        let expected = format!("{GITEE_RELEASES}/v{}/{name}", self.version);
-        if asset.url.as_str() != expected {
+        let expected = format!("{GITEE_RELEASES}/v{version}/{name}");
+        if asset.url != expected {
             return Err("Gitee 安装包地址与发布版本不符".into());
         }
         package_from(
-            self.version,
+            version,
             self.notes,
             name,
-            asset.url,
+            Url::parse(&asset.url).map_err(err)?,
             &asset.sha256,
             asset.size,
         )
@@ -520,7 +521,7 @@ mod tests {
         let mut feed = serde_json::json!({
             "version": "9.0.0",
             "packages": {
-                PACKAGE_SUFFIX: {
+                (PACKAGE_SUFFIX): {
                     "url": format!("{GITEE_RELEASES}/v9.0.0/Yeyu_9.0.0_{PACKAGE_SUFFIX}"),
                     "size": 1024,
                     "sha256": "a".repeat(64),
