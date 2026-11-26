@@ -1483,7 +1483,13 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       await phone.getByRole('option', { name: '全文' }).tap()
       expect(await writing.getByLabel('上下文全文预览').textContent()).toBe(source)
       await composer.fill('整理两处项目描述')
-      await writing.getByRole('button', { name: '发送', exact: true }).tap()
+      const send = writing.getByRole('button', { name: '发送', exact: true })
+      const dimensions = (button: typeof send) => button.evaluate(element => {
+        const control = element as HTMLButtonElement
+        return [control.offsetWidth, control.offsetHeight]
+      })
+      expect(await dimensions(send)).toEqual([44, 44])
+      await send.tap()
       await writing.getByText('智能体已完成', { exact: true }).waitFor()
       expect(await writing.locator('.yy-ai-messages .yy-ai-markdown strong').textContent()).toBe('两处修改')
       expect(await writing.getByRole('list', { name: '智能体步骤' }).getByRole('listitem').count()).toBe(7)
@@ -1507,9 +1513,15 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       await expect.poll(() => phone.evaluate('window.__agentFixture.writes[0]')).toMatchObject({ text: after, bom: true })
 
       await openAi()
+      await phone.setViewportSize({ width: 280, height: 760 })
+      await phone.addStyleTag({ content: '.yy-ai-composer-tools button { font-size: 18px !important }' })
       await composer.fill('测试取消')
-      await writing.getByRole('button', { name: '发送', exact: true }).tap()
-      await writing.getByRole('button', { name: '取消生成' }).tap()
+      expect(await dimensions(send)).toEqual([44, 44])
+      await send.tap()
+      const stop = writing.getByRole('button', { name: '取消生成' })
+      await stop.waitFor()
+      expect(await dimensions(stop)).toEqual([44, 44])
+      await stop.tap()
       await writing.getByText('智能体已取消', { exact: true }).waitFor()
       await writing.getByRole('button', { name: '重试上次请求' }).tap()
       await writing.getByText('重试完成', { exact: true }).waitFor()

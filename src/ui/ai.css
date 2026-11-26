@@ -352,13 +352,17 @@
 .yy-shell .yy-picker-option[aria-selected="true"] > .yy-icon { color: var(--yy-accent); }
 
 .yy-shell .yy-ai-send {
+  --yy-ai-send-size: 29px;
   flex: 0 0 auto;
-  width: 29px;
-  height: 29px;
+  width: var(--yy-ai-send-size);
+  height: var(--yy-ai-send-size);
   border-radius: 50%;
   background: var(--yy-accent);
   color: var(--yy-on-accent);
 }
+
+/* 纵横尺寸同时匹配移动端的触控目标，发送与停止状态共用。 */
+.yy-shell.yy-mobile .yy-ai-send { --yy-ai-send-size: 44px; }
 
 .yy-shell .yy-ai-send:disabled {
   opacity: 1;
