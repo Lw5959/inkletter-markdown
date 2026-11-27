@@ -2113,6 +2113,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       expect(await protocol.getByRole('button', { name: '授权工作区' }).count()).toBe(0)
       await protocol.getByRole('button', { name: '返回' }).click()
 
+      await page.setViewportSize({ width: 390, height: 736 })
       await menu.getByRole('button', { name: '插件市场', exact: true }).click()
       const plugins = page.getByRole('region', { name: '插件管理', exact: true })
       await expect.poll(() => page.evaluate('window.__mobileMarkets')).toEqual([
@@ -2129,7 +2130,6 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       await expect.poll(() => directory.getByRole('article').count()).toBe(1)
       expect(await plugins.getByText('1 / 2 个插件', { exact: true }).isVisible()).toBe(true)
       await search.fill('')
-      await page.setViewportSize({ width: 390, height: 736 })
       const market = plugins.getByRole('button', { name: '内置插件', exact: true })
       await market.click()
       expect(await market.getAttribute('aria-pressed')).toBe('true')
