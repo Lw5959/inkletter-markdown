@@ -1,5 +1,13 @@
 # 验收与性能
 
+## 0.2.27 墨笺与更新迁移
+
+- 旧仓库的 GitHub 和 Gitee 更新入口均停在 0.2.26。逐个解包核对了 0.2.26 和 0.2.27 的 Mac 应用、Windows 安装器、Linux DEB 与 AppImage、Android APK，确认包内更新地址指向两个墨笺仓库。0.2.26 最早发布的 Linux 包已被替换，已经安装该批次的用户需重新下载。 [旧 GitHub 发布](https://github.com/Lw5959/yeyu/releases/tag/v0.2.26) · [旧 Gitee 发布](https://gitee.com/Lw5959/yeyu/releases/tag/v0.2.26)
+- 0.2.27 的 5 个桌面更新签名通过校验，Android APK 的签名证书与 0.2.26 一致，macOS 两种架构的包内显示名为「墨笺」。Linux x64 和 ARM64 的容器原生窗口打开文件、编辑、保存及 BOM 校验通过。 [GitHub 发布](https://github.com/Lw5959/inkletter-markdown/releases/tag/v0.2.27) · [Gitee 发布](https://gitee.com/Lw5959/inkletter-markdown/releases/tag/v0.2.27)
+- Android 模拟器用 0.2.26 的「自动」更新源发现 0.2.27，完成应用内下载与校验、系统安装授权和覆盖安装，随后启动 0.2.27。
+- 59 项 WebKit 测试、25 项 Rust 测试通过。Chromium 专项验证 390 px 手机单列、820 px 平板双列，以及搜索数量、安装和原更新窗口操作。
+- macOS 原生插件市场专项验收通过。首次打开连接新公网目录，在线安装、关键词筛选、内置插件安装、更新时保留启用状态、摘要不符时保留已安装版本和恢复官方源均已验证。10 个公开插件包逐一比对 SHA-256。独立的全量 QA 在等待 MCP 修改建议时超时。 [市场网页](https://lw5959.github.io/inkletter-plugin-market/) · [市场源码](https://github.com/Lw5959/inkletter-plugin-market)
+
 ## 验收方法
 
 - macOS 使用实际 Tauri/WKWebView 窗口。QA 构建使用独立应用标识和临时工作区，生产安装包不包含 QA 驱动。
