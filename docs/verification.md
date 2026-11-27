@@ -110,7 +110,7 @@ Chrome 158 使用 `node tests/export-browser.mjs` 的固定样本，比较导出
 - macOS Apple Silicon 原生验收中，未保存确认类窗口的内容区高 152 CSS 像素。软件更新在无更新时高 218 CSS 像素，长发布说明展开至 440 CSS 像素，切回无更新状态后收起。点击关闭后核对原生窗口已销毁，文档可操作。
 - Linux ARM64 在 X11 环境通过同一组窗口验收。实测确认、无更新和长发布说明的内容区高度分别为 152、250 和 472 CSS 像素。Linux ARM64 与 x64 的 DEB 和 AppImage 均通过文档打开、编辑、保存和 BOM 检查。
 - Rust 22 项、WebKit 49 项、Chromium 4 项针对性测试通过。六种目标架构的发布构建记录均为零警告。macOS Intel、Windows x64 及 Android ARM64 完成打包和校验，设备实测待做。
-- 安装包构建源为 `84fb49c`。 [GitHub 发布](https://github.com/Lw5959/yeyu/releases/tag/v0.2.23)
+- 安装包构建源为 `84fb49c`。Gitee 的 18 项发布附件已匿名下载并逐字节核对。 [GitHub 发布](https://github.com/Lw5959/yeyu/releases/tag/v0.2.23) · [Gitee 发布](https://gitee.com/Lw5959/yeyu/releases/tag/v0.2.23)
 
 ### 0.2.22
 
