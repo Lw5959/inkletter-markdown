@@ -19,8 +19,8 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDEyRUFERTJDMTA5NTkwODEKUldTQmtKVVFMTjdxRWlxekJSdm9Fd0w0MkNScS82eVlxK1JCRzQ3c1dTSDV1TjBJcGJpNnROVHAK",
       "endpoints": [
-        "https://github.com/Lw5959/yeyu/releases/latest/download/latest.json",
-        "https://gitee.com/Lw5959/yeyu/raw/updates/latest.json"
+        "https://github.com/Lw5959/inkletter-markdown/releases/latest/download/latest.json",
+        "https://gitee.com/Lw5959/inkletter-markdown/raw/updates/latest.json"
       ]
     }
   },

@@ -18,9 +18,9 @@ use tokio::{
     sync::Mutex,
 };
 
-const RELEASES: &str = "https://github.com/Lw5959/yeyu/releases/download";
-const LATEST: &str = "https://api.github.com/repos/Lw5959/yeyu/releases/latest";
-const GITEE_RELEASES: &str = "https://gitee.com/Lw5959/yeyu/releases/download";
+const RELEASES: &str = "https://github.com/Lw5959/inkletter-markdown/releases/download";
+const LATEST: &str = "https://api.github.com/repos/Lw5959/inkletter-markdown/releases/latest";
+const GITEE_RELEASES: &str = "https://gitee.com/Lw5959/inkletter-markdown/releases/download";
 const PACKAGE_SUFFIX: &str = if cfg!(target_os = "android") {
     "android-arm64.apk"
 } else if cfg!(target_arch = "aarch64") {
@@ -314,7 +314,7 @@ fn asset_redirect(source: Option<&str>, url: &Url) -> bool {
         // Gitee 经站内附件地址跳转到官方附件存储，整个链路仍使用同一个更新源。
         Some("gitee.com") => match url.host_str() {
             Some("gitee.com") => {
-                let prefix = "/Lw5959/yeyu/attach_files/";
+                let prefix = "/Lw5959/inkletter-markdown/attach_files/";
                 url.path()
                     .get(..prefix.len())
                     .is_some_and(|path| path.eq_ignore_ascii_case(prefix))
@@ -581,8 +581,10 @@ mod tests {
     fn package_redirects_stay_on_the_chosen_source() {
         let gitee = Some("gitee.com");
         let github = Some("github.com");
-        let attachment =
-            Url::parse("https://gitee.com/Lw5959/yeyu/attach_files/12/download/test.deb").unwrap();
+        let attachment = Url::parse(
+            "https://gitee.com/Lw5959/inkletter-markdown/attach_files/12/download/test.deb",
+        )
+        .unwrap();
         let storage = Url::parse("https://foruda.gitee.com/attach_file/34/test.deb").unwrap();
         let unrelated =
             Url::parse("https://gitee.com/other/project/attach_files/12/download/test.deb")
@@ -599,7 +601,7 @@ mod tests {
 
     #[test]
     fn gitee_raw_redirect_only_accepts_the_requested_file() {
-        let path = "/Lw5959/yeyu/raw/updates/latest.json.sig";
+        let path = "/Lw5959/inkletter-markdown/raw/updates/latest.json.sig";
         let origin = Url::parse(&format!("https://gitee.com{path}")).unwrap();
         let target = format!("https://raw.giteeusercontent.com{path}?download=1");
         assert_eq!(

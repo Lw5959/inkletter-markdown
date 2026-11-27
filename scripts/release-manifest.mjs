@@ -3,11 +3,15 @@ import { createReadStream } from 'node:fs'
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 
-const [output, tag, repository, giteeOutput, notesFile] = process.argv.slice(2)
+const [output, tag, repository, giteeOutput, notesFile, giteeRepository] = process.argv.slice(2)
+const repositoryPattern = /^[\w.-]+\/[\w.-]+$/
 const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url)))
 const config = JSON.parse(await readFile(new URL('../src-tauri/tauri.conf.json', import.meta.url)))
-if (!output || tag !== `v${version}` || config.version !== version || !/^[\w.-]+\/[\w.-]+$/.test(repository ?? '')) {
+if (!output || tag !== `v${version}` || config.version !== version || !repositoryPattern.test(repository ?? '')) {
   throw new Error('发布标签、应用版本和仓库必须一致')
+}
+if (giteeRepository !== undefined && (!giteeOutput || !repositoryPattern.test(giteeRepository))) {
+  throw new Error('指定 Gitee 仓库时需要清单目录和有效的仓库名称')
 }
 if (giteeOutput && resolve(giteeOutput) === resolve(output)) throw new Error('GitHub 和 Gitee 清单需要不同的目录')
 const notes = notesFile ? await readFile(notesFile, 'utf8') : undefined
@@ -48,10 +52,11 @@ await writeFile(join(output, 'SHA256SUMS'), checksumText([...hashes, ['latest.js
 if (giteeOutput) {
   const endpoint = new URL(config.plugins.updater.endpoints[1])
   const [, owner, name, ...path] = endpoint.pathname.split('/')
-  if (endpoint.origin !== 'https://gitee.com' || path.join('/') !== 'raw/updates/latest.json' || !/^[\w.-]+\/[\w.-]+$/.test(`${owner}/${name}`)) {
+  if (endpoint.origin !== 'https://gitee.com' || path.join('/') !== 'raw/updates/latest.json' || !repositoryPattern.test(`${owner}/${name}`)) {
     throw new Error('Gitee 更新源配置不完整')
   }
-  const release = `${endpoint.origin}/${owner}/${name}/releases/download/${tag}`
+  // 过渡版在两个仓库分发，旧客户端仍校验旧仓库的附件路径。
+  const release = `${endpoint.origin}/${giteeRepository ?? `${owner}/${name}`}/releases/download/${tag}`
   const mirrored = Object.fromEntries(Object.entries(targets).map(([key, suffix]) => [key, {
     signature: platforms[key].signature, url: `${release}/${prefix + suffix}`,
   }]))
