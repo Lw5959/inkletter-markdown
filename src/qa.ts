@@ -565,18 +565,41 @@ async function verifyWindows(ports: Ports, scenario: Case) {
       `短确认及已是最新版本使用紧凑窗口（${confirmHeight}、${updateHeight}）`)
 
     let firstCheck = true
+    let automatic = false
     showUpdate(async () => {
       if (!firstCheck) return null
       firstCheck = false
       return { version: '9.0.0', notes: '## 验收更新\n\n**Markdown**\n\n' + '发布说明。\n\n'.repeat(30), kind: 'install', async apply() {} }
+    }, undefined, {
+      enabled: () => automatic,
+      save: async enabled => { automatic = enabled },
     })
     const update = opened.at(-1)!
     await until(() => !!update.document.querySelector('.yy-update-notes-body strong') && update.innerHeight > updateHeight)
-    const notes = update.document.querySelector('.yy-update-notes-body')!
-    check(update.innerHeight <= 495 && notes.scrollHeight > notes.clientHeight, '长发布说明使用可滚动的扩展窗口')
+    const dialog = update.document.querySelector<HTMLDialogElement>('.yy-update-dialog')!
+    const body = dialog.querySelector<HTMLElement>('.yy-update-body')!
+    const checkbox = dialog.querySelector<HTMLInputElement>('.yy-update-automatic input')!
+    const close = button(update.document, '关闭')
+    const install = button(update.document, '安装更新')
+    check(checkbox.getBoundingClientRect().height <= 18 &&
+      checkbox.parentElement!.getBoundingClientRect().height <= 24, '更新偏好使用正常大小的单行复选框')
+    checkbox.click()
+    await until(() => automatic)
+    const footer = install.getBoundingClientRect().top
+    check(update.innerHeight <= 525 && body.scrollHeight > body.clientHeight &&
+      dialog.scrollHeight <= dialog.clientHeight + 1, '长发布说明只有内容区滚动')
+    const paper = document.querySelector('.yy-paper')!
+    const updateBar = update.getComputedStyle(body, '::-webkit-scrollbar')
+    check(updateBar.width === '8px' && updateBar.width === getComputedStyle(paper, '::-webkit-scrollbar').width,
+      '原生更新窗口与正文使用同样宽度的细滚动条')
+    body.scrollTop = body.scrollHeight
+    check(body.scrollTop > 0 && close.getBoundingClientRect().bottom <= update.innerHeight &&
+      install.getBoundingClientRect().bottom <= update.innerHeight &&
+      install.getBoundingClientRect().top === footer, '滚动时关闭和安装按钮始终可见')
     panelHeights = { confirm: confirmHeight, latest: updateHeight, releaseNotes: update.innerHeight }
     update.document.querySelector<HTMLButtonElement>('.yy-update-sources button[aria-pressed="false"]')!.click()
-    await until(() => update.document.querySelector('.yy-update-status h3')?.textContent === '已是最新版本' && update.innerHeight === updateHeight)
+    await until(() => update.document.querySelector('.yy-update-status h3')?.textContent === '已是最新版本' &&
+      Math.abs(update.innerHeight - updateHeight - 32) <= 2)
     button(update.document, '关闭').click()
     await until(async () => !(await windows()).some(item => item.label.startsWith('panel-')))
     check((await editorWindows()).length === 2 && ports.state.path?.endsWith('验收.md'), '关闭工具窗口保留两个文档窗口')

@@ -133,42 +133,42 @@ body:has(#app > .yy-shell:not(.yy-mobile)) {
   overflow: hidden;
 }
 
-/* 细滑块跟随主题。滚动区域由 WebView 处理，边缘仍留出拖拽空间。 */
+/* 正文、侧栏和独立窗口共用滚动条。子窗口同步根主题，滑块随明暗配色变化。 */
 @media not all and (forced-colors: active) {
-  .yy-shell {
+  :root {
     --yy-scroll-thumb: color-mix(in srgb, var(--yy-ink) 22%, transparent);
     --yy-scroll-hover: color-mix(in srgb, var(--yy-ink) 38%, transparent);
     --yy-scroll-active: color-mix(in srgb, var(--yy-ink) 53%, transparent);
   }
 
-  .yy-shell :is(.yy-paper, .yy-chrome, .yy-chrome *)::-webkit-scrollbar {
+  ::-webkit-scrollbar {
     width: 8px;
     height: 8px;
     background: transparent;
   }
 
-  .yy-shell :is(.yy-paper, .yy-chrome, .yy-chrome *)::-webkit-scrollbar-track,
-  .yy-shell :is(.yy-paper, .yy-chrome, .yy-chrome *)::-webkit-scrollbar-corner {
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
     background: transparent;
   }
 
-  .yy-shell :is(.yy-paper, .yy-chrome, .yy-chrome *)::-webkit-scrollbar-thumb {
+  ::-webkit-scrollbar-thumb {
     border: 2px solid transparent;
     border-radius: 999px;
     background: var(--yy-scroll-thumb);
     background-clip: padding-box;
   }
 
-  .yy-shell :is(.yy-paper, .yy-chrome, .yy-chrome *)::-webkit-scrollbar-thumb:hover {
+  ::-webkit-scrollbar-thumb:hover {
     background-color: var(--yy-scroll-hover);
   }
 
-  .yy-shell :is(.yy-paper, .yy-chrome, .yy-chrome *)::-webkit-scrollbar-thumb:active {
+  ::-webkit-scrollbar-thumb:active {
     background-color: var(--yy-scroll-active);
   }
 
   @supports not selector(::-webkit-scrollbar-thumb) {
-    .yy-shell :is(.yy-paper, .yy-chrome, .yy-chrome *) {
+    * {
       scrollbar-width: thin;
       scrollbar-color: var(--yy-scroll-thumb) transparent;
     }

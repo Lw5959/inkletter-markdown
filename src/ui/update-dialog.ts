@@ -106,7 +106,7 @@ export function showUpdate(check: UpdateCheck, pages?: UpdatePages, preferences?
   const headline = el('h3', { attrs: { tabindex: '-1' } })
   const detail = el('p', { className: 'yy-update-detail', attrs: { hidden: '' } })
   const status = el('div', { className: 'yy-update-status', attrs: { role: 'status' } }, headline, detail)
-  const notesBody = el('div', { className: 'yy-update-notes-body yy-markdown-content', attrs: { tabindex: '0' } })
+  const notesBody = el('div', { className: 'yy-update-notes-body yy-markdown-content' })
   const notes = el('section', { className: 'yy-update-notes', attrs: { hidden: '', 'aria-label': '发布说明' } },
     el('h3', { text: '发布说明' }), notesBody)
   const meter = el('progress', { attrs: { 'aria-label': '下载进度' } })
@@ -116,8 +116,10 @@ export function showUpdate(check: UpdateCheck, pages?: UpdatePages, preferences?
   const primary = el('button', { type: 'button', className: 'app-dialog-primary', attrs: { hidden: '' } })
   if (dialog) dialog.append(el('h2', { text: '软件更新' }))
   const height = updateHeight + (preferences ? 32 : 0)
+  const releaseHeight = 472 + (height - updateHeight)
   const heading = el('div', { className: 'yy-update-source-row' }, el('span', { text: '更新源' }), choices)
-  panel.append(current, heading)
+  const body = el('div', { className: 'yy-update-body', attrs: { tabindex: '0', role: 'region', 'aria-label': '更新详情' } },
+    current, heading)
   if (preferences) {
     const launch = el('input', { type: 'checkbox' })
     launch.checked = preferences.enabled()
@@ -130,14 +132,14 @@ export function showUpdate(check: UpdateCheck, pages?: UpdatePages, preferences?
         launch.checked = preferences.enabled()
         error.textContent = '无法保存自动检查设置，请重试。'
         error.hidden = false
-        popup?.setHeight(Math.max(height + 26, panel.scrollHeight))
+        popup?.setHeight(notes.hidden ? height + 26 : releaseHeight)
       } finally { launch.disabled = false }
     }
-    panel.append(el('label', { className: 'yy-update-automatic' }, launch, '启动时自动检查更新'), error)
+    body.append(el('label', { className: 'yy-update-automatic' }, launch, '启动时自动检查更新'), error)
   }
   dismiss.hidden = !dialog
-  panel.append(status, notes, download,
-    el('div', { className: 'app-dialog-actions' }, dismiss, primary))
+  body.append(status, notes, download)
+  panel.append(body, el('div', { className: 'app-dialog-actions' }, dismiss, primary))
 
   let installedVersion: string | undefined
   let applying = false
@@ -251,6 +253,7 @@ export function showUpdate(check: UpdateCheck, pages?: UpdatePages, preferences?
     if (focus && dialog) dismiss.focus()
     primary.hidden = true
     notes.hidden = true
+    body.scrollTop = 0
     if (!installedVersion) current.textContent = '正在读取当前版本…'
     showStatus('正在检查更新…')
     try {
@@ -273,9 +276,8 @@ export function showUpdate(check: UpdateCheck, pages?: UpdatePages, preferences?
       const rendered = release.notes.trim() ? await renderMarkdownContent(release.notes) : '暂无发布说明。'
       if (!currentCheck()) return
       notesBody.replaceChildren(rendered)
-      notesBody.scrollTop = 0
       notes.hidden = false
-      popup?.setHeight(472 + (height - updateHeight))
+      popup?.setHeight(releaseHeight)
     } catch {
       if (!currentCheck()) return
       if (!installedVersion) current.textContent = '无法读取当前版本'

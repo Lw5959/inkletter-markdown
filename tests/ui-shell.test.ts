@@ -1866,9 +1866,39 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       await dialog.getByText('检查更新失败').waitFor()
       await dialog.getByRole('button', { name: '重试' }).click()
       await expect.poll(() => page.evaluate('window.__updates.checks.length')).toBe(4)
+      await page.evaluate(() => {
+        const update = Reflect.get(window, '__updates')
+        update.release.notes += '\n\n' + '用于验证滚动和按钮位置的长发布说明。\n\n'.repeat(30)
+      })
+      await page.setViewportSize({ width: 460, height: 380 })
       await page.evaluate('window.__updates.checks[3].resolve(window.__updates.release)')
       const notes = dialog.getByRole('region', { name: '发布说明' })
       await notes.getByRole('heading', { name: '桌面发布说明' }).waitFor()
+      const geometry = await dialog.evaluate(panel => {
+        const body = panel.querySelector<HTMLElement>('.yy-update-body')!
+        const checkbox = panel.querySelector<HTMLInputElement>('.yy-update-automatic input')!
+        const actions = panel.querySelector<HTMLElement>('.app-dialog-actions')!
+        const start = actions.getBoundingClientRect()
+        body.scrollTop = body.scrollHeight
+        const end = actions.getBoundingClientRect()
+        const style = (element: Element) => ({
+          width: getComputedStyle(element, '::-webkit-scrollbar').width,
+          thumb: getComputedStyle(element, '::-webkit-scrollbar-thumb').backgroundColor,
+          track: getComputedStyle(element, '::-webkit-scrollbar-track').backgroundColor,
+        })
+        return { checkbox: checkbox.getBoundingClientRect().height, label: checkbox.parentElement!.getBoundingClientRect().height,
+          scroll: body.scrollTop, outerOverflow: panel.scrollHeight - panel.clientHeight, actionBottom: end.bottom,
+          stationary: start.top === end.top, bodyBar: style(body), editorBar: style(document.querySelector('.yy-paper')!) }
+      })
+      expect(geometry.checkbox).toBe(16)
+      expect(geometry.label).toBeLessThanOrEqual(24)
+      expect(geometry.scroll).toBeGreaterThan(0)
+      expect(geometry.outerOverflow).toBeLessThanOrEqual(1)
+      expect(geometry.actionBottom).toBeLessThanOrEqual(380)
+      expect(geometry.stationary).toBe(true)
+      expect(geometry.bodyBar.width).toBe('8px')
+      expect(geometry.bodyBar).toEqual(geometry.editorBar)
+      await page.setViewportSize(viewport)
       expect(await notes.getByRole('listitem').count()).toBe(2)
       expect(await notes.locator('strong').textContent()).toBe('改进排版')
       expect(await notes.locator('code').textContent()).toBe('latest.json')
