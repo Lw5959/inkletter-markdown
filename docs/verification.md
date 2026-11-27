@@ -124,6 +124,13 @@ Chrome 158 使用 `node tests/export-browser.mjs` 的固定样本，比较导出
 
 ## 平台验收范围
 
+### 0.2.24
+
+- Chromium、WebKit 各通过 57 项，Rust 通过 25 项。macOS 原生全量复测通过。放大和还原各记录到 7 个中间视口宽度。Finder 冷启动和已有空白主窗口时打开文件均通过，写作密钥重启后仍可鉴权。
+- Linux x64 和 ARM64 分别用 DEB 安装、用 AppImage 提取运行，在实际 X11 窗口通过打开、编辑、保存和 BOM 保留验证。
+- 两个 macOS DMG、应用架构及临时签名通过校验。Windows x64 NSIS 通过安装档案完整性检查。Android ARM64 `versionCode` 为 `2024`，APK 的 v2/v3 签名通过，签名证书与 0.2.23 一致。Intel Mac、Windows 桌面和 Android 真机未进行安装回归。
+- 安装包构建源为 `3e0d1ae`。五种桌面更新包通过 Minisign 校验。GitHub 的 17 项附件均可匿名下载并匹配本次 SHA-256，最新更新入口返回 0.2.24。 [GitHub 发布](https://github.com/Lw5959/yeyu/releases/tag/v0.2.24)
+
 ### 0.2.23
 
 - macOS Apple Silicon 原生验收中，未保存确认类窗口的内容区高 152 CSS 像素。软件更新在无更新时高 218 CSS 像素，长发布说明展开至 440 CSS 像素，切回无更新状态后收起。点击关闭后核对原生窗口已销毁，文档可操作。
