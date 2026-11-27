@@ -1,6 +1,8 @@
 import { listAiModels, Writing } from './ai'
+import { clipboardImages, readAttachments } from './ai-attachments'
 import { normalizePrompts } from './ai-prompts'
-import type { AiPrompts, Editor, McpServer, PluginCatalog, PluginInfo, ShellAction } from './contracts'
+import { mergeSkills, parseSkill } from './ai-skills'
+import type { AiAgentApprovalMode, AiPrompts, AiSkill, Editor, McpServer, PluginCatalog, PluginInfo, ShellAction } from './contracts'
 import { reviewChanges } from './dialogs'
 import { interval } from './document-tools'
 import { Protocol } from './mcp'
@@ -15,7 +17,7 @@ import './ui/ai.css'
 
 const officialMarket = 'https://lw5959.github.io/yeyu-plugin-market/index.json'
 
-export type MobileServiceSettings = { aiPrompts?: AiPrompts; mcp?: McpServer[]; marketSource?: string }
+export type MobileServiceSettings = { aiPrompts?: AiPrompts; aiSkills?: AiSkill[]; aiAgentApprovalMode?: AiAgentApprovalMode; mcp?: McpServer[]; marketSource?: string }
 export type MobileServicePage = 'ai' | 'mcp' | 'plugins'
 
 type Snapshot = { uri: string; name: string; text: string; version: string; bom: boolean; writable: boolean }
@@ -39,6 +41,8 @@ export function createMobileServices(options: Options) {
   let ai: AiPanel | undefined
   const writing = new Writing(view => ai?.setView(view))
   writing.setPrompts(normalizePrompts(settings.aiPrompts))
+  writing.setSkills(settings.aiSkills)
+  writing.setAgentApprovalMode(settings.aiAgentApprovalMode)
   let mcp: McpPanel | undefined
   const protocol = new Protocol(view => mcp?.setView(view))
   protocol.configure((settings.mcp ?? []).filter(server => server.transport === 'http'))
@@ -124,6 +128,29 @@ export function createMobileServices(options: Options) {
         await options.persist()
         writing.setPrompts(settings.aiPrompts)
         break
+      case 'ai-skill-import': case 'ai-skill-remove': {
+        const previous = settings.aiSkills ?? []
+        if (action.type === 'ai-skill-import') {
+          const uris = await invoke<string[]>('android_pick_many')
+          if (!uris.length) break
+          const files = await Promise.all(uris.map(options.read))
+          settings.aiSkills = mergeSkills(previous, await Promise.all(files.map(file => parseSkill(file.text, file.name))))
+        } else settings.aiSkills = previous.filter(skill => skill.name !== action.name)
+        try { await options.persist() }
+        catch (error) { settings.aiSkills = previous; throw error }
+        writing.setSkills(settings.aiSkills)
+        break
+      }
+      case 'ai-agent-approval-mode': {
+        if (writing.view.pending) throw new Error('请先结束当前生成')
+        const previous = settings.aiAgentApprovalMode
+        settings.aiAgentApprovalMode = action.mode
+        try { await options.persist() }
+        catch (error) { settings.aiAgentApprovalMode = previous; throw error }
+        writing.setAgentApprovalMode(action.mode)
+        break
+      }
+      case 'ai-agent-approval': writing.decideAgentApproval(action.id, action.allow); break
       case 'ai-context': {
         const state = options.state()
         if (action.scope === 'files') {
@@ -138,9 +165,18 @@ export function createMobileServices(options: Options) {
         break
       }
       case 'ai-context-clear': writing.clearContext(); break
+      case 'ai-model-detect': await writing.detectActiveModel(); break
+      case 'ai-attach': {
+        const chat = writing.view.conversations?.active
+        const files = action.images ? await clipboardImages(action.images)
+          : await readAttachments('android_ai_attachment', await invoke<string[]>('android_pick_many'))
+        await writing.addAttachments(files, chat)
+        break
+      }
+      case 'ai-attachment-remove': writing.removeAttachment(action.id); break
       case 'ai-send': {
         const { id, revision, open, readonly } = options.state()
-        await writing.send(action.intent, action.prompt, editor, id, revision, { agent: action.agent, writable: open && !readonly })
+        await writing.send(action.intent, action.prompt, editor, id, revision, { agent: action.agent, skill: action.skill, writable: open && !readonly })
         break
       }
       case 'ai-insert-reply': {

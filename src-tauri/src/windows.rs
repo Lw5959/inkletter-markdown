@@ -36,6 +36,8 @@ struct Registry {
     children: BTreeMap<String, String>,
     last_focused: Option<String>,
     closing_for_quit: Option<String>,
+    started: bool,
+    launch_paths: Vec<PathBuf>,
 }
 
 #[derive(Default)]
@@ -244,7 +246,7 @@ fn create_editor(
     Ok(window)
 }
 
-pub fn startup(app: &AppHandle, data: &Path, paths: Vec<PathBuf>) -> Result<(), String> {
+pub fn startup(app: &AppHandle, data: &Path, mut paths: Vec<PathBuf>) -> Result<(), String> {
     #[derive(Deserialize)]
     struct DraftPath {
         path: Option<PathBuf>,
@@ -265,6 +267,25 @@ pub fn startup(app: &AppHandle, data: &Path, paths: Vec<PathBuf>) -> Result<(), 
     create_editor(app, "main", recovering("main"))?;
     for label in recovery_labels(data) {
         create_editor(app, &label, recovering(&label))?;
+    }
+    {
+        let windows = app.state::<Windows>();
+        let mut registry = windows.0.lock().map_err(err)?;
+        registry.started = true;
+        paths.append(&mut registry.launch_paths);
+    }
+    open_paths(app, paths, None, Some("main"))
+}
+
+pub fn open_external_paths(app: &AppHandle, mut paths: Vec<PathBuf>) -> Result<(), String> {
+    {
+        let windows = app.state::<Windows>();
+        let mut registry = windows.0.lock().map_err(err)?;
+        if !registry.started {
+            // Finder 冷启动可能先给出文件，再触发 Tauri 的窗口初始化。
+            registry.launch_paths.append(&mut paths);
+            return Ok(());
+        }
     }
     open_paths(app, paths, None, Some("main"))
 }

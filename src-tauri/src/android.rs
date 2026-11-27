@@ -159,6 +159,17 @@ async fn android_read(uri: String, documents: State<'_, Documents>) -> Result<Do
     snapshot(uri, info, read_bytes(&mut file)?)
 }
 
+#[tauri::command]
+async fn android_ai_attachment(
+    uri: String,
+    documents: State<'_, Documents>,
+) -> Result<ai::attachments::Attachment, String> {
+    let (file, info) = documents.descriptor(&uri, false)?;
+    tauri::async_runtime::spawn_blocking(move || ai::attachments::read(info.name, file))
+        .await
+        .map_err(err)?
+}
+
 fn replace_bytes(file: &mut File, bytes: &[u8]) -> std::io::Result<()> {
     file.seek(SeekFrom::Start(0))?;
     file.write_all(bytes)?;
@@ -328,6 +339,7 @@ pub fn run() {
             android_workspace,
             android_print,
             android_read,
+            android_ai_attachment,
             android_write,
             android_load_session,
             android_save_session,
@@ -342,6 +354,7 @@ pub fn run() {
             ai::config::ai_provider_save,
             ai::config::ai_provider_remove,
             ai::config::ai_model_select,
+            ai::config::ai_model_metadata,
             ai::ai_list_models,
             ai::ai_stream,
             ai::agent::ai_agent_turn,

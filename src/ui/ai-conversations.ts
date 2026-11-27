@@ -3,6 +3,23 @@ import type { DialogPresenter } from './dialogs'
 import { el } from './helpers'
 import { icons } from './icons'
 
+export function contextSummary() {
+  const title = el('summary')
+  const body = el('pre', { className: 'yy-context-fulltext', attrs: { tabindex: '0' } })
+  const element = el('details', { className: 'yy-ai-compaction', attrs: { hidden: '' } }, title, body)
+  let chat: string | null | undefined
+  return { element, update(chats: AiConversations | undefined) {
+    if (chat !== chats?.active) element.open = false
+    chat = chats?.active
+    const summary = chats?.summary
+    element.hidden = !summary
+    if (!summary) { body.textContent = ''; return }
+    const caption = `上下文摘要 · ${chats.covered} 条 · ${summary.originalCharacters.toLocaleString('zh-CN')} → ${summary.text.length.toLocaleString('zh-CN')} 字符`
+    if (title.textContent !== caption) title.textContent = caption
+    if (body.textContent !== summary.text) body.textContent = summary.text
+  } }
+}
+
 export function openConversations(modals: DialogPresenter, view: () => AiView, dispatch: ShellActions['dispatch'], closed: () => void) {
   const panel = el('div', { className: 'yy-modal yy-ai-settings yy-ai-chat-settings',
     attrs: { role: 'dialog', 'aria-label': '对话管理', 'aria-modal': 'true' } })
@@ -12,11 +29,12 @@ export function openConversations(modals: DialogPresenter, view: () => AiView, d
   const compact = el('button', { type: 'button', className: 'yy-btn yy-btn-sm', text: '压缩上下文' })
   const cancel = el('button', { type: 'button', className: 'yy-btn yy-btn-sm', text: '取消压缩', attrs: { hidden: '' } })
   const summary = el('span', { className: 'yy-muted-note', attrs: { role: 'status' } })
+  const preview = contextSummary()
   const list = el('div', { className: 'yy-ai-chat-list', attrs: { 'aria-label': '对话列表' } })
   const error = el('p', { className: 'yy-ai-setting-error', attrs: { role: 'alert', hidden: '' } })
   const group = el('div', { className: 'yy-ai-chat-controls' }, create, compact, cancel, summary)
   panel.append(el('header', { className: 'yy-ai-settings-head' }, el('h2', { text: '对话管理' }), close),
-    el('div', { className: 'yy-ai-settings-fields' }, group, list, error))
+    el('div', { className: 'yy-ai-settings-fields' }, group, preview.element, list, error))
   let shown: AiConversations | undefined | null = null
   let busy = false
 
@@ -90,6 +108,7 @@ export function openConversations(modals: DialogPresenter, view: () => AiView, d
     summary.textContent = state.compacting ? '正在压缩上下文…' : chats?.covered ? '已压缩 ' + chats.covered + ' 条消息' : ''
     if (chats !== shown) {
       shown = chats
+      preview.update(chats)
       list.replaceChildren(...(chats?.items ?? []).map(chat => row(chat, chat.id === chats?.active)))
       if (!chats?.items.length) list.append(el('p', { className: 'yy-muted-note', text: '配置模型后即可新建对话' }))
     }

@@ -83,7 +83,7 @@ fn main() {
                         let _ = window.unminimize();
                         let _ = window.set_focus();
                     }
-                } else if let Err(error) = windows::open_paths(&handle, paths, None, None) {
+                } else if let Err(error) = windows::open_external_paths(&handle, paths) {
                     eprintln!("打开文档失败：{error}");
                 }
             });
@@ -169,6 +169,8 @@ fn main() {
             associations::markdown_default,
             #[cfg(target_os = "macos")]
             titlebar::titlebar_apply,
+            #[cfg(target_os = "macos")]
+            titlebar::titlebar_zoom,
             workspace::workspace_root,
             workspace::workspace_tree,
             workspace::workspace_search,
@@ -198,8 +200,12 @@ fn main() {
             ai::config::ai_provider_save,
             ai::config::ai_provider_remove,
             ai::config::ai_model_select,
+            ai::config::ai_model_metadata,
+            #[cfg(target_os = "macos")]
+            ai::config::ai_key_migrate,
             ai::ai_list_models,
             ai::ai_stream,
+            ai::attachments::ai_read_attachment,
             ai::agent::ai_agent_turn,
             ai::ai_conversations,
             ai::ai_cancel,
@@ -242,7 +248,7 @@ fn main() {
                 .filter(|path| workspace::markdown(path))
                 .collect();
             tauri::async_runtime::spawn(async move {
-                if let Err(error) = windows::open_paths(&app, paths, None, None) {
+                if let Err(error) = windows::open_external_paths(&app, paths) {
                     eprintln!("打开 Finder 文档失败：{error}");
                 }
             });

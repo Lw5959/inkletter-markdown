@@ -353,6 +353,7 @@ function inlineDecoration(options: EditorOptions, outline?: () => OutlineEntry[]
             if (seen.has(key)) return
             seen.add(key)
             const first = doc.lineAt(from)
+            const parent = node.node.parent?.name
             const heading = /^(?:ATX|Setext)Heading([1-6])$/.exec(name)
             if (outline && heading && first.from >= visible.from) {
               addLine(first.from, 'h' + heading[1])
@@ -373,6 +374,16 @@ function inlineDecoration(options: EditorOptions, outline?: () => OutlineEntry[]
             // 目录插件使用引用定义标注旧目录的边界，标记只在源码中显示。
             if (name === 'LinkReference' && /^\[yeyu-toc-(begin|end)\]: #yeyu-toc-\1$/.test(first.text)) {
               replace(from, to)
+              addLine(first.from, 'markup-only')
+              return false
+            }
+            const setextMarker = outline && name === 'HeaderMark' && /^SetextHeading[12]$/.test(parent ?? '')
+            const fenceMarker = outline && parent === 'FencedCode' && (name === 'CodeMark' || name === 'CodeInfo')
+            if (setextMarker || fenceMarker) {
+              if (setextMarker || /^\s*(?:```|~~~)/.test(first.text)) {
+                // 单独一行的标记在实时视图中收起。光标移到该行时显示语法，方便编辑分隔符。
+                if (view.state.readOnly || !active(first.from, first.to)) addLine(first.from, 'markup-only')
+              } else replace(from, to)
               return false
             }
             if (markers.has(name) && (outline || !/^(?:HeaderMark|QuoteMark)$/.test(name))) {
@@ -385,7 +396,6 @@ function inlineDecoration(options: EditorOptions, outline?: () => OutlineEntry[]
               }
             }
             if (name === 'Escape') replace(from, from + 1)
-            if (outline && (name === 'CodeMark' || name === 'CodeInfo') && node.node.parent?.name === 'FencedCode') replace(from, to)
             if (outline && name === 'ListMark' && /^[-+*]$/.test(doc.sliceString(from, to))) {
               const rest = doc.sliceString(to, first.to)
               const task = /^([ \t]+)\[[ xX]\]/.exec(rest)

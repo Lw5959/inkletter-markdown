@@ -7,10 +7,15 @@ import type {
   ShellState,
   Theme,
   TitlebarView,
+  DocumentWidth,
 } from '../contracts'
 import { el } from './helpers'
 import { icons } from './icons'
 import { detectMac, type ShortcutCommandId, type ShortcutRegistry } from './shortcuts'
+
+const documentWidths: Record<DocumentWidth, string> = {
+  default: '主题默认', wide: '宽', 'extra-wide': '超宽', full: '铺满',
+}
 
 export const EXPORT_OPTIONS: readonly { format: ExportFormat; label: string; group: string }[] = [
   { format: 'html', label: 'HTML（含主题样式）', group: '常用' },
@@ -372,6 +377,10 @@ export class MenuBar {
         onSelect: () => this.ctx.dispatch({ type: 'mode', mode: 'source' }),
       },
       { kind: 'submenu', label: '文档主题', items: () => this.buildThemeItems() },
+      { kind: 'submenu', label: '正文宽度', items: (Object.keys(documentWidths) as DocumentWidth[]).map(width => ({
+        kind: 'item' as const, label: documentWidths[width], checked: width === (state.documentWidth ?? 'default'),
+        onSelect: () => this.ctx.dispatch({ type: 'document-width', width }),
+      })) },
       { kind: 'separator' },
       {
         kind: 'item',

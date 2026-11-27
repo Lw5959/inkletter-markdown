@@ -39,7 +39,8 @@
     "postcss": "^8.5.33",
     "postcss-selector-parser": "^7.2.1",
     "postcss-value-parser": "^4.2.0",
-    "sanitize-html": "^2.18.2"
+    "sanitize-html": "^2.18.2",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",

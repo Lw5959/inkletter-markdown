@@ -32,16 +32,6 @@
   transition-delay: 0ms;
 }
 
-.yy-sidebar-slot-left { --yy-sidebar-size: 220px; }
-.yy-sidebar-slot-right {
-  --yy-sidebar-size: min(360px, 46vw);
-}
-
-@media (max-width: 820px) {
-  .yy-sidebar-slot-left { --yy-sidebar-size: 224px; }
-  .yy-sidebar-slot-right { --yy-sidebar-size: min(300px, 46vw); }
-}
-
 /* 先更新版面，再平移侧栏，避免长文档在动画的每个帧重新断行。 */
 .yy-shell .yy-sidebar-slot > aside {
   position: absolute;

@@ -121,3 +121,10 @@
   .yy-update-dialog .app-dialog-actions button { min-height: 44px; }
   .yy-update-sources button { min-height: 44px; }
 }
+.yy-update-automatic {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  align-self: start;
+  font-size: 13px;
+}

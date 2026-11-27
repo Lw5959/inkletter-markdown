@@ -1,10 +1,15 @@
 import { aiIntents, aiTasks } from '../ai-prompts'
-import type { AiAgentActivity, AiContext, AiIntent, AiMessage, AiScope, AiSelection, AiSettings, AiView, ShellAction, ShellActions, Suggestion } from '../contracts'
+import { activeModel, effortLabels, modelDisplayName, modelEfforts, optionsForModel } from '../ai-models'
+import { attachmentError } from '../ai-attachments'
+import type { AiAgentActivity, AiAgentApproval, AiAgentApprovalMode, AiAgentEntry, AiAttachment, AiContext, AiIntent, AiMessage, AiReasoningEffort, AiScope, AiSelection, AiSettings, AiView, ShellAction, ShellActions, Suggestion } from '../contracts'
 import { invoke, reason } from '../native'
 import { renderReply, replyBody, StreamingReply } from './ai-markdown'
 import { markdownLink } from './markdown-content'
-import { openConversations } from './ai-conversations'
+import { contextSummary, openConversations } from './ai-conversations'
+import { AiCommands, type AiCommand } from './ai-commands'
+import { AiBudget } from './ai-budget'
 import { openModelSettings, openPromptSettings } from './ai-settings'
+import { openSkills } from './ai-skills'
 import { ChoicePicker } from './choice-picker'
 import type { DialogPresenter } from './dialogs'
 import { copyTextToClipboard, el, groupDiffParts } from './helpers'
@@ -37,7 +42,11 @@ export class AiPanel {
   private messageNodes = new WeakMap<AiMessage, HTMLElement>()
   private shownSettings: AiSettings | null = null
   private shownContext: AiContext | null = null
-  private shownAgent: AiAgentActivity | undefined
+  private shownAttachments?: AiAttachment[]
+  private shownPrompts?: AiView['prompts']
+  private budgetCovered?: number
+  private shownTrace: readonly AiAgentEntry[] = []
+  private shownApproval: AiAgentApproval | undefined
   private refreshChats?: () => void
   private shownChat?: string | null
   private drafts = new Map<string, string>()
@@ -45,9 +54,13 @@ export class AiPanel {
   private selectedHunks = new Set<number>()
   private submitting = false
   private actionError = ''
+  private selectedSkill: string | undefined
+  private commandsBlocked = false
   private intent: AiIntent = 'chat'
   private changingModel = false
+  private changingApproval = false
   private agentMode = false
+  private readingAttachments = false
 
   private modelButton = el('button', {
     className: 'yy-btn yy-btn-sm yy-btn-ghost', type: 'button', text: '模型配置',
@@ -63,12 +76,14 @@ export class AiPanel {
   private empty = el('div', { className: 'yy-ai-empty' })
   private emptyHint = el('p')
   private messages = el('div', { className: 'yy-ai-messages', attrs: { role: 'log' } })
-  private agentActivity = el('details', { className: 'yy-ai-agent-activity', attrs: { hidden: '' } })
-  private agentStatus = el('span', { attrs: { role: 'status' } })
-  private agentPlan = el('ol', { className: 'yy-ai-agent-plan', attrs: { role: 'list', 'aria-label': '执行计划', hidden: '' } })
-  private agentSteps = el('ol', { className: 'yy-ai-agent-steps', attrs: { role: 'list', 'aria-label': '智能体步骤' } })
+  private compaction = contextSummary()
+  private liveTrace = el('div', { className: 'yy-ai-trace', attrs: { role: 'log', 'aria-label': '本轮智能体活动' } })
+  private agentEnd = el('div', { className: 'yy-msg-role yy-ai-agent-end', attrs: { role: 'status', hidden: '' } })
+  private approval = el('section', { className: 'yy-ai-approval', attrs: { 'aria-label': '智能体工具审批', hidden: '' } })
   private generation = el('article', { className: 'yy-msg yy-msg-assistant', attrs: { hidden: '' } })
   private generationStatus = el('div', { className: 'yy-msg-role', attrs: { role: 'status' }, text: '正在生成…' })
+  private reasoningStream = new StreamingReply()
+  private reasoning = reasoningDetails(this.reasoningStream.element)
   private stream = new StreamingReply()
   private suggestionWrap = el('div', { className: 'yy-suggestion-host', attrs: { hidden: '' } })
   private errorBanner = el('div', { className: 'yy-ai-error', attrs: { role: 'alert', hidden: '' } })
@@ -79,6 +94,9 @@ export class AiPanel {
   private contextPreview = el('pre', {
     className: 'yy-context-fulltext', attrs: { 'aria-label': '上下文全文预览', tabindex: '0' },
   })
+  private attachmentHost = el('div', { className: 'yy-ai-attachments', attrs: { 'aria-label': 'AI 附件', hidden: '' } })
+  private attachmentStatus = el('div', { className: 'yy-ai-attachment-status', attrs: { role: 'status', hidden: '' } })
+  private attachButton = iconButton('添加文件或图片', icons.filePlus)
   private promptInput = el('textarea', {
     className: 'yy-ai-input',
     attrs: {
@@ -86,9 +104,18 @@ export class AiPanel {
       spellcheck: 'false', autocorrect: 'off', autocapitalize: 'off', autocomplete: 'off',
     },
   })
+  private commands = new AiCommands(this.promptInput, () => this.view.skills ?? [], command => { void this.runCommand(command) })
+  private skillButton = el('button', { className: 'yy-btn yy-btn-sm yy-btn-ghost', type: 'button', text: '技能', attrs: { 'aria-label': '写作技能' } })
+  private skillLabel = el('span')
+  private removeSkill = iconButton('移除本轮技能', icons.close, 'yy-icon-btn-sm')
+  private skillChip = el('div', { className: 'yy-ai-skill-chip', attrs: { hidden: '' } }, this.skillLabel, this.removeSkill)
   private modelOptions = new Map<string, AiSelection>()
   private modelPicker = new ChoicePicker('切换模型', '选择模型', value => { void this.selectModel(value) },
     { className: 'yy-ai-model-switch', minimumWidth: 225 })
+  private effortPicker = new ChoicePicker('思考强度', '思考 · 默认', value => { void this.selectEffort(value) },
+    { className: 'yy-ai-model-switch yy-ai-effort-switch', minimumWidth: 126 })
+  private budget = new AiBudget(() => this.request({ type: 'ai-model-detect' }))
+  private modelControls = el('div', { className: 'yy-ai-model-controls' }, this.modelPicker.button, this.effortPicker.button, this.budget.element)
   private taskPicker = new ChoicePicker('写作操作', aiTasks.chat.label, value => {
     this.intent = value as AiIntent
     this.taskPicker.setValue(value)
@@ -99,6 +126,8 @@ export class AiPanel {
   private agentToggle = el('button', { className: 'yy-btn yy-btn-sm yy-btn-ghost yy-ai-agent-toggle', type: 'button',
     attrs: { 'aria-pressed': 'false', title: '多轮搜索和读取上下文，提出修改建议' } },
     el('span', { className: 'yy-icon', html: icons.sparkles }), '智能体')
+  private approvalPicker = new ChoicePicker('工具审批方式', '自动审核', value => { void this.selectAgentApproval(value as AiAgentApprovalMode) },
+    { className: 'yy-composer-picker' })
   private sendButton = iconButton('发送', icons.arrowUp, 'yy-ai-send', 'submit')
   private cancelButton = iconButton('取消生成', icons.stop, 'yy-ai-send')
 
@@ -110,7 +139,8 @@ export class AiPanel {
     })
     this.modelButton.addEventListener('click', () => this.openModels())
     prompts.addEventListener('click', () => {
-      openPromptSettings(this.options.modals, this.view.prompts, this.intent, this.options.dispatch, this.agentMode)
+      openPromptSettings(this.options.modals, this.view.prompts, this.intent, this.options.dispatch, this.agentMode,
+        this.view.skills?.find(skill => skill.name === this.selectedSkill))
     })
     this.chatButton.addEventListener('click', () => {
       this.refreshChats = openConversations(this.options.modals, () => this.view, this.options.dispatch,
@@ -130,11 +160,10 @@ export class AiPanel {
     )
     this.generation.append(
       this.generationStatus,
+      this.reasoning,
       this.stream.element,
     )
-    this.agentActivity.append(el('summary', {},
-      el('span', { className: 'yy-icon', html: icons.chevronRight }), this.agentStatus), this.agentPlan, this.agentSteps)
-    this.conversation.append(this.empty, this.messages, this.agentActivity, this.generation, this.suggestionWrap)
+    this.conversation.append(this.empty, this.messages, this.compaction.element, this.liveTrace, this.generation, this.agentEnd, this.suggestionWrap)
     this.conversation.addEventListener('click', event => {
       const url = markdownLink(event)
       if (url) void invoke('visit_link', { url }).catch(error => {
@@ -148,7 +177,7 @@ export class AiPanel {
     this.contextSummary.append(el('span', { className: 'yy-ai-context-arrow yy-icon', html: icons.chevronRight }), this.contextLabel)
     this.contextDetails.append(this.contextSummary, this.contextPreview)
     this.contextHost.append(this.contextDetails, clearContext)
-    this.element.append(header, this.modelPicker.button, this.conversation, this.buildComposer())
+    this.element.append(header, this.modelControls, this.conversation, this.approval, this.buildComposer())
     this.setView(this.view)
   }
 
@@ -158,18 +187,58 @@ export class AiPanel {
 
   private async selectModel(value: string) {
     const selection = this.modelOptions.get(value)
-    if (!selection || value === modelKey(this.view.settings.active) || this.changingModel) return
+    if (selection && value !== modelKey(this.view.settings.active)) await this.changeSelection(selection)
+  }
+
+  private async selectEffort(value: string) {
+    const selection = this.view.settings.active
+    const reasoningEffort = value === 'default' ? undefined : value as AiReasoningEffort
+    if (selection && selection.reasoningEffort !== reasoningEffort) await this.changeSelection({ ...selection, reasoningEffort }, true)
+  }
+
+  private async changeSelection(selection: AiSelection, updateEffort = false) {
+    if (this.changingModel) return
     this.changingModel = true
-    this.modelPicker.setDisabled(true)
-    await this.request({ type: 'ai-model-select', selection })
+    this.syncModelPickers()
+    await this.request({ type: 'ai-model-select', selection, ...(updateEffort ? { updateEffort } : {}) })
     this.changingModel = false
-    this.modelPicker.setDisabled(this.view.pending)
+    this.syncModelPickers()
+  }
+
+  private syncModelPickers() {
+    const disabled = this.view.pending || this.changingModel
+    this.modelPicker.setDisabled(disabled)
+    this.effortPicker.setDisabled(disabled)
+  }
+
+  private async selectAgentApproval(mode: AiAgentApprovalMode) {
+    if (mode === (this.view.agentApprovalMode ?? 'auto') || this.changingApproval) return
+    this.changingApproval = true
+    this.approvalPicker.setDisabled(true)
+    await this.request({ type: 'ai-agent-approval-mode', mode })
+    this.changingApproval = false
+    this.approvalPicker.setDisabled(this.view.pending)
   }
 
   private async selectContext(scope: AiScope) {
     this.contextPicker.setDisabled(true)
     await this.request({ type: 'ai-context', scope })
     this.contextPicker.setDisabled(false)
+  }
+
+  private selectSkill(name?: string) {
+    this.selectedSkill = name
+    const skill = this.view.skills?.find(item => item.name === name)
+    this.skillChip.hidden = !skill
+    this.skillLabel.textContent = skill ? (skill.label ?? skill.name) : ''
+    this.updateDraft()
+  }
+
+  private openSkills() {
+    openSkills(this.options.modals, () => this.view.skills ?? [], this.options.dispatch, name => {
+      this.selectSkill(name)
+      this.focusInput()
+    })
   }
 
   private buildComposer() {
@@ -179,20 +248,39 @@ export class AiPanel {
     const tools = el('div', { className: 'yy-ai-composer-tools' })
     this.taskPicker.setItems(aiIntents.map(value => ({ value, label: aiTasks[value].label })), this.intent)
     this.contextPicker.setItems(Object.entries(scopes).map(([value, label]) => ({ value, label })))
+    this.approvalPicker.setItems([
+      { value: 'auto', label: '自动审核' }, { value: 'ask', label: '请求批准' },
+    ], 'auto')
+    this.approvalPicker.button.hidden = true
     this.agentToggle.addEventListener('click', () => {
       this.agentMode = !this.agentMode
       this.agentToggle.setAttribute('aria-pressed', String(this.agentMode))
+      this.approvalPicker.button.hidden = !this.agentMode
       this.updateDraft()
     })
-    tools.append(this.agentToggle, this.taskPicker.button, this.contextPicker.button)
+    this.skillButton.onclick = () => this.openSkills()
+    this.removeSkill.onclick = () => { this.selectSkill(); this.focusInput() }
+    this.attachButton.onclick = () => { void this.addAttachments() }
+    tools.append(this.attachButton, this.agentToggle, this.approvalPicker.button, this.taskPicker.button, this.contextPicker.button, this.skillButton)
     this.sendButton.setAttribute('aria-keyshortcuts', 'Meta+Enter Control+Enter')
     this.cancelButton.addEventListener('click', () => { void this.request({ type: 'ai-cancel' }) })
     bar.append(tools, this.sendButton, this.cancelButton)
-    inputBox.append(this.promptInput, bar)
+    inputBox.append(this.skillChip, this.promptInput, bar)
 
-    this.promptInput.addEventListener('input', () => this.updateDraft())
+    this.promptInput.addEventListener('input', () => {
+      this.updateDraft()
+      this.commands.refresh(this.view.pending, true)
+    })
+    this.promptInput.addEventListener('focus', () => this.commands.refresh(this.view.pending))
+    this.promptInput.addEventListener('paste', event => {
+      const images = [...(event.clipboardData?.files ?? [])].filter(file => file.type.startsWith('image/'))
+      if (!images.length) return
+      event.preventDefault()
+      void this.addAttachments(images)
+    })
     this.promptInput.addEventListener('keydown', event => {
       if (event.isComposing || event.keyCode === 229) return
+      if (this.commands.keydown(event)) return
       if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
         event.preventDefault()
         if (event.repeat) return
@@ -204,14 +292,63 @@ export class AiPanel {
       void this.submitPrompt()
     })
     this.updateDraft()
-    form.append(this.errorBanner, this.contextHost, inputBox)
+    form.append(this.errorBanner, this.contextHost, this.attachmentHost, this.attachmentStatus, this.commands.element, inputBox)
     return form
   }
 
+  private async addAttachments(images?: File[]) {
+    if (this.readingAttachments || this.view.pending) return
+    if (!this.view.settings.active) {
+      this.openModels()
+      return
+    }
+    this.readingAttachments = true
+    this.renderAttachments()
+    this.updateDraft()
+    try { await this.request({ type: 'ai-attach', images }) }
+    finally {
+      this.readingAttachments = false
+      this.renderAttachments()
+      this.updateDraft()
+      this.promptInput.focus()
+    }
+  }
+
+  private renderAttachments() {
+    const files = this.view.attachments
+    const pending = this.view.pending || this.readingAttachments
+    this.attachmentHost.hidden = !files?.length
+    if (files !== this.shownAttachments) {
+      this.shownAttachments = files
+      this.attachmentHost.replaceChildren(...(files ?? []).map(file => {
+        const image = file.kind === 'binary' && file.mediaType.startsWith('image/')
+        const icon = image ? el('img', { attrs: { src: `data:${file.mediaType};base64,${file.data}`, alt: '' } })
+          : el('span', { className: 'yy-icon', html: icons.filePlus })
+        const summary = el('summary', { title: file.name }, icon, el('span', { text: file.name }))
+        const remove = iconButton('移除 ' + file.name, icons.close, 'yy-icon-btn-sm')
+        remove.onclick = () => { void this.request({ type: 'ai-attachment-remove', id: file.id }) }
+        const preview = file.kind === 'text'
+          ? el('pre', { className: 'yy-context-fulltext', text: file.text, attrs: { tabindex: '0', 'aria-label': file.name + ' 预览' } })
+          : image ? el('img', { className: 'yy-ai-attachment-image', attrs: { src: `data:${file.mediaType};base64,${file.data}`, alt: file.name } })
+            : null
+        return el('div', { className: 'yy-ai-attachment' },
+          preview ? el('details', {}, summary, preview) : el('span', { className: 'yy-ai-attachment-name', title: file.name }, icon, el('span', { text: file.name })), remove)
+      }))
+    }
+    this.attachmentHost.querySelectorAll('button').forEach(button => { button.disabled = pending })
+  }
+
   private async submitPrompt() {
-    if (this.submitting || this.view.pending || this.changingModel) return
+    if (this.submitting || this.view.pending || this.changingModel || this.changingApproval || this.readingAttachments) return
     const draft = this.promptInput.value
-    if (!draft.trim() && (this.intent === 'chat' || !this.view.context)) {
+    const command = this.commands.exact(draft)
+    if (command) { await this.runCommand(command); return }
+    if (/^\/skill(?:[ \t]+\S+)?$/i.test(draft.trim())) {
+      this.actionError = '未找到指定技能。输入 /skills 可查看可用技能。'
+      this.renderError()
+      return
+    }
+    if (!this.draftReady()) {
       this.promptInput.focus()
       return
     }
@@ -220,15 +357,46 @@ export class AiPanel {
       return
     }
     this.submitting = true
-    const request = this.request({ type: 'ai-send', intent: this.intent, prompt: draft.trim(), ...(this.agentMode ? { agent: true } : {}) })
+    const skill = this.selectedSkill
+    const request = this.request({ type: 'ai-send', intent: this.intent, prompt: draft.trim(),
+      ...(this.agentMode ? { agent: true } : {}), ...(skill ? { skill } : {}) })
     const started = this.view.pending
-    if (started) this.clearDraft(draft)
-    if (await request && !started) this.clearDraft(draft)
+    if (started) this.clearDraft(draft, skill)
+    if (await request && !started) this.clearDraft(draft, skill)
     this.submitting = false
   }
 
-  private clearDraft(draft: string) {
+  private async runCommand(command: AiCommand) {
+    if (this.submitting || this.view.pending || this.changingModel || this.changingApproval || this.readingAttachments) return
+    // 斜杠命令由应用直接处理，避免进入用户消息或发送到模型。
+    this.promptInput.value = command.action === 'help' ? '/' : ''
+    this.updateDraft()
+    this.commands.refresh(false, true)
+    this.actionError = ''
+    this.renderError()
+    switch (command.action) {
+      case 'help': this.focusInput(); break
+      case 'model':
+        if (this.modelOptions.size) this.modelPicker.button.click()
+        else this.openModels()
+        break
+      case 'context': this.contextPicker.button.click(); break
+      case 'attach': await this.addAttachments(); break
+      case 'skills': this.openSkills(); break
+      case 'skill': this.selectSkill(command.skill); this.focusInput(); break
+      case 'compact': case 'new':
+        this.submitting = true
+        await this.request({ type: command.action === 'compact' ? 'ai-compress' : 'ai-chat-new' })
+        this.submitting = false
+        this.focusInput()
+        break
+    }
+  }
+
+  private clearDraft(draft: string, skill: string | undefined) {
     if (this.promptInput.value === draft) this.promptInput.value = ''
+    if (skill && skill === this.selectedSkill) this.selectSkill()
+    this.commands.refresh(this.view.pending, true)
     this.updateDraft()
     this.contextDetails.open = false
   }
@@ -239,7 +407,18 @@ export class AiPanel {
     this.promptInput.style.height = 'auto'
     const { scrollHeight, clientHeight } = this.promptInput
     if (scrollHeight > clientHeight) this.promptInput.style.height = scrollHeight + 'px'
-    this.sendButton.disabled = !this.promptInput.value.trim() && (this.intent === 'chat' || !this.view.context)
+    this.attachButton.disabled = this.view.pending || this.readingAttachments
+    const model = activeModel(this.view.settings)
+    const error = model ? attachmentError(this.view.attachments ?? [], model.provider.protocol, model.options) : ''
+    this.attachmentStatus.textContent = this.readingAttachments ? '正在添加附件…' : error
+    this.attachmentStatus.hidden = !this.attachmentStatus.textContent
+    this.sendButton.disabled = this.readingAttachments || !!error || !this.draftReady()
+    this.budget.update(this.view, this.promptInput.value, this.intent, this.agentMode,
+      this.view.skills?.find(skill => skill.name === this.selectedSkill))
+  }
+
+  private draftReady() {
+    return !!(this.promptInput.value.trim() || this.view.attachments?.length || (this.view.context && (this.intent !== 'chat' || this.selectedSkill)))
   }
 
   private async request(action: ShellAction) {
@@ -274,24 +453,42 @@ export class AiPanel {
     const insert = el('button', { className: 'yy-btn yy-btn-sm yy-btn-ghost', type: 'button' },
       el('span', { className: 'yy-icon', html: icons.filePlus }), '插入文档')
     insert.addEventListener('click', () => { void this.request({ type: 'ai-insert-reply', message }) })
-    return el('footer', { className: 'yy-ai-reply-actions' }, copy, insert)
+    const footer = el('footer', { className: 'yy-ai-reply-actions' }, copy, insert)
+    const measured = message.usage?.filter(item => item.cachedTokens !== undefined)
+    if (measured?.length) {
+      const hits = measured.reduce((sum, item) => sum + item.cachedTokens!, 0)
+      footer.append(el('small', { className: 'yy-ai-cache', text: `缓存命中 ${hits.toLocaleString('zh-CN')} Token`,
+        title: measured.map((item, index) => `统计 ${index + 1} · 命中 ${item.cachedTokens} Token`).join('\n') }))
+    }
+    return footer
   }
 
   setView(view: AiView) {
-    const { settings, context, messages, stream, pending, suggestion, canRetry, canRegenerate, agent, conversations, compacting } = view
+    const { settings, context, messages, stream, reasoning, pending, suggestion, canRetry, canRegenerate, agent, conversations, compacting } = view
+    const refreshComposer = messages !== this.shownMessages || context !== this.shownContext || view.attachments !== this.shownAttachments ||
+      settings !== this.shownSettings || this.shownPrompts !== view.prompts || pending !== this.commandsBlocked || this.budgetCovered !== conversations?.covered
+    this.shownPrompts = view.prompts
+    this.budgetCovered = conversations?.covered
     const nearEnd = this.conversation.scrollHeight - this.conversation.clientHeight - this.conversation.scrollTop < 48
     this.view = view
     const active = conversations?.active
     if (active !== this.shownChat) {
       if (this.shownChat) this.drafts.set(this.shownChat, this.promptInput.value)
       this.shownChat = active
+      this.selectSkill()
       this.promptInput.value = active ? this.drafts.get(active) ?? '' : ''
-      this.updateDraft()
+      this.commands.refresh(pending, true)
+    }
+    if (this.selectedSkill && !view.skills?.some(skill => skill.name === this.selectedSkill)) this.selectSkill()
+    if (pending !== this.commandsBlocked) {
+      this.commandsBlocked = pending
+      this.commands.refresh(pending)
     }
     const title = conversations?.items.find(item => item.id === active)?.title ?? '对话'
     if (this.chatLabel.textContent !== title) this.chatLabel.textContent = title
     this.chatButton.title = title
     this.refreshChats?.()
+    this.compaction.update(conversations)
     if (settings !== this.shownSettings) {
       this.shownSettings = settings
       this.modelOptions.clear()
@@ -299,13 +496,24 @@ export class AiPanel {
         const selection = { providerId: provider.id, model }
         const value = modelKey(selection)
         this.modelOptions.set(value, selection)
-        return { value, label: model, detail: provider.name }
+        const label = modelDisplayName(model, optionsForModel(provider, model))
+        const detail = label === model ? provider.name : `${provider.name} · ${model}`
+        return { value, label, detail, triggerLabel: `${provider.name} · ${label}` }
       }))
       this.modelPicker.setItems(items, modelKey(settings.active))
-      this.modelPicker.button.hidden = !items.length
+      const activeModel = settings.active?.model ?? ''
+      const provider = settings.providers.find(provider => provider.id === settings.active?.providerId)
+      const options = modelEfforts(activeModel, provider && optionsForModel(provider, activeModel))
+      this.effortPicker.setItems(options.map(value => ({ value, label: '思考 · ' + effortLabels[value] })), settings.active?.reasoningEffort ?? 'default')
+      this.effortPicker.button.hidden = !settings.active || options.length === 1
+      this.modelControls.hidden = !items.length
     }
-    this.modelPicker.setDisabled(pending || this.changingModel)
+    this.syncModelPickers()
     this.agentToggle.disabled = pending
+    this.skillButton.disabled = pending
+    this.removeSkill.disabled = pending
+    this.approvalPicker.setValue(view.agentApprovalMode ?? 'auto')
+    this.approvalPicker.setDisabled(pending || this.changingApproval)
     this.clearButton.hidden = !messages.length
     this.clearButton.disabled = pending
     this.retryButton.hidden = pending || !canRetry
@@ -327,21 +535,40 @@ export class AiPanel {
         if (existing) return existing
         const item = el('article', { className: 'yy-msg yy-msg-' + message.role })
         const body = message.role === 'assistant' ? replyBody() : el('div', { className: 'yy-msg-body', text: message.text })
-        if (message.role === 'assistant') void renderReply(body, message.text)
-        item.append(
-          el('div', { className: 'yy-msg-role', text: message.role === 'user' ? '你' : '页屿 AI' }),
-          body,
-        )
+        item.append(el('div', { className: 'yy-msg-role', text: message.role === 'user' ? '你' + (message.skill ? ' · ' + message.skill : '') : '页屿 AI' }))
+        if (message.attachments?.length) item.append(el('div', { className: 'yy-ai-sent-attachments', text: message.attachments.join(' · ') }))
+        if (message.role === 'assistant') {
+          if (message.reasoning) {
+            const thought = replyBody()
+            item.append(reasoningDetails(thought))
+            void renderReply(thought, message.reasoning)
+          }
+          void renderReply(body, message.text)
+        }
+        item.append(body)
         if (message.role === 'assistant' && message.text.trim()) item.append(this.replyActions(message))
-        this.messageNodes.set(message, item)
-        return item
+        let entry: HTMLElement = item
+        if (message.agentTrace?.length) {
+          const steps = message.agentTrace === this.shownTrace ? [...this.liveTrace.children] : message.agentTrace.map(traceEntry)
+          entry = el('div', { className: 'yy-ai-exchange' }, el('div', { className: 'yy-ai-trace' }, ...steps), item)
+        }
+        this.messageNodes.set(message, entry)
+        return entry
       }))
       this.shownMessages = messages
     }
-    this.stream.set(pending ? stream : '')
-    this.generationStatus.textContent = compacting ? '正在压缩上下文…' : '正在生成…'
-    this.generation.hidden = !pending || (!!agent && !stream && !compacting)
-    this.renderAgent(agent)
+    this.renderAttachments()
+    const archived = !!agent && messages.at(-1)?.agentTrace === agent.trace
+    const generating = pending && (!archived || compacting)
+    const hasReasoning = generating && !!reasoning?.trim()
+    if (hasReasoning && this.reasoning.hidden) this.reasoning.open = true
+    this.reasoning.hidden = !hasReasoning
+    this.reasoningStream.set(hasReasoning ? reasoning! : '')
+    this.stream.set(generating ? stream : '')
+    this.generationStatus.textContent = compacting ? '正在压缩上下文…' : hasReasoning && !stream ? '正在思考…'
+      : agent?.round ? `智能体 · 第 ${agent.round} 轮` : '正在生成…'
+    this.generation.hidden = !generating
+    this.renderAgent(agent, archived)
     if (context !== this.shownContext) {
       this.shownContext = context
       this.contextHost.hidden = !context
@@ -365,26 +592,47 @@ export class AiPanel {
       }
     }
     if (nearEnd) this.conversation.scrollTop = this.conversation.scrollHeight
+    if (refreshComposer) this.updateDraft()
     this.renderError()
   }
 
-  private renderAgent(agent: AiAgentActivity | undefined) {
-    if (agent === this.shownAgent) return
-    if (agent?.status === 'running' && (!this.shownAgent || agent.round === 0)) this.agentActivity.open = true
-    this.shownAgent = agent
-    this.agentActivity.hidden = !agent
-    if (!agent) { this.agentSteps.replaceChildren(); this.agentPlan.replaceChildren(); return }
-    this.agentStatus.textContent = agent.status === 'running' ? (agent.round ? '智能体 · 第 ' + agent.round + ' 轮' : '正在准备智能体任务…')
-      : { complete: '智能体已完成', cancelled: '智能体已取消', failed: '智能体任务中断' }[agent.status]
-    this.agentPlan.hidden = !agent.plan?.length
-    this.agentPlan.replaceChildren(...(agent.plan ?? []).map(item => el('li', {
-      attrs: { 'data-status': item.status },
-    }, el('span', { className: 'yy-muted-note', text: { pending: '待处理', in_progress: '进行中', completed: '已完成' }[item.status] }),
-    el('span', { text: item.step }))))
-    this.agentSteps.replaceChildren(...agent.steps.map(step => el('li', {
-      className: step.failed ? 'is-failed' : '',
-    }, el('span', { className: 'yy-icon', html: step.failed ? icons.close : icons.check }),
-    el('strong', { text: step.title }), el('span', { text: step.detail }))))
+  private renderAgent(agent: AiAgentActivity | undefined, archived: boolean) {
+    const entries = archived ? [] : agent?.trace ?? []
+    // 工具逐条追加，已展开的思考或计划在后续轮次保留展开状态。
+    if (entries !== this.shownTrace) {
+      if (this.shownTrace.every((entry, index) => entries[index] === entry)) {
+        this.liveTrace.append(...entries.slice(this.shownTrace.length).map(traceEntry))
+      } else this.liveTrace.replaceChildren(...entries.map(traceEntry))
+      this.shownTrace = entries
+    }
+    if (agent?.approval !== this.shownApproval) {
+      this.shownApproval = agent?.approval
+      this.renderApproval(this.shownApproval)
+    }
+    const status = agent?.status === 'cancelled' ? '智能体已取消' : agent?.status === 'failed' ? '智能体任务中断' : ''
+    this.agentEnd.textContent = status
+    this.agentEnd.hidden = !status
+  }
+
+  private renderApproval(approval: AiAgentApproval | undefined) {
+    this.approval.hidden = !approval
+    this.approval.replaceChildren()
+    if (!approval) return
+    const controls = el('div', { className: 'yy-ai-approval-actions' })
+    for (const [allow, label] of [[false, '拒绝本轮'], [true, '批准本轮']] as const) {
+      const button = el('button', { className: 'yy-btn yy-btn-sm' + (allow ? ' yy-btn-primary' : ''), type: 'button', text: label })
+      button.addEventListener('click', () => { void this.request({ type: 'ai-agent-approval', id: approval.id, allow }) })
+      controls.append(button)
+    }
+    const tools = el('ul', { className: 'yy-ai-approval-tools' }, ...approval.tools.map(tool => {
+      const item = el('li', {}, el('strong', { text: tool.title }), el('div', { text: tool.detail }))
+      if (tool.markdown !== undefined) {
+        item.append(el('details', {}, el('summary', { text: '预览建议内容' }),
+          el('pre', { className: 'yy-context-fulltext', text: tool.markdown || '空白内容' })))
+      }
+      return item
+    }))
+    this.approval.append(el('div', { className: 'yy-msg-role', text: `第 ${approval.round} 轮工具等待批准`, attrs: { role: 'status' } }), tools, controls)
   }
 
   private renderError() {
@@ -516,9 +764,30 @@ export class AiPanel {
 
   closePickers() {
     this.modelPicker.close()
+    this.effortPicker.close()
+    this.approvalPicker.close()
     this.taskPicker.close()
     this.contextPicker.close()
+    this.commands.hide()
   }
+}
+
+function reasoningDetails(body: HTMLElement) {
+  return el('details', { className: 'yy-ai-reasoning' }, el('summary', { text: '思考过程' }), body)
+}
+
+function traceEntry(entry: AiAgentEntry) {
+  if (entry.kind !== 'tool') {
+    const body = replyBody()
+    void renderReply(body, entry.text)
+    return entry.kind === 'reasoning' ? reasoningDetails(body) : body
+  }
+  const content = el('div', {}, el('strong', { text: entry.title }), el('div', { text: entry.detail }))
+  if (entry.plan?.length) content.append(el('ol', { className: 'yy-ai-agent-plan', attrs: { role: 'list', 'aria-label': '执行计划' } },
+    ...entry.plan.map(item => el('li', {}, el('span', { className: 'yy-muted-note',
+      text: { pending: '待处理', in_progress: '进行中', completed: '已完成' }[item.status] }), el('span', { text: item.step })))))
+  return el('div', { className: 'yy-ai-trace-tool' + (entry.failed ? ' is-failed' : '') },
+    el('span', { className: 'yy-icon', html: entry.failed ? icons.close : icons.check, attrs: { 'aria-hidden': 'true' } }), content)
 }
 
 function iconButton(label: string, html: string, className = '', type = 'button') {

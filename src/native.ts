@@ -1,25 +1,30 @@
 import { invoke, Channel } from '@tauri-apps/api/core'
 import { open, save, ask, message } from '@tauri-apps/plugin-dialog'
-import type { AiPrompts, EditorMode, FindQuery, McpServer, Selection, SidebarTab, TitlebarMaterial } from './contracts'
+import type { AiAgentApprovalMode, AiPrompts, AiSkill, AiUsage, DocumentWidth, EditorMode, FindQuery, McpServer, Selection, SidebarTab, TitlebarMaterial } from './contracts'
 import type { ImageUploadService, TyporaProfile } from './typora'
 
 export type FileSnapshot = { path: string; text: string; bom: boolean; version: string; name: string }
 export type Recovery = Selection & { path: string | null; text: string; bom: boolean; title: string; baseVersion: string | null; mode: EditorMode }
 export type Preferences = {
-  autosave: boolean; animations: boolean; theme: string; typoraThemes: Record<string, string>; workspace: string | null; mcp: McpServer[];
+  autosave: boolean; autoCheckUpdates: boolean; animations: boolean; theme: string; typoraThemes: Record<string, string>; workspace: string | null; mcp: McpServer[];
   hidden: boolean; allFiles: boolean; fileGlob: string; zoom: number; remoteImages: boolean; uploadEndpoint: string; recent: string[];
   aiPrompts: AiPrompts;
+  aiSkills: AiSkill[];
+  aiAgentApprovalMode: AiAgentApprovalMode;
   titlebarMaterial: TitlebarMaterial;
   pluginMarketSource: string;
   uploadService: ImageUploadService;
   autosaveDelay: number;
   spellcheck: boolean;
   sidebarTab?: SidebarTab;
+  documentWidth?: DocumentWidth;
+  leftSidebarWidth?: number;
+  rightSidebarWidth?: number;
   findOptions: Pick<FindQuery, 'matchCase' | 'wholeWord'>;
 }
 export type McpProposal = { id: string; workspace: string; path: string; version: string; from: number; to: number; replacement: string; summary: string; created: number }
 export type LocalMcp = { allowed: boolean; command: string }
-export type StreamEvent = { kind: 'delta'; text: string } | { kind: 'done' | 'cancelled' }
+export type StreamEvent = { kind: 'delta' | 'reasoning'; text: string } | { kind: 'done'; usage?: AiUsage } | { kind: 'cancelled' }
 export { invoke, Channel, open, save, ask, message }
 
 export const native = {

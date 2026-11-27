@@ -13,7 +13,7 @@ import { FindBar } from './ui/find-bar'
 import { el } from './ui/helpers'
 import { icons } from './ui/icons'
 import { createPages } from './ui/pages'
-import { showUpdate } from './ui/update-dialog'
+import { showAutomaticUpdate, showUpdate, type UpdatePreferences, type UpdateSource } from './ui/update-dialog'
 import './ui/shell.css'
 import './ui/motion.css'
 import './mobile.css'
@@ -23,7 +23,7 @@ type Document = Origin & { text: string }
 type Draft = { origin: Origin | null; text: string; selection: Selection }
 type WorkspaceFile = { uri: string; name: string; path: string }
 type RecentFile = { uri: string; name: string }
-type Session = { theme: string; animations: boolean; mode: EditorMode; draft?: Draft; recoveries?: Draft[];
+type Session = { theme: string; animations: boolean; autoCheckUpdates?: boolean; mode: EditorMode; draft?: Draft; recoveries?: Draft[];
   recent?: RecentFile[]; workspace?: string; presentation?: Presentation; services?: MobileServiceSettings }
 type PageRow = { label: string; icon?: string; checked?: boolean; action: (button: HTMLButtonElement) => void }
 type BackGesture = { phase: 'start' | 'progress' | 'cancel'; progress: number; edge: 'left' | 'right' }
@@ -35,6 +35,7 @@ let saved = ''
 let mode: EditorMode = 'live'
 let theme = 'default'
 let animations = true
+let autoCheckUpdates = false
 let hasDocument = false
 let recoveries: Draft[] = []
 let recent: RecentFile[] = []
@@ -252,7 +253,7 @@ function showDocument(value: Document | null, draft?: Draft, opened = true) {
 function checkpoint() {
   window.clearTimeout(timer)
   timer = 0
-  const session: Session = { theme, animations, mode, recoveries, recent, workspace, presentation, services: serviceSettings }
+  const session: Session = { theme, animations, autoCheckUpdates, mode, recoveries, recent, workspace, presentation, services: serviceSettings }
   if (dirty) session.draft = { origin, text: editor.getMarkdown(), selection: editor.getSelection() }
   const next = pending.then(() => invoke<void>('android_save_session', { session }))
   pending = next.catch(() => {})
@@ -503,8 +504,19 @@ async function exportDocument(format: 'html' | 'pdf') {
   }
 }
 
+const mobileUpdatePreferences: UpdatePreferences = {
+  enabled: () => autoCheckUpdates,
+  async save(enabled) {
+    const prior = autoCheckUpdates
+    autoCheckUpdates = enabled
+    try { await checkpoint() }
+    catch (error) { autoCheckUpdates = prior; throw error }
+  },
+}
+const findMobileUpdate = (source: UpdateSource) => checkPublishedPackage({ source, beforeInstall: checkpoint })
+
 function showMobileUpdate() {
-  showUpdate(source => checkPublishedPackage({ source, beforeInstall: checkpoint }), { open: pages.push })
+  showUpdate(findMobileUpdate, { open: pages.push }, mobileUpdatePreferences)
 }
 
 async function openService(page: MobileServicePage) {
@@ -633,6 +645,7 @@ async function start() {
   const session = await invoke<Session | null>('android_load_session').catch(() => null)
   setTheme(session?.theme ?? 'default')
   setAnimations(session?.animations !== false)
+  autoCheckUpdates = session?.autoCheckUpdates === true
   setMode(session?.mode === 'source' ? 'source' : 'live')
   if (session?.presentation) setPresentation(session.presentation)
   workspace = session?.workspace
@@ -649,6 +662,9 @@ async function start() {
   // 首页只恢复入口与记录，由用户主动挑选文件或恢复草稿。
   recoveries = [...(session?.recoveries ?? []), ...(session?.draft ? [session.draft] : [])]
   refresh()
+  void showAutomaticUpdate(findMobileUpdate, mobileUpdatePreferences, {
+    open: (title, contents) => { if (!pages.active) pages.push(title, contents) },
+  })
 }
 
 setMode('live')

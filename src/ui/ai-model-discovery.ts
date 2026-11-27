@@ -1,4 +1,4 @@
-import type { AiModelDiscovery, ShellActions } from '../contracts'
+import type { AiDiscoveredModel, AiModelDiscovery, ShellActions } from '../contracts'
 import { el } from './helpers'
 import { icons } from './icons'
 
@@ -6,7 +6,7 @@ export function modelDiscovery(
   discover: NonNullable<ShellActions['listAiModels']>,
   request: () => AiModelDiscovery,
   configured: () => string[],
-  append: (ids: string[]) => void,
+  apply: (models: AiDiscoveredModel[], add: boolean) => void,
 ) {
   const button = el('button', { type: 'button', className: 'yy-btn yy-btn-sm' },
     el('span', { className: 'yy-icon', html: icons.refresh }), '获取模型')
@@ -16,7 +16,7 @@ export function modelDiscovery(
   const add = el('button', { className: 'yy-btn yy-btn-primary yy-btn-sm', type: 'button', text: '添加所选' })
   const picker = el('div', { className: 'yy-ai-discovery-picker', attrs: { hidden: '' } }, filter, list, add)
   const panel = el('div', { className: 'yy-ai-discovery', attrs: { hidden: '' } }, status, picker)
-  let models: string[] = []
+  let models: AiDiscoveredModel[] = []
   const selected = new Set<string>()
   let revision = 0
 
@@ -32,11 +32,11 @@ export function modelDiscovery(
 
   function render() {
     const query = filter.value.trim().toLowerCase()
-    const matches = models.filter(id => id.toLowerCase().includes(query))
+    const matches = models.filter(({ id, metadata }) => id.toLowerCase().includes(query) || metadata.displayName?.toLowerCase().includes(query))
     status.textContent = matches.length > 120
       ? `共 ${matches.length} 项，已显示前 120 项，可继续筛选`
       : matches.length ? `${matches.length} 项可用模型` : '没有匹配的模型'
-    list.replaceChildren(...matches.slice(0, 120).map(id => {
+    list.replaceChildren(...matches.slice(0, 120).map(({ id, metadata }) => {
       const check = el('input', { type: 'checkbox' })
       check.checked = selected.has(id)
       check.addEventListener('change', () => {
@@ -44,7 +44,9 @@ export function modelDiscovery(
         else selected.delete(id)
         add.disabled = !selected.size
       })
-      return el('label', { className: 'yy-ai-discovered-model' }, check, el('span', { text: id }))
+      const label = el('span', { text: metadata.displayName || id })
+      if (metadata.displayName && metadata.displayName !== id) label.append(el('small', { text: id }))
+      return el('label', { className: 'yy-ai-discovered-model' }, check, label)
     }))
     add.disabled = !selected.size
   }
@@ -53,7 +55,7 @@ export function modelDiscovery(
   add.addEventListener('click', () => {
     const count = selected.size
     if (!count) return
-    append([...selected])
+    apply(models.filter(model => selected.has(model.id)), true)
     reset()
     panel.hidden = false
     status.textContent = `已添加 ${count} 个模型，可以保存配置`
@@ -70,12 +72,16 @@ export function modelDiscovery(
     button.disabled = true
     const current = revision
     try {
-      const ids = await discover(value)
+      const discovered = await discover(value)
       if (current !== revision || !panel.isConnected) return
       const existing = new Set(configured().map(id => id.trim()))
-      models = [...new Set(ids)].filter(id => !existing.has(id))
+      const unique = [...new Map(discovered.map(model => [model.id, model])).values()]
+      const updates = unique.filter(model => existing.has(model.id) && Object.keys(model.metadata).length)
+      if (updates.length) apply(updates, false)
+      models = unique.filter(model => !existing.has(model.id))
       if (!models.length) {
-        status.textContent = ids.length ? '返回的模型已全部添加' : '供应商暂未返回可用模型'
+        status.textContent = updates.length ? `已获取 ${updates.length} 个现有模型的规格，可以保存配置`
+          : unique.length ? '返回的模型已全部添加' : '供应商暂未返回可用模型'
         return
       }
       picker.hidden = false

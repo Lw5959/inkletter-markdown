@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { spawn, execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { createServer } from 'node:http'
-import { copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
@@ -12,7 +12,9 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 
 const [exe, kind = 'full'] = process.argv.slice(2)
-if (!exe || !['full', 'measure', 'titlebar', 'opencode', 'windows'].includes(kind)) throw new Error('用法：node scripts/native-qa.mjs <QA 程序> [full|measure|titlebar|opencode|windows]')
+if (!exe || !['full', 'measure', 'titlebar', 'opencode', 'windows', 'writing-live', 'finder-open', 'vault'].includes(kind)) {
+  throw new Error('用法：node scripts/native-qa.mjs <QA 程序> [full|measure|titlebar|opencode|windows|writing-live|finder-open|vault]')
+}
 const folder = mkdtempSync(join(tmpdir(), 'yeyu-native-'))
 const finderBundle = process.platform === 'darwin' ? process.env.YEYU_QA_FINDER_BUNDLE : undefined
 const root = join(folder, 'workspace')
@@ -134,26 +136,33 @@ async function serveFixtures(aiFixtureKey) {
         let events
         if (provider === 'chat') {
           assert.equal(body.model, 'qa-shared')
-          assert.match(body.messages.at(-1).content, /The draft is wordy\./)
+          assert.equal(body.reasoning_effort, 'high')
+          assert.ok(body.messages.some(message => message.role === 'user' && /The draft is wordy\./.test(message.content)))
           assert.match(body.messages[0].content, /verbose/)
-          events = [{ choices: [{ delta: { content: 'The draft is verbose.' }, finish_reason: null }] },
+          events = [{ choices: [{ delta: { reasoning_content: '先核对改写范围。' } }] },
+            { choices: [{ delta: { content: 'The draft is verbose.' }, finish_reason: null }] },
             { choices: [{ delta: {}, finish_reason: 'stop' }] }]
         } else if (provider === 'anthropic') {
           assert.equal(request.headers['anthropic-version'], '2023-06-01')
-          assert.equal(body.model, 'qa-claude')
+          assert.equal(body.model, 'claude-opus-4-6')
           assert.equal(body.messages.length, 1)
-          events = [{ type: 'content_block_delta', delta: { type: 'text_delta', text: 'anthropic·' + body.model } }, { type: 'message_stop' }]
+          assert.deepEqual(body.thinking, { type: 'adaptive', display: 'summarized' })
+          assert.equal(body.output_config.effort, 'low')
+          events = [{ type: 'content_block_delta', delta: { type: 'thinking_delta', thinking: '核对 Anthropic 的思考文本。' } },
+            { type: 'content_block_delta', delta: { type: 'text_delta', text: 'anthropic·' + body.model } }, { type: 'message_stop' }]
         } else {
           assert.equal(request.headers.authorization, aiFixtureKey ? 'Bearer ' + aiFixtureKey : undefined)
           if (aiFixtureKey) assert.ok(!readFileSync(join(folder, 'app-data', 'ai.json'), 'utf8').includes(aiFixtureKey))
-          assert.equal(body.model, 'qa-response')
+          assert.equal(body.model, 'gpt-5.4-qa')
           assert.equal(body.input.length, 1)
-          events = [{ type: 'response.output_text.delta', delta: 'responses·' + body.model }, { type: 'response.completed' }]
+          assert.deepEqual(body.reasoning, { effort: 'low', summary: 'auto' })
+          events = [{ type: 'response.reasoning_summary_text.delta', delta: '核对 Responses 的思考摘要。' },
+            { type: 'response.output_text.delta', delta: 'responses·' + body.model }, { type: 'response.completed' }]
         }
         response.writeHead(200, { 'Content-Type': 'text/event-stream' })
         response.write(`data: ${JSON.stringify(events[0])}\n\n`)
-        await delay(30)
-        response.end(`data: ${JSON.stringify(events[1])}\n\n`)
+        await delay(350)
+        response.end(events.slice(1).map(event => `data: ${JSON.stringify(event)}\n\n`).join(''))
       } catch {
         response.writeHead(400).end('模型协议、路径、模型或鉴权与验收请求不符')
       }
@@ -229,6 +238,7 @@ function rss() {
 }
 
 let remote
+let temporaryVault
 try {
   console.log('验收目录', folder)
   if (kind === 'measure') {
@@ -240,6 +250,47 @@ try {
   } else if (kind === 'titlebar') {
     boot(kind)
     console.log(JSON.stringify(await result(kind), null, 2))
+  } else if (kind === 'finder-open') {
+    assert.ok(finderBundle, '请用 YEYU_QA_FINDER_BUNDLE 指定 QA .app')
+    const warm = process.env.YEYU_QA_FINDER_WARM === '1'
+    writeFileSync(report, JSON.stringify({ ...setup, finderWarm: warm, epoch: Date.now() }))
+    child = spawn('/usr/bin/open', ['-W', '-n', '-a', finderBundle, '--env', 'YEYU_QA_CASE=' + folder,
+      '--stdout', logfile(kind), '--stderr', logfile(kind), ...(warm ? [] : [guide])], { stdio: 'inherit' })
+    child.once('error', error => { launchFailure = error })
+    try {
+      if (warm) {
+        await result('finder-ready')
+        execFileSync('/usr/bin/open', ['-a', finderBundle, guide])
+      }
+      const first = await result('finder-first')
+      assert.deepEqual(first.windows, ['main'])
+      execFileSync('/usr/bin/open', ['-a', finderBundle, guide, plainText])
+      console.log(JSON.stringify(await result('finder-open'), null, 2))
+    } finally {
+      const launch = join(finderBundle, 'Contents', 'MacOS', 'yeyu')
+      const processes = execFileSync('/bin/ps', ['-axo', 'pid=,comm='], { encoding: 'utf8' }).trim().split('\n')
+      for (const line of processes) {
+        const found = /^\s*(\d+)\s+(.+)$/.exec(line)
+        if (found?.[2] === launch) process.kill(Number(found[1]))
+      }
+    }
+  } else if (kind === 'vault') {
+    const aiFixtureKey = 'ya-vault-fixture-' + randomUUID()
+    remote = await serveFixtures(aiFixtureKey)
+    const aiFixture = new URL('/qa-ai', remote.url).href
+    boot(kind, { aiFixture, aiFixtureKey })
+    const report = await result('vault')
+    const folderData = join(folder, 'app-data')
+    const catalog = readFileSync(join(folderData, 'ai.json'), 'utf8')
+    const { credential } = JSON.parse(catalog).providers[0]
+    assert.ok(!catalog.includes(aiFixtureKey))
+    if (process.platform === 'darwin') {
+      assert.match(credential, /^local-/)
+      assert.ok(!readFileSync(join(folderData, 'ai-credentials', credential)).includes(aiFixtureKey))
+    }
+    await terminate()
+    boot('vault-recover', { aiFixture, aiFixtureKey })
+    console.log(JSON.stringify({ ...report, ...await result('vault-recover') }, null, 2))
   } else if (kind === 'windows') {
     boot(kind)
     if (finderBundle) {
@@ -263,6 +314,55 @@ try {
     assert.deepEqual(configuration.v1.mcp.yeyu.command, [command, ...args])
     await explicitClient({ command, args })
     console.log(JSON.stringify({ ...configuration, ...await result(kind), stdio: true }, null, 2))
+  } else if (kind === 'writing-live') {
+    const configuration = process.env.YEYU_QA_AI_SETTINGS
+    if (!configuration) throw new Error('请指定 YEYU_QA_AI_SETTINGS，使用其中当前模型测试真实写作请求')
+    const { providers, active } = JSON.parse(readFileSync(configuration, 'utf8'))
+    const provider = providers?.find(item => item.id === active?.providerId && item.models.includes(active.model))
+    if (!provider) throw new Error('配置文件里没有可用的当前模型')
+    const appData = join(folder, 'app-data')
+    mkdirSync(appData)
+    const { id, name, endpoint, protocol, models, modelOptions, credential } = provider
+    if (process.platform === 'darwin' && credential) {
+      if (!/^local-[a-f0-9-]{36}$/i.test(credential)) throw new Error('请使用页屿密钥库的模型配置启动真实验收')
+      const vault = join(dirname(configuration), 'ai-credentials')
+      temporaryVault = join(appData, 'ai-credentials')
+      mkdirSync(temporaryVault, { mode: 0o700 })
+      // 只复制本次使用的加密记录，测试结束后删除这个临时密钥库。
+      for (const file of ['vault.key', credential]) {
+        const target = join(temporaryVault, file)
+        copyFileSync(join(vault, file), target)
+        chmodSync(target, 0o600)
+      }
+    }
+    writeFileSync(join(appData, 'ai.json'), JSON.stringify({ providers: [{ id, name, endpoint, protocol, models, modelOptions, credential }], active }), { mode: 0o600 })
+    const markdown = '# 发布会验收记录\n\n负责人：林宁\n截止时间：12 月 3 日 17:00\n状态：草稿\n'
+    writeFileSync(guide, markdown)
+    const scope = provider.id + '\n' + provider.endpoint
+    const chat = randomUUID()
+    const code = 'YEYU-417-KP'
+    const messages = [
+      { role: 'user', text: `发布会验收识别码是 ${code}。任何精简记录都应准确保留它。` + '验收时用这条记录核对现场投屏和字幕的版本。'.repeat(25) },
+      { role: 'assistant', text: `已记录识别码 ${code}，验收负责人是林宁。` + '届时会先检查投屏和字幕，然后核对登记结果。'.repeat(16) },
+      { role: 'user', text: '下次会议请准备一页纸议程。' },
+      { role: 'assistant', text: '已记录，下次会议使用一页议程。' },
+    ]
+    const conversation = { id: chat, scope, title: '压缩验收', messages, summary: '', covered: 0, updated: Date.now() }
+    writeFileSync(join(appData, 'ai-conversations.json'), JSON.stringify({ conversations: [conversation], selected: { [scope]: chat } }))
+    const cacheFile = join(root, '合成现场记录.txt')
+    const cacheCode = 'YEYU-REC-6219'
+    const topics = ['舞台口播', '灯光方案', '设备巡检', '物料登记', '车辆调度', '系统登出', '仓库交接', '摄影机位']
+    const notes = Array.from({ length: 120 }, (_, i) =>
+      `样例 ${i + 1} ${topics[i % topics.length]}。请核对版本 ${1007 + i * 23}、登记窗口 ${8 + i % 13} 点和备份编号 ${2003 + i * 37}。所有记录都是用于验证写作功能的虚构样本。 `)
+    writeFileSync(cacheFile, `这是缓存验收用虚构记录。主馆通行校验码为 ${cacheCode}。\n\n` + notes.join('\n'))
+    const imageCode = process.env.YEYU_QA_VISION === '1' ? '9472' : undefined
+    boot(kind, { writingLive: { chat, code, markdown, cacheFile, cacheCode, imageCode } })
+    const verified = await result(kind, 410_000)
+    console.log(JSON.stringify(verified, null, 2))
+    assert.equal(verified.agent.passed, true)
+    assert.equal(verified.compression.passed, true)
+    if (process.env.YEYU_QA_CACHE === '1') assert.equal(verified.cache.passed, true)
+    if (imageCode) assert.equal(verified.vision.passed, true)
   } else {
     const aiFixtureKey = process.env.YEYU_TEST_KEYS === '1' ? 'qa-only-' + randomUUID() : undefined
     remote = await serveFixtures(aiFixtureKey)
@@ -307,6 +407,7 @@ try {
   }
 } finally {
   await terminate()
+  if (temporaryVault) rmSync(temporaryVault, { recursive: true, force: true })
   remote?.http.closeAllConnections()
   remote?.http.close()
 }

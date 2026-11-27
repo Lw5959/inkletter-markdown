@@ -66,6 +66,7 @@
 | 内置配色和本机主题 | 默认随系统，白纸为纯白衬线。macOS 同时查找用户目录和应用内置主题，首次使用时保存离线副本 | 视图 → 文档主题 → 本机 Typora | 发现八套主题，直接选择、批量导入、重复导入并切换明暗 | macOS 原生窗口通过 |
 | 整窗主题配色 | 应用从当前主题取背景、文字和强调色。macOS 材质标题栏使用同色调的半透明背景 | 视图 → 文档主题 | 切换青瓷和松夜，检查侧栏、AI 模型配置、提示词、MCP、插件、快捷键及弹窗 | Chromium、WebKit 和 macOS 原生窗口通过 |
 | 界面动效 | 跟随系统减少动态效果偏好 | 桌面视图 → 界面动画，Android 更多操作 → 界面动画 | 桌面侧栏开合，Android 逐级返回并保留菜单滚动位置，检查预测返回、动画开关与系统偏好 | Chromium 和 WebKit 通过，macOS 原生窗口通过开关与重启恢复，Android 系统手势待实机验收 |
+| 侧栏宽度 | 独立保存左、右侧栏宽度 | 桌面侧栏与正文的分隔线 | 拖动、用方向键微调，切换 AI 和 MCP，缩窄及还原窗口 | 桌面浏览器交互覆盖 |
 | Typora 设置迁移 | 读取 macOS plist、Windows 和 Linux 高级设置 JSONC，也可以选配置文件 | 编辑 → 导入 Typora 配置… | 预览并应用主题、图床、快捷键和编辑偏好 | macOS 本机配置通过，快捷键和图床协议通过自动化验收 |
 | `base.user.css` 和 `{theme}.user.css` 覆盖 | 同目录覆盖，主题名称区分大小写随系统 | 主题导入 | 测试相同选择器覆盖顺序 | macOS 验收 |
 | `#write`、标题、表格、代码、公式、图表选择器 | 实时编辑 DOM 与 Typora 有差异 | 文档、只读模式、导出 | 对照浅色、深色和自带字体主题的实时与导出视图 | 八套本机主题通过 Chromium 与 WebKit 渲染对照，复杂选择器待核对 |
@@ -84,11 +85,17 @@
 |---|---|---|---|
 | AI 流式对话与十二类写作操作 | AI 侧栏，选区/段落/全文/文件预览 | 验证扩写、精简和提取待办。用含未完成、已完成及归档事项的混合材料核对清单。改动已选内容后重新确认，审阅差异时核对混合行尾 | macOS 真实改写、差异审阅和撤销通过。待办候选校验、改稿上下文保护和行尾保留有回归测试 |
 | 模型配置与默认提示词 | AI 侧栏 → 模型配置、模型菜单、默认提示词 | 新增供应商及模型，保存和恢复十二种写作操作的提示词，预览实际发送的系统提示词 | 内置提示词含扩写、精简和提取待办。原生窗口验证过旧配置迁移、三种协议与供应商会话隔离 |
-| 获取供应商模型 | AI → 模型配置 → 获取模型 | 读取 Chat、Responses 或 Anthropic 模型列表，筛选、多选并保存，断网时手动填写 | 本地 HTTP 鉴权和分页测试、桌面及 Android 浏览器流程通过 |
+| 获取供应商模型 | AI → 模型配置 → 获取模型 | 按 ID 或显示名筛选，添加及刷新模型的显示名、Token 上限和思考档位，核对手填值优先 | 本地 HTTP 鉴权和分页、模型规格解析及界面流程有回归测试 |
+| 逐模型参数 | AI → 模型配置、模型菜单旁的思考强度 | 分别配置显示名、输入输出上限和思考强度，切换模型后检查原选择，核对请求使用模型 ID | 支持三种协议与旧 ID 列表 |
 | AI 远端 HTTP | AI → 模型配置 → API 地址 | 使用非回环 HTTP 地址，验证模型列表和流式对话 | Rust 测试使用非回环网卡地址通过，Android 真机待验 |
-| 写作智能体 | AI 输入框 → 智能体 | 附带选区或文档，更新计划并多轮查找和读取，审阅后应用，取消及按原快照重试 | 三协议续接与桌面、移动浏览器通过 |
-| 回复排版与对话管理 | AI 回复、对话管理 | 复制原始 Markdown，确认后插入文档，重新生成时检查上一条回复。保存并恢复多条对话，压缩后从摘要续接 | Chromium 桌面及 Android 浏览器测试通过。重生成失败时保留原回复 |
-| 凭据、取消、重试，选区变化检查 | AI 配置与建议卡 | 系统凭据读写，取消长生成，编辑后尝试应用陈旧建议 | macOS 钥匙串鉴权通过。Windows、Linux 凭据及取消专项待验 |
+| 写作智能体 | AI 输入框 → 智能体 | 附带选区或文档，选择自动审核或逐轮请求批准，确认前保留原文，审阅后应用。测试拒绝、取消及按原快照重试 | 三协议续接与桌面、移动浏览器有回归测试 |
+| 回复排版与对话管理 | AI 回复、对话管理 | 检查流式思考和回复中的列表间距，展开历史思考，复制或插入正文。保存并恢复对话，压缩后从摘要续接 | 桌面及 Android 浏览器有相关回归测试 |
+| 斜杠命令与摘要反馈 | AI 输入框 → `/` | 用键盘或触控运行 `/compact`，展开摘要并核对覆盖条数、字符数和后续请求；原记录仍可翻阅 | 桌面对话与原生验收覆盖 |
+| 写作技能 | AI 输入框 → 技能或 `/skills` | 选用内置技能、导入 `SKILL.md`、重启后调出导入的技能，并核对本轮模型请求 | 内置会议纪要、文档审阅、技术说明和周报整理 |
+| 附件、图片输入、上下文与缓存 | AI 输入框与模型旁用量入口 | 文本续问、图片格式能力校验、附件移除、查看预算和实测输入，核对供应商缓存计数 | DeepSeek V4.1 Flash 真实对话及智能体续接验收 |
+| 凭据、取消、重试，选区变化检查 | AI 配置与建议卡 | 保存密钥并重启鉴权，取消长生成，编辑后尝试应用陈旧建议 | macOS 使用页屿加密密钥库，可按需迁移旧密钥 |
+| 正文宽度 | 视图 → 正文宽度 | 核对主题默认、宽、超宽、铺满，缩窄窗口并检查正文 | 桌面浏览器覆盖 |
+| 自动检查更新 | 检查更新 → 启动时自动检查更新 | 关闭时跳过启动检查，启用时在发现新版后提示 | 桌面和 Android 使用同一检查界面 |
 | 本地插件热插拔 | 编辑 → 插件管理、运行插件 | 安装 JavaScript 和 WebAssembly 包，启用或替换后直接执行命令，审阅、应用及撤销 | macOS 原生窗口通过 |
 | 表格转换、中文排版和文档目录 | 编辑 → 插件市场 → 内置插件 | CSV 往返，保护代码的中文排版，目录生成、锚点跳转和移除 | macOS 原生窗口通过 |
 | 批量格式化、图片整理、表格排版 | 编辑 → 运行插件 | 逐篇预览、勾选写回和跳过外部改动，图片取消、去重和撤销链接，保留中文表格与转义 | macOS 原生窗口通过。Linux 断网安装三款新插件，原生选择器多选、确认和写回通过 |
@@ -103,9 +110,9 @@
 
 | 功能 | Android 原生命令 | 接入约束 |
 |---|---|---|
-| 模型配置 | `ai_settings`、`ai_provider_save({ provider, key })`、`ai_provider_remove({ id })`、`ai_model_select({ selection })` | 使用桌面供应商和模型类型。新增供应商 ID 须为 UUID。省略 `key` 时，同地址同协议保留旧密钥。传空串清除。更换地址或协议时重新填写密钥。Android Keystore 保护凭据，前端仅接收 `hasKey` |
-| 获取模型列表 | `ai_list_models({ request: { id, endpoint, protocol, key } })` | 调用供应商 API 前缀下的 `/models`，OpenCode Go 走统一模型目录。返回去重的模型 ID。省略 `key` 时在同地址同协议沿用存储的密钥。获取时传入的密钥仅用于本次请求 |
-| AI 流式写作 | `ai_stream({ id, sessionId, selection, messages, event })`、`ai_cancel({ id })` | 支持 `chat`、`anthropic`、`responses`。`id` 每次生成使用新 UUID，`sessionId` 沿用已保存的对话 UUID。OpenCode Go 官方地址接收由其派生的会话标识。Tauri Channel 发送 `delta`、`done` 或 `cancelled`，出错时 invoke 拒绝。等 `done` 后进入差异审阅 |
+| 模型配置 | `ai_settings`、`ai_provider_save({ provider, key })`、`ai_provider_remove({ id })`、`ai_model_select({ selection, updateEffort })` | `provider.modelOptions` 按模型 ID 保存手填值及已识别规格。`updateEffort` 用于保存当前模型的强度。新增供应商 ID 须为 UUID。省略 `key` 时，同地址同协议保留旧密钥。传空串清除。更换地址或协议时重新填写密钥。Android Keystore 保护凭据，前端仅接收 `hasKey` |
+| 获取模型列表 | `ai_list_models({ request: { id, endpoint, protocol, key } })` | 调用供应商 API 前缀下的 `/models`，OpenCode Go 走统一模型目录。返回按 ID 去重的 `{ id, metadata }`。省略 `key` 时在同地址同协议沿用存储的密钥。获取时传入的密钥仅用于本次请求 |
+| AI 流式写作 | `ai_stream({ id, sessionId, selection, messages, event })`、`ai_cancel({ id })` | 支持 `chat`、`anthropic`、`responses`。`id` 每次生成使用新 UUID，`sessionId` 沿用已保存的对话 UUID。OpenCode Go 官方地址接收由其派生的会话标识。Tauri Channel 发送 `reasoning`、`delta`、`done` 或 `cancelled`，出错时 invoke 拒绝。等 `done` 后进入差异审阅 |
 | 智能体模型轮次 | `ai_agent_turn({ request, event })` | 一次请求返回完整工具调用或最终文本。同一对话的 `request.sessionId` 在流式写作、压缩和各工具轮之间一致。前端执行已确认的文档工具并续接工具结果。`ai_cancel` 停止活动轮次，已生成的建议需审阅后应用 |
 | 插件安装和运行 | `plugin_list`、`plugin_install_content({ text })`、`plugin_set_enabled({ id, enabled })`、`plugin_remove({ id })`、`plugin_run({ id, command, text })` | `text` 为 SAF 读出的 UTF-8 JSON，最多 2 MiB。支持 JavaScript 与 Rust 编译的 Wasm。安装后先启用，运行仅返回文本结果。接口 3 的多文档和图片命令需要前端提供对应的文件或图片工作流 |
 | 插件市场 | `plugin_market_list({ source, refresh })`、`plugin_market_install({ source, id, sha256 })` | `source: null` 使用内置离线目录。在线安装传入列表返回的源地址、插件 ID 和摘要。安装返回 `{ installed, catalog }` |

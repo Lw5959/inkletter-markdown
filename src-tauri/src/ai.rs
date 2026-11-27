@@ -1,11 +1,18 @@
 pub mod agent;
+pub mod attachments;
+mod cache;
 pub mod config;
 mod credentials;
+mod models;
+mod reasoning;
+#[cfg(target_os = "macos")]
+mod vault;
 
 use crate::store::{Store, err};
 use config::{Models, Selection, Target};
 use eventsource_stream::Eventsource;
 use futures_util::StreamExt;
+use models::DiscoveredModel;
 use reqwest::{
     Client, RequestBuilder, Url,
     header::{HeaderValue, USER_AGENT},
@@ -13,7 +20,7 @@ use reqwest::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeMap, HashMap},
     future::Future,
     sync::Mutex,
     time::Duration,
@@ -72,13 +79,23 @@ impl Protocol {
 pub struct Message {
     role: String,
     text: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    files: Vec<attachments::InputFile>,
 }
 
 #[derive(Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Event {
-    Delta { text: String },
-    Done,
+    Delta {
+        text: String,
+    },
+    Reasoning {
+        text: String,
+    },
+    Done {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        usage: Option<cache::Usage>,
+    },
     Cancelled,
 }
 
@@ -194,15 +211,10 @@ pub struct Discovery {
 
 #[derive(Deserialize)]
 struct ModelsPage {
-    data: Vec<ModelId>,
+    data: Vec<Value>,
     #[serde(default)]
     has_more: bool,
     last_id: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct ModelId {
-    id: String,
 }
 
 fn models_endpoint(mut endpoint: Url, protocol: Protocol) -> Url {
@@ -221,8 +233,8 @@ async fn discover_models(
     endpoint: Url,
     protocol: Protocol,
     key: Option<&str>,
-) -> Result<Vec<String>, String> {
-    let mut models = BTreeSet::new();
+) -> Result<Vec<DiscoveredModel>, String> {
+    let mut discovered = BTreeMap::new();
     let mut after_id: Option<String> = None;
     for _ in 0..16 {
         let mut url = endpoint.clone();
@@ -262,14 +274,11 @@ async fn discover_models(
         }
         let page: ModelsPage =
             serde_json::from_slice(&data).map_err(|_| "供应商返回的模型列表格式无法识别")?;
-        models.extend(
-            page.data
-                .into_iter()
-                .map(|item| item.id.trim().to_owned())
-                .filter(|id| !id.is_empty() && !id.chars().any(char::is_control)),
-        );
+        for item in page.data.iter().filter_map(DiscoveredModel::from_response) {
+            discovered.insert(item.id.clone(), item);
+        }
         if !page.has_more {
-            return Ok(models.into_iter().collect());
+            return Ok(discovered.into_values().collect());
         }
         // 分页只更新已验证地址的游标，凭据始终发送到同一个服务。
         if page.last_id.is_none() || page.last_id == after_id {
@@ -286,24 +295,26 @@ pub async fn ai_list_models(
     store: State<'_, Store>,
     models: State<'_, Models>,
     http: State<'_, Client>,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<DiscoveredModel>, String> {
     let endpoint = model_endpoint(&request.endpoint, request.protocol)?;
     let key = match request.key.as_deref().map(str::trim) {
         Some("") => None,
         Some(key) => Some(key.to_owned()),
         None => config::discovery_key(&store, &models, &request.id, request.protocol, &endpoint)?,
     };
-    tokio::time::timeout(
+    let mut discovered = tokio::time::timeout(
         Duration::from_secs(25),
         discover_models(
             &http,
-            models_endpoint(endpoint, request.protocol),
+            models_endpoint(endpoint.clone(), request.protocol),
             request.protocol,
             key.as_deref(),
         ),
     )
     .await
-    .map_err(|_| "获取模型超时，请重试")?
+    .map_err(|_| "获取模型超时，请重试")??;
+    models::enrich(&http, &endpoint, &mut discovered).await;
+    Ok(discovered)
 }
 
 fn model_request(
@@ -314,10 +325,11 @@ fn model_request(
     key: Option<String>,
     session_id: &str,
 ) -> Result<RequestBuilder, String> {
+    attachments::validate(messages, settings)?;
     let protocol = settings.protocol;
     let conversation = model_messages(protocol, messages);
     let model = &settings.model;
-    let body = match protocol {
+    let mut body = match protocol {
         Protocol::Chat => json!({ "model": model, "messages": conversation, "stream": true }),
         Protocol::Anthropic => json!({
             "model": model, "messages": conversation, "system": system_messages(messages), "max_tokens": 4096, "stream": true
@@ -326,14 +338,28 @@ fn model_request(
             "model": model, "input": conversation, "instructions": system_messages(messages), "store": false, "stream": true
         }),
     };
-    stream_request(http, endpoint, protocol, key.as_deref(), &body, session_id)
+    reasoning::request_options(&mut body, settings);
+    models::apply_limits(&mut body, settings)?;
+    stream_request(http, endpoint, protocol, key.as_deref(), body, session_id)
 }
 
 fn model_messages(protocol: Protocol, messages: &[Message]) -> Vec<Value> {
     messages
         .iter()
         .filter(|message| protocol == Protocol::Chat || message.role != "system")
-        .map(|message| json!({ "role": message.role, "content": message.text }))
+        .map(|message| {
+            if message.files.is_empty() {
+                return json!({ "role": message.role, "content": message.text });
+            }
+            let text_type = if protocol == Protocol::Responses {
+                "input_text"
+            } else {
+                "text"
+            };
+            let mut parts = vec![json!({ "type": text_type, "text": message.text })];
+            parts.extend(message.files.iter().map(|file| file.part(protocol)));
+            json!({ "role": message.role, "content": parts })
+        })
         .collect()
 }
 
@@ -351,15 +377,18 @@ fn stream_request(
     endpoint: Url,
     protocol: Protocol,
     key: Option<&str>,
-    body: &Value,
+    mut body: Value,
     session_id: &str,
 ) -> Result<RequestBuilder, String> {
     let go = is_opencode_go(&endpoint);
+    if cache::requests_usage(&endpoint, protocol) {
+        body["stream_options"] = json!({ "include_usage": true });
+    }
     let mut request = http
         .post(endpoint)
         .timeout(Duration::from_secs(300))
         .header("Accept", "text/event-stream")
-        .json(body);
+        .json(&body);
     if go {
         // 只向 Go 官方 HTTPS 地址发送不含正文的会话标识，供应商据此复用路由和缓存。
         let session = Uuid::try_parse(session_id).map_err(|_| "AI 对话编号无效，请新建对话")?;
@@ -457,11 +486,13 @@ async fn stream(
     event: &Channel<Event>,
     session_id: &str,
 ) -> Result<(), String> {
+    let expect_usage = cache::requests_usage(&endpoint, settings.protocol);
     let request = model_request(http, endpoint, &settings, &messages, key, session_id)?;
     let response = stream_response(request).await?;
     let mut events = response.bytes_stream().eventsource();
     let mut saw_delta = false;
     let mut complete = false;
+    let mut usage = None;
     while let Some(frame) = events.next().await {
         let frame = frame.map_err(err)?;
         if frame.data.trim() == "[DONE]" {
@@ -470,6 +501,8 @@ async fn stream(
         }
         let data: Value = serde_json::from_str(&frame.data).map_err(err)?;
         let (delta, finished) = model_event(settings.protocol, &frame.event, &data)?;
+        usage = cache::usage(settings.protocol, &data).or(usage);
+        reasoning::emit(event, settings.protocol, &frame.event, &data)?;
         if let Some(text) = delta.filter(|text| !text.is_empty()) {
             event
                 .send(Event::Delta {
@@ -480,6 +513,12 @@ async fn stream(
         }
         if finished {
             complete = true;
+            if settings.protocol == Protocol::Chat
+                && usage.is_none()
+                && (expect_usage || data.get("usage").is_some())
+            {
+                usage = cache::chat_tail(&mut events).await.or(usage);
+            }
             break;
         }
     }
@@ -489,7 +528,7 @@ async fn stream(
     if !complete {
         return Err("模型连接提前中断，请重试".into());
     }
-    event.send(Event::Done).map_err(err)
+    event.send(Event::Done { usage }).map_err(err)
 }
 
 async fn stream_response(request: RequestBuilder) -> Result<reqwest::Response, String> {
@@ -626,14 +665,13 @@ mod tests {
                 models_endpoint(endpoint.clone(), protocol).path(),
                 "/inference/go/v1/models"
             );
-            let body = json!({ "stream": true });
             let build = |session| {
                 stream_request(
                     &http,
                     endpoint.clone(),
                     protocol,
                     Some("fixture"),
-                    &body,
+                    json!({ "stream": true }),
                     session,
                 )
                 .unwrap()
@@ -641,6 +679,12 @@ mod tests {
                 .unwrap()
             };
             let request = build(SESSION);
+            let body: Value =
+                serde_json::from_slice(request.body().unwrap().as_bytes().unwrap()).unwrap();
+            assert_eq!(
+                body["stream_options"]["include_usage"].as_bool(),
+                (protocol == Protocol::Chat).then_some(true)
+            );
             let headers = request.headers();
             assert_eq!(
                 headers[USER_AGENT],
@@ -669,15 +713,30 @@ mod tests {
         assert_eq!(legacy.path(), "/zen/go/v1/chat/completions");
         let body = json!({});
         assert!(
-            stream_request(&http, legacy.clone(), Protocol::Chat, None, &body, SESSION)
-                .unwrap()
-                .build()
-                .unwrap()
-                .headers()
-                .contains_key(session_header)
+            stream_request(
+                &http,
+                legacy.clone(),
+                Protocol::Chat,
+                None,
+                body.clone(),
+                SESSION
+            )
+            .unwrap()
+            .build()
+            .unwrap()
+            .headers()
+            .contains_key(session_header)
         );
         assert!(
-            stream_request(&http, legacy, Protocol::Chat, None, &body, "无法作为请求头").is_err()
+            stream_request(
+                &http,
+                legacy,
+                Protocol::Chat,
+                None,
+                body.clone(),
+                "无法作为请求头"
+            )
+            .is_err()
         );
         for endpoint in [
             "https://opencode.ai/zen/v1",
@@ -687,11 +746,15 @@ mod tests {
             "http://opencode.ai/zen/go/v1",
         ] {
             let endpoint = model_endpoint(endpoint, Protocol::Chat).unwrap();
-            let request = stream_request(&http, endpoint, Protocol::Chat, None, &body, SESSION)
-                .unwrap()
-                .build()
-                .unwrap();
+            let request =
+                stream_request(&http, endpoint, Protocol::Chat, None, body.clone(), SESSION)
+                    .unwrap()
+                    .build()
+                    .unwrap();
             assert!(!request.headers().contains_key(session_header));
+            let body: Value =
+                serde_json::from_slice(request.body().unwrap().as_bytes().unwrap()).unwrap();
+            assert!(body.get("stream_options").is_none());
         }
     }
 
@@ -711,7 +774,7 @@ mod tests {
                     "GET",
                     "/team/v1/models",
                     "authorization: bearer fixture",
-                    r#"{"data":[{"id":"text-2"},{"id":"text-1"},{"id":"text-2"}]}"#,
+                    r#"{"data":[{"id":"text-2"},{"id":"text-1","name":"Writer One","limit":{"context":16384,"output":4096},"capabilities":{"reasoning":{"supported":true,"effort":["low","max"]}}},{"id":"text-2"}]}"#,
                 ),
                 (
                     "GET",
@@ -786,11 +849,25 @@ mod tests {
             model_endpoint(&root, Protocol::Responses).unwrap(),
             Protocol::Responses,
         );
+        let discovered = discover_models(&http, responses, Protocol::Responses, Some("fixture"))
+            .await
+            .unwrap();
         assert_eq!(
-            discover_models(&http, responses, Protocol::Responses, Some("fixture"))
-                .await
-                .unwrap(),
+            discovered
+                .iter()
+                .map(|model| model.id.as_str())
+                .collect::<Vec<_>>(),
             ["text-1", "text-2"]
+        );
+        assert_eq!(
+            discovered[0].metadata.display_name.as_deref(),
+            Some("Writer One")
+        );
+        assert_eq!(discovered[0].metadata.context_tokens, Some(16_384));
+        assert_eq!(discovered[0].metadata.output_tokens, Some(4_096));
+        assert_eq!(
+            discovered[0].metadata.reasoning_efforts,
+            Some(vec![reasoning::Effort::Low, reasoning::Effort::Max])
         );
         let anthropic = models_endpoint(
             model_endpoint(&root, Protocol::Anthropic).unwrap(),
@@ -799,7 +876,10 @@ mod tests {
         assert_eq!(
             discover_models(&http, anthropic, Protocol::Anthropic, Some("fixture"))
                 .await
-                .unwrap(),
+                .unwrap()
+                .into_iter()
+                .map(|model| model.id)
+                .collect::<Vec<_>>(),
             ["claude-1", "claude-2"]
         );
         let settings = Target {
@@ -814,6 +894,7 @@ mod tests {
             &[Message {
                 role: "user".into(),
                 text: "测试流式响应".into(),
+                files: vec![],
             }],
             Some("fixture".into()),
             SESSION,
@@ -842,16 +923,20 @@ mod tests {
             Message {
                 role: "system".into(),
                 text: "Saved prompt".into(),
+                files: vec![],
             },
             Message {
                 role: "user".into(),
                 text: "Markdown".into(),
+                files: vec![],
             },
         ];
         for protocol in [Protocol::Chat, Protocol::Anthropic, Protocol::Responses] {
             let settings = Target {
                 protocol,
                 model: "test".into(),
+                input_tokens: Some(512),
+                output_tokens: Some(1536),
                 ..Default::default()
             };
             let endpoint = model_endpoint("https://example.org", protocol).unwrap();
@@ -870,6 +955,12 @@ mod tests {
                 serde_json::from_slice(request.body().unwrap().as_bytes().unwrap()).unwrap();
             assert_eq!(body["stream"], true);
             assert_eq!(body["model"], "test");
+            let field = if protocol == Protocol::Responses {
+                "max_output_tokens"
+            } else {
+                "max_tokens"
+            };
+            assert_eq!(body[field], 1536);
             if protocol == Protocol::Anthropic {
                 assert_eq!(request.headers()["x-api-key"], "test-key");
                 assert_eq!(request.headers()["anthropic-version"], "2023-06-01");
@@ -886,6 +977,22 @@ mod tests {
                     assert_eq!(body["messages"][0]["content"], "Saved prompt");
                 }
             }
+            let over_limit = [Message {
+                role: "user".into(),
+                text: "测试上下文".repeat(512),
+                files: vec![],
+            }];
+            let endpoint = model_endpoint("https://example.org", protocol).unwrap();
+            let error = model_request(
+                &Client::new(),
+                endpoint,
+                &settings,
+                &over_limit,
+                None,
+                SESSION,
+            )
+            .unwrap_err();
+            assert!(error.contains("超过模型的输入上限 512"));
         }
     }
 

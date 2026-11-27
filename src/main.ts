@@ -18,19 +18,23 @@ import { importTheme } from './themes'
 import { builtinThemes } from './builtin-themes'
 import { readTyporaProfiles, typoraThemeKey } from './typora'
 import { listAiModels, Writing } from './ai'
+import { clipboardImages, readAttachments } from './ai-attachments'
 import { normalizePrompts } from './ai-prompts'
+import { mergeSkills, parseSkill } from './ai-skills'
 import { Protocol } from './mcp'
 import { bind, chooseHunks, relocate, suggestion } from './suggestions'
 import { checkPublishedPackage, type ReleaseInfo } from './release-updates'
-import { showUpdate, type UpdateProgress } from './ui/update-dialog'
+import { showAutomaticUpdate, showUpdate, type UpdatePreferences, type UpdateProgress, type UpdateSource } from './ui/update-dialog'
 
 const markdownFilter = { name: 'Markdown', extensions: ['md', 'markdown', 'mdown', 'mkd', 'mkdn', 'mdwn', 'mdtxt', 'mdtext', 'text', 'txt', 'rmd', 'qmd', 'mdx'] }
 const imageFilter = { name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif', 'tiff', 'heic', 'ico'] }
 const officialPluginMarket = 'https://lw5959.github.io/yeyu-plugin-market/index.json'
 const defaults: Preferences = {
-  autosave: true, animations: true, theme: 'default', typoraThemes: {}, workspace: null, mcp: [],
+  autosave: true, autoCheckUpdates: false, animations: true, theme: 'default', typoraThemes: {}, workspace: null, mcp: [],
   hidden: false, allFiles: false, fileGlob: '', zoom: 1, remoteImages: false, uploadEndpoint: '', recent: [],
   aiPrompts: {},
+  aiSkills: [],
+  aiAgentApprovalMode: 'auto',
   titlebarMaterial: 'liquid',
   pluginMarketSource: '',
   uploadService: 'multipart', autosaveDelay: 1_100, spellcheck: true,
@@ -761,29 +765,41 @@ async function applyTitlebar(material: TitlebarMaterial) {
   shell.setTitlebar(view)
 }
 
-function checkAppUpdate() {
-  showUpdate(async source => {
-    if (await invoke<boolean>('update_package')) return checkPublishedPackage({
-      source,
-      beforeInstall: checkpoint,
-      async save(version) {
-        const path = await save({ defaultPath: `Yeyu_${version}.deb`, filters: [{ name: 'DEB', extensions: ['deb'] }] })
-        if (path) await invoke('update_save_package', { version, path })
-        return path
-      },
-    })
-    const release = await invoke<ReleaseInfo | null>('update_check', { source })
-    return release && {
-      ...release,
-      kind: 'install',
-      async apply(report) {
-        // 原生更新会退出或重启应用，必须先处理未保存的文档和恢复草稿。
-        if (!await canLeave()) return false
-        await checkpoint()
-        await invoke('update_install', { version: release.version, source, progress: new Channel<UpdateProgress>(report) })
-      },
-    }
+const updatePreferences: UpdatePreferences = {
+  enabled: () => settings.autoCheckUpdates,
+  async save(enabled) {
+    const prior = settings.autoCheckUpdates
+    settings.autoCheckUpdates = enabled
+    try { await persist() }
+    catch (error) { settings.autoCheckUpdates = prior; throw error }
+  },
+}
+
+async function findAppUpdate(source: UpdateSource) {
+  if (await invoke<boolean>('update_package')) return checkPublishedPackage({
+    source,
+    beforeInstall: checkpoint,
+    async save(version) {
+      const path = await save({ defaultPath: `Yeyu_${version}.deb`, filters: [{ name: 'DEB', extensions: ['deb'] }] })
+      if (path) await invoke('update_save_package', { version, path })
+      return path
+    },
   })
+  const release = await invoke<ReleaseInfo | null>('update_check', { source })
+  return release && {
+    ...release,
+    kind: 'install' as const,
+    async apply(report: (progress: UpdateProgress) => void) {
+      // 原生更新会退出或重启应用，必须先处理未保存的文档和恢复草稿。
+      if (!await canLeave()) return false
+      await checkpoint()
+      await invoke('update_install', { version: release.version, source, progress: new Channel<UpdateProgress>(report) })
+    },
+  }
+}
+
+function checkAppUpdate() {
+  showUpdate(findAppUpdate, undefined, updatePreferences)
 }
 
 async function dispatch(action: ShellAction) {
@@ -899,6 +915,27 @@ async function dispatch(action: ShellAction) {
       update(action.enabled ? '界面动画已启用' : '界面动画已关闭')
       await persist()
       break
+    case 'document-width': {
+      const prior = settings.documentWidth
+      state.documentWidth = settings.documentWidth = action.width
+      update()
+      try { await persist() }
+      catch (error) {
+        state.documentWidth = settings.documentWidth = prior
+        update()
+        throw error
+      }
+      break
+    }
+    case 'titlebar-zoom':
+      if (macTitlebar) await invoke('titlebar_zoom', {
+        animate: settings.animations && !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+      })
+      break
+    case 'sidebar-resize':
+      settings[action.side === 'left' ? 'leftSidebarWidth' : 'rightSidebarWidth'] = action.width
+      await persist()
+      break
     case 'copy-markdown': {
       const { from, to } = interval(editor.getSelection())
       await navigator.clipboard.writeText(text().slice(from, to))
@@ -1012,6 +1049,7 @@ async function dispatch(action: ShellAction) {
     case 'images': await manageImages(action.mode); break
     case 'ai-provider-save':
     case 'ai-provider-remove':
+    case 'ai-key-migrate':
     case 'ai-model-select': {
       const notice = await writing.configure(action)
       if (notice) update(notice)
@@ -1030,6 +1068,29 @@ async function dispatch(action: ShellAction) {
       writing.setPrompts(next)
       break
     }
+    case 'ai-skill-import': case 'ai-skill-remove': {
+      const previous = settings.aiSkills ?? []
+      if (action.type === 'ai-skill-import') {
+        const paths = await open({ title: '导入 SKILL.md', multiple: true, filters: [markdownFilter] })
+        if (!paths?.length) break
+        const files = await Promise.all(paths.map(path => native.read(path)))
+        settings.aiSkills = mergeSkills(previous, await Promise.all(files.map(file => parseSkill(file.text, file.name))))
+      } else settings.aiSkills = previous.filter(skill => skill.name !== action.name)
+      try { await persist() }
+      catch (error) { settings.aiSkills = previous; throw error }
+      writing.setSkills(settings.aiSkills)
+      break
+    }
+    case 'ai-agent-approval-mode': {
+      if (writing.view.pending) throw new Error('请先结束当前生成')
+      const previous = settings.aiAgentApprovalMode
+      settings.aiAgentApprovalMode = action.mode
+      try { await persist() }
+      catch (error) { settings.aiAgentApprovalMode = previous; throw error }
+      writing.setAgentApprovalMode(action.mode)
+      break
+    }
+    case 'ai-agent-approval': writing.decideAgentApproval(action.id, action.allow); break
     case 'ai-context': {
       if (action.scope !== 'files') {
         writing.preview(action.scope, editor, documentId, revision, state.title)
@@ -1042,8 +1103,17 @@ async function dispatch(action: ShellAction) {
       break
     }
     case 'ai-context-clear': writing.clearContext(); break
+    case 'ai-model-detect': await writing.detectActiveModel(); break
+    case 'ai-attach': {
+      const chat = writing.view.conversations?.active
+      const files = action.images ? await clipboardImages(action.images)
+        : await readAttachments('ai_read_attachment', action.paths ?? await open({ title: '添加 AI 附件', multiple: true }) ?? [])
+      await writing.addAttachments(files, chat)
+      break
+    }
+    case 'ai-attachment-remove': writing.removeAttachment(action.id); break
     case 'ai-send': await writing.send(action.intent, action.prompt, editor, documentId, revision,
-      { agent: action.agent, writable: !state.presentation.readonly }); break
+      { agent: action.agent, skill: action.skill, writable: !state.presentation.readonly }); break
     case 'ai-insert-reply':
       if (state.presentation.readonly) throw new Error('请先关闭只读模式')
       writing.insertReply(action.message, editor, documentId, revision)
@@ -1278,6 +1348,7 @@ async function migrateTyporaPreferences() {
 
 function applyTypingPreferences() {
   state.autosave = settings.autosave
+  state.documentWidth = settings.documentWidth
   state.presentation.spellcheck = settings.spellcheck
   editor.setPresentation(state.presentation)
   shell.setFindOptions(settings.findOptions)
@@ -1336,10 +1407,13 @@ async function startup() {
       native.preferences(), invoke<Theme[]>('theme_list'), native.recover(),
     ])
     settings = { ...defaults, ...preferences }
+    shell.setSidebarWidths({ left: settings.leftSidebarWidth, right: settings.rightSidebarWidth })
     state.animations = settings.animations
     settings.aiPrompts = normalizePrompts(settings.aiPrompts)
     savedPreferences = structuredClone(settings)
     writing.setPrompts(settings.aiPrompts)
+    writing.setSkills(settings.aiSkills)
+    writing.setAgentApprovalMode(settings.aiAgentApprovalMode)
     themes = [...builtinThemes, ...imported]
     state.workspaceFilter = { hidden: settings.hidden, all: settings.allFiles, glob: settings.fileGlob }
     if (settings.zoom !== 1) {
@@ -1376,6 +1450,7 @@ async function startup() {
       }
     }
     await monitor()
+    if (getCurrentWebviewWindow().label === 'main') void showAutomaticUpdate(findAppUpdate, updatePreferences)
   } catch (error) {
     loaded = true
     update(reason(error))
@@ -1417,7 +1492,12 @@ async function startup() {
   }).catch(error => update(reason(error)))
   void getCurrentWebview().onDragDropEvent(event => {
     if (event.payload.type !== 'drop') return
-    const paths = event.payload.paths
+    const { paths, position } = event.payload
+    const target = document.elementFromPoint(position.x / window.devicePixelRatio, position.y / window.devicePixelRatio)
+    if (paths.length && target?.closest('.yy-ai-pane')) {
+      void act({ type: 'ai-attach', paths }).catch(error => update(reason(error)))
+      return
+    }
     if (paths.length && paths.every(path => /\.(png|jpe?g|gif|webp|svg|bmp|avif|tiff|heic|ico)$/i.test(path))) {
       void addImagePaths(paths).catch(error => update(reason(error)))
     } else if (paths.length) void openPaths(paths).catch(error => update(reason(error)))

@@ -1,10 +1,12 @@
 import { aiIntents, aiTasks, normalizePrompts, systemPrompt } from '../ai-prompts'
-import type { AiIntent, AiPrompts, AiProtocol, AiProviderDraft, AiSettings, ShellActions } from '../contracts'
+import { detectedInputTokens, effortLabels, modelEfforts, modelImageInput, optionsForModel } from '../ai-models'
+import type { AiIntent, AiModelOptions, AiPrompts, AiProtocol, AiProviderDraft, AiReasoningEffort, AiSettings, AiSkill, ShellActions } from '../contracts'
 import type { DialogPresenter } from './dialogs'
 import { modelDiscovery } from './ai-model-discovery'
 import { ChoicePicker } from './choice-picker'
-import { el } from './helpers'
+import { el, selectWithIcon } from './helpers'
 import { icons } from './icons'
+import { detectMac } from './shortcuts'
 
 type Dispatch = ShellActions['dispatch']
 
@@ -14,7 +16,8 @@ const protocols: Record<AiProtocol, { name: string; endpoint: string }> = {
   responses: { name: 'Responses', endpoint: 'https://api.openai.com/v1' },
 }
 
-type Draft = { provider: AiProviderDraft; key: string; clearKey: boolean }
+type ModelDraft = { id: string; options: AiModelOptions }
+type Draft = { provider: Omit<AiProviderDraft, 'models' | 'modelOptions'>; models: ModelDraft[]; key: string; clearKey: boolean }
 
 export function openModelSettings(modals: DialogPresenter, settings: () => AiSettings, dispatch: Dispatch, listAiModels?: ShellActions['listAiModels']) {
   const body = el('div', { className: 'yy-ai-catalog' })
@@ -31,7 +34,7 @@ export function openModelSettings(modals: DialogPresenter, settings: () => AiSet
   function makeNew() {
     const id = crypto.randomUUID()
     fresh = id
-    drafts.set(id, { provider: { id, name: '', endpoint: '', protocol: 'chat', models: [''] }, key: '', clearKey: false })
+    drafts.set(id, { provider: { id, name: '', endpoint: '', protocol: 'chat' }, models: [{ id: '', options: {} }], key: '', clearKey: false })
     return id
   }
 
@@ -40,7 +43,8 @@ export function openModelSettings(modals: DialogPresenter, settings: () => AiSet
     if (prior) return prior
     const saved = settings().providers.find(item => item.id === editing)!
     const { id, name, endpoint, protocol, models } = saved
-    const draft = { provider: { id, name, endpoint, protocol, models: [...models] }, key: '', clearKey: false }
+    const draft = { provider: { id, name, endpoint, protocol },
+      models: models.map(id => ({ id, options: structuredClone(optionsForModel(saved, id) ?? {}) })), key: '', clearKey: false }
     drafts.set(editing, draft)
     return draft
   }
@@ -78,9 +82,17 @@ export function openModelSettings(modals: DialogPresenter, settings: () => AiSet
     name.addEventListener('input', () => { draft.provider.name = name.value })
     const address = el('input', { className: 'yy-input', type: 'url', attrs: { required: '', spellcheck: 'false' } })
     address.value = draft.provider.endpoint
-    address.addEventListener('input', () => { draft.provider.endpoint = address.value; syncKey(); discovery?.reset() })
+    address.addEventListener('input', () => {
+      const changed = draft.provider.endpoint.trim() !== address.value.trim()
+      draft.provider.endpoint = address.value
+      if (changed) clearDetected()
+      syncKey()
+      discovery?.reset()
+    })
     protocol = new ChoicePicker('API 协议', 'API 协议', value => {
+      const changed = draft.provider.protocol !== value
       draft.provider.protocol = value as AiProtocol
+      if (changed) clearDetected()
       protocol?.setValue(value)
       syncKey()
       discovery?.reset()
@@ -93,47 +105,109 @@ export function openModelSettings(modals: DialogPresenter, settings: () => AiSet
     clearKey.checked = draft.clearKey
     clearKey.addEventListener('change', () => { draft.clearKey = clearKey.checked; syncKey(); discovery?.reset() })
     const clearLabel = el('label', { className: 'yy-ai-delete-key' }, clearKey, '删除已存密钥')
+    const migrate = el('button', { className: 'yy-btn yy-btn-sm yy-btn-ghost', type: 'button', text: '迁移旧密钥' })
     function syncKey() {
       address.placeholder = protocols[draft.provider.protocol].endpoint
-      const stored = saved?.hasKey && address.value.trim() === saved.endpoint && draft.provider.protocol === saved.protocol
+      const sameEndpoint = saved && address.value.trim() === saved.endpoint && draft.provider.protocol === saved.protocol
+      const stored = sameEndpoint && saved.hasKey
+      const canMigrate = sameEndpoint && saved.legacyKey
       clearLabel.hidden = !stored
       if (!stored) draft.clearKey = clearKey.checked = false
       key.disabled = draft.clearKey
-      key.placeholder = stored ? '留空沿用已存密钥' : '无需认证时留空'
+      key.placeholder = canMigrate ? '填写新密钥，或迁移旧密钥' : stored ? '留空沿用已存密钥' : '无需认证时留空'
+      migrate.hidden = !canMigrate || draft.clearKey || !!draft.key
     }
     syncKey()
+    key.addEventListener('input', syncKey)
 
     const models = el('div', { className: 'yy-ai-model-list' })
     const addModel = el('button', { type: 'button', className: 'yy-btn yy-btn-sm yy-btn-ghost' },
       el('span', { className: 'yy-icon', html: icons.plus }), '添加模型')
+    function clearDetected() {
+      const cached = draft.models.filter(model => model.options.detected)
+      for (const model of cached) delete model.options.detected
+      if (cached.length) showModels()
+    }
     function showModels(focus?: number) {
-      models.replaceChildren(...draft.provider.models.map((model, index) => {
+      models.replaceChildren(...draft.models.map((model, index) => {
+        const { options } = model
         const input = el('input', {
           className: 'yy-input', type: 'text',
           attrs: { required: '', 'aria-label': `模型 ID ${index + 1}`, placeholder: '例如 qwen2.5:7b', spellcheck: 'false' },
         })
-        input.value = model
-        input.addEventListener('input', () => { draft.provider.models[index] = input.value })
+        input.value = model.id
+        input.addEventListener('input', () => {
+          if (input.value.trim() !== model.id.trim()) delete options.detected
+          model.id = input.value
+          syncDetected()
+        })
+        const displayName = el('input', { className: 'yy-input', type: 'text',
+          attrs: { 'aria-label': `模型显示名 ${index + 1}`, maxlength: '128' } })
+        displayName.value = options.displayName ?? ''
+        displayName.addEventListener('input', () => { options.displayName = displayName.value.trim() || undefined })
+        function tokenField(field: 'inputTokens' | 'outputTokens', label: string) {
+          const entry = el('input', { className: 'yy-input', type: 'number',
+            attrs: { min: '1', max: '4294967295', step: '1', 'aria-label': `模型${label} ${index + 1}` } })
+          entry.value = options[field]?.toString() ?? ''
+          entry.addEventListener('input', () => {
+            options[field] = entry.value === '' ? undefined : entry.valueAsNumber
+            syncTokenPlaceholders()
+          })
+          return entry
+        }
+        const inputTokens = tokenField('inputTokens', '输入上限')
+        const outputTokens = tokenField('outputTokens', '输出上限')
+        const effort = el('select', { className: 'yy-input', attrs: { 'aria-label': `模型思考强度 ${index + 1}` } })
+        effort.addEventListener('change', () => { options.reasoningEffort = effort.value === 'default' ? undefined : effort.value as AiReasoningEffort })
+        const imageInput = el('select', { className: 'yy-input', attrs: { 'aria-label': `模型图片输入 ${index + 1}` } })
+        imageInput.addEventListener('change', () => { options.imageInput = imageInput.value === 'auto' ? undefined : imageInput.value === 'yes' })
+        function syncTokenPlaceholders() {
+          inputTokens.placeholder = detectedInputTokens(options)?.toString() ?? '自动'
+          outputTokens.placeholder = options.detected?.outputTokens?.toString() ?? '自动'
+        }
+        function syncDetected() {
+          displayName.placeholder = options.detected?.displayName || '留空使用模型 ID'
+          syncTokenPlaceholders()
+          const levels = modelEfforts(model.id.trim(), options)
+          effort.replaceChildren(...levels.map(value => el('option', { attrs: { value }, text: effortLabels[value] })))
+          effort.value = options.reasoningEffort ?? 'default'
+          effort.disabled = levels.length === 1
+          const vision = modelImageInput({ detected: options.detected })
+          imageInput.replaceChildren(...[
+            ['auto', vision === undefined ? '自动 · 未识别' : vision ? '自动 · 支持' : '自动 · 不支持'],
+            ['yes', '支持'], ['no', '不支持'],
+          ].map(([value, text]) => el('option', { attrs: { value }, text })))
+          imageInput.value = options.imageInput === undefined ? 'auto' : options.imageInput ? 'yes' : 'no'
+        }
+        syncDetected()
         const remove = el('button', {
           type: 'button', className: 'yy-icon-btn', html: icons.close, attrs: { 'aria-label': `移除模型 ${index + 1}` },
         })
-        remove.disabled = draft.provider.models.length === 1
+        remove.disabled = draft.models.length === 1
         remove.addEventListener('click', () => {
-          draft.provider.models.splice(index, 1)
-          showModels(Math.min(index, draft.provider.models.length - 1))
+          draft.models.splice(index, 1)
+          showModels(Math.min(index, draft.models.length - 1))
         })
-        const row = el('div', { className: 'yy-ai-model-entry' }, input, remove)
+        const row = el('div', { className: 'yy-ai-model-card' },
+          el('div', { className: 'yy-ai-model-entry' }, labelled('模型 ID', input), labelled('显示名', displayName), remove),
+          el('div', { className: 'yy-ai-model-limits' }, labelled('输入上限（Token）', inputTokens),
+            labelled('输出上限（Token）', outputTokens), labelled('思考强度', selectWithIcon(effort)), labelled('图片输入', selectWithIcon(imageInput))))
         if (focus === index) queueMicrotask(() => input.focus())
         return row
       }))
     }
-    addModel.addEventListener('click', () => { draft.provider.models.push(''); showModels(draft.provider.models.length - 1) })
+    addModel.addEventListener('click', () => { draft.models.push({ id: '', options: {} }); showModels(draft.models.length - 1) })
     showModels()
     if (listAiModels) discovery = modelDiscovery(listAiModels, () => ({
       id: draft.provider.id, endpoint: draft.provider.endpoint.trim(), protocol: draft.provider.protocol,
       key: draft.clearKey ? '' : draft.key.trim() || undefined,
-    }), () => draft.provider.models, ids => {
-      draft.provider.models = [...new Set([...draft.provider.models.map(model => model.trim()).filter(Boolean), ...ids])]
+    }), () => draft.models.map(model => model.id), (discovered, add) => {
+      if (add) draft.models = draft.models.filter(model => model.id.trim() || Object.values(model.options).some(value => value !== undefined))
+      for (const { id, metadata } of discovered) {
+        const model = draft.models.find(model => model.id.trim() === id)
+        if (model) model.options.detected = { ...model.options.detected, ...metadata }
+        else if (add) draft.models.push({ id, options: { detected: metadata } })
+      }
       showModels()
     })
     const modelActions = el('div', { className: 'yy-ai-model-actions' })
@@ -143,11 +217,27 @@ export function openModelSettings(modals: DialogPresenter, settings: () => AiSet
       el('div', { className: 'yy-ai-models-head' }, el('span', { className: 'yy-field-label', text: '模型' }), modelActions), models)
     if (discovery) modelFields.append(discovery.panel)
     const status = el('p', { className: 'yy-ai-setting-help', text: notice, attrs: { role: 'status' } })
+    migrate.onclick = async () => {
+      if (!saved) return
+      migrate.disabled = true
+      status.textContent = '正在迁移旧密钥…'
+      try {
+        const failure = await dispatch({ type: 'ai-key-migrate', id: saved.id })
+        if (!migrate.isConnected) return
+        if (failure) status.textContent = failure
+        else {
+          notice = '密钥已移至页屿密钥库'
+          render()
+        }
+      } catch (error) {
+        if (migrate.isConnected) status.textContent = error instanceof Error ? error.message : String(error)
+      } finally { migrate.disabled = false }
+    }
     editor.replaceChildren(
       labelled('供应商名称', name),
       el('div', { className: 'yy-ai-endpoint-fields' }, labelled('API 协议', protocol.button), labelled('API 地址', address)),
-      labelled('API 密钥（可选）', key, '密钥保存在系统凭据存储中。'),
-      clearLabel, modelFields, status,
+      labelled('API 密钥（可选）', key, detectMac() ? '密钥加密保存在页屿密钥库。' : '密钥保存在系统凭据存储中。'),
+      clearLabel, migrate, modelFields, status,
     )
     if (saved) {
       const remove = el('button', { className: 'yy-btn yy-btn-sm yy-btn-ghost', type: 'button', text: '删除供应商' })
@@ -180,9 +270,13 @@ export function openModelSettings(modals: DialogPresenter, settings: () => AiSet
     submitLabel: '保存配置', keepOpen: true, onClose: () => protocol?.close(),
     save: async () => {
       const draft = getDraft()
+      const models = draft.models.map(model => model.id.trim())
+      const modelOptions = Object.fromEntries(draft.models
+        .filter(({ options }) => Object.values(options).some(value => value !== undefined))
+        .map(({ id, options }) => [id.trim(), options]))
       const failure = await dispatch({
         type: 'ai-provider-save',
-        provider: { ...draft.provider, models: [...draft.provider.models] },
+        provider: { ...draft.provider, models, ...(Object.keys(modelOptions).length ? { modelOptions } : {}) },
         key: draft.clearKey ? '' : draft.key.trim() || undefined,
       })
       if (failure || !editor.isConnected) return failure
@@ -197,7 +291,7 @@ export function openModelSettings(modals: DialogPresenter, settings: () => AiSet
   })
 }
 
-export function openPromptSettings(modals: DialogPresenter, prompts: AiPrompts, initial: AiIntent, dispatch: Dispatch, agent = false) {
+export function openPromptSettings(modals: DialogPresenter, prompts: AiPrompts, initial: AiIntent, dispatch: Dispatch, agent = false, skill?: AiSkill) {
   const drafts = { ...prompts }
   let intent = initial
   const body = el('div', { className: 'yy-ai-prompt-settings' })
@@ -218,7 +312,7 @@ export function openPromptSettings(modals: DialogPresenter, prompts: AiPrompts, 
   const buttons = new Map<AiIntent, HTMLButtonElement>()
   const updatePreview = () => {
     reset.disabled = input.value === aiTasks[intent].prompt
-    preview.textContent = systemPrompt(intent, normalizePrompts(drafts), agent)
+    preview.textContent = systemPrompt(intent, normalizePrompts(drafts), agent, skill)
   }
 
   const showTask = () => {

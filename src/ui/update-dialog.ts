@@ -41,6 +41,23 @@ export type UpdateOffer = { version: string; notes: string } & (
   | { kind: 'install'; apply: (report: (progress: UpdateProgress) => void) => Promise<void | false> }
   | PackageOffer
 )
+type UpdateCheck = (source: UpdateSource) => Promise<UpdateOffer | null>
+type UpdatePages = Pick<ReturnType<typeof createPages>, 'open'>
+export type UpdatePreferences = { enabled: () => boolean; save: (enabled: boolean) => Promise<void> }
+
+export async function showAutomaticUpdate(check: UpdateCheck, preferences: UpdatePreferences, pages?: UpdatePages) {
+  if (!preferences.enabled() || updateWindows.has(document)) return
+  const source = preferredSource()
+  let offer = await check(source).catch(() => null)
+  if (!offer || !preferences.enabled()) return
+  showUpdate(selected => {
+    if (selected !== source || !offer) return check(selected)
+    // 复用已查到的版本。手动重试或切换来源会重新访问更新源。
+    const found = offer
+    offer = null
+    return Promise.resolve(found)
+  }, pages, preferences)
+}
 
 function formatBytes(bytes: number) {
   if (bytes < 1024) return bytes + ' B'
@@ -49,7 +66,7 @@ function formatBytes(bytes: number) {
 }
 
 /** 打开更新界面并立即检查，用户点击确认后才调用 apply。 */
-export function showUpdate(check: (source: UpdateSource) => Promise<UpdateOffer | null>, pages?: Pick<ReturnType<typeof createPages>, 'open'>) {
+export function showUpdate(check: UpdateCheck, pages?: UpdatePages, preferences?: UpdatePreferences) {
   if (!pages && updateWindows.has(document)) {
     updateWindows.get(document)?.ownerDocument.defaultView?.focus()
     return
@@ -98,8 +115,28 @@ export function showUpdate(check: (source: UpdateSource) => Promise<UpdateOffer 
   const dismiss = el('button', { type: 'button', text: '关闭', attrs: { autofocus: '' } })
   const primary = el('button', { type: 'button', className: 'app-dialog-primary', attrs: { hidden: '' } })
   if (dialog) dialog.append(el('h2', { text: '软件更新' }))
+  const height = updateHeight + (preferences ? 32 : 0)
+  const heading = el('div', { className: 'yy-update-source-row' }, el('span', { text: '更新源' }), choices)
+  panel.append(current, heading)
+  if (preferences) {
+    const launch = el('input', { type: 'checkbox' })
+    launch.checked = preferences.enabled()
+    const error = el('small', { className: 'yy-update-detail', attrs: { role: 'alert', hidden: '' } })
+    launch.onchange = async () => {
+      launch.disabled = true
+      error.hidden = true
+      try { await preferences.save(launch.checked) }
+      catch {
+        launch.checked = preferences.enabled()
+        error.textContent = '无法保存自动检查设置，请重试。'
+        error.hidden = false
+        popup?.setHeight(Math.max(height + 26, panel.scrollHeight))
+      } finally { launch.disabled = false }
+    }
+    panel.append(el('label', { className: 'yy-update-automatic' }, launch, '启动时自动检查更新'), error)
+  }
   dismiss.hidden = !dialog
-  panel.append(current, el('div', { className: 'yy-update-source-row' }, el('span', { text: '更新源' }), choices), status, notes, download,
+  panel.append(status, notes, download,
     el('div', { className: 'app-dialog-actions' }, dismiss, primary))
 
   let installedVersion: string | undefined
@@ -225,7 +262,7 @@ export function showUpdate(check: (source: UpdateSource) => Promise<UpdateOffer 
       if (!currentCheck()) return
       if (!release) {
         showStatus('已是最新版本')
-        popup?.setHeight(updateHeight)
+        popup?.setHeight(height)
         return
       }
       const installs = release.kind === 'install'
@@ -238,13 +275,13 @@ export function showUpdate(check: (source: UpdateSource) => Promise<UpdateOffer 
       notesBody.replaceChildren(rendered)
       notesBody.scrollTop = 0
       notes.hidden = false
-      popup?.setHeight(472)
+      popup?.setHeight(472 + (height - updateHeight))
     } catch {
       if (!currentCheck()) return
       if (!installedVersion) current.textContent = '无法读取当前版本'
       showStatus('检查更新失败', '请检查网络连接，或稍后重试。')
       showAction('重试', checkForUpdate)
-      popup?.setHeight(updateHeight)
+      popup?.setHeight(height)
     }
   }
 
@@ -261,7 +298,7 @@ export function showUpdate(check: (source: UpdateSource) => Promise<UpdateOffer 
       event.preventDefault()
       if (!applying) closeDialog()
     })
-    popup = openDesktopWindow(dialog, { title: '软件更新', width: 460, height: updateHeight, modal: true, onClose: closeDialog })
+    popup = openDesktopWindow(dialog, { title: '软件更新', width: 460, height, modal: true, onClose: closeDialog })
     if (!popup) {
       dismissOnBackdrop(dialog)
       document.body.append(dialog)

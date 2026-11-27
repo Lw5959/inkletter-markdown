@@ -1,5 +1,6 @@
 import type { AiProtocol, AiSelection, Editor, ExportFormat, PluginInfo, ShellAction, ShellState, Theme, WorkspaceEntry } from './contracts'
 import type { Writing } from './ai'
+import type { Conversation } from './ai-conversations'
 import type { Protocol } from './mcp'
 import { invoke, native, reason } from './native'
 import { getCurrentWindow } from '@tauri-apps/api/window'
@@ -10,7 +11,7 @@ import { choose } from './dialogs'
 import { showUpdate } from './ui/update-dialog'
 
 type Case = {
-  phase: 'full' | 'recover' | 'measure' | 'titlebar' | 'opencode' | 'windows' | 'recover-windows'
+  phase: 'full' | 'recover' | 'measure' | 'titlebar' | 'opencode' | 'windows' | 'recover-windows' | 'writing-live' | 'finder-open' | 'vault' | 'vault-recover'
   epoch: number
   root: string
   guide: string
@@ -25,6 +26,9 @@ type Case = {
   aiFixture?: string
   aiFixtureKey?: string
   activeModel?: AiSelection
+  writingLive?: { chat: string; code: string; markdown: string; cacheFile: string; cacheCode: string; imageCode?: string }
+  finderWarm?: boolean
+  captureTitlebar?: boolean
   mcp: string
   picgo?: string
   market?: string
@@ -301,7 +305,22 @@ async function verifyTyporaConfig(ports: Ports) {
   return { theme: selected?.name, sidebar: settings?.sidebarTab, findOptions: settings?.findOptions }
 }
 
-async function verifyTitlebarResize() {
+async function verifyTitlebarResize(ports: Ports, scenario: Case) {
+  await ports.action({ type: 'autosave', enabled: false })
+  check(await ports.openPath(scenario.guide, 1, false), '打开窗口缩放样稿')
+  await ports.action({ type: 'document-width', width: 'full' })
+  await ports.action({ type: 'animations', enabled: true })
+  await getCurrentWindow().setFocus()
+  const sample = Array.from({ length: 82 }, (_, index) =>
+    `第 ${index + 1} 段。窗口改变尺寸时，实时编辑器的文字会随每帧可用宽度重新换行。 `.repeat(4))
+  ports.editor.setMarkdown('# 实时放大验收\n\n' + sample.join('\n\n'))
+  const paper = document.querySelector<HTMLElement>('.yy-paper')!
+  const write = paper.querySelector<HTMLElement>('#write')!
+  await frame()
+  if (scenario.captureTitlebar) {
+    await mark('titlebar-ready', { width: innerWidth, height: innerHeight })
+    await wait(1200)
+  }
   const bar = document.querySelector<HTMLElement>('.yy-topbar[data-tauri-drag-region]')
   check(bar, 'macOS 标题栏拖拽区域')
   type NativeLayout = { contentSize: [number, number]; rootSize: [number, number]; webviewFrame: [number, number, number, number]; zoomed: boolean }
@@ -320,27 +339,64 @@ async function verifyTitlebarResize() {
   const afterClick = async () => {
     doubleClick()
     const samples = []
-    for (let i = 0; i < 12; i++) {
+    const painted: { viewport: number; document: number; footer: number; height: number; textHeight: number; scrollbars: string[] }[] = []
+    for (let i = 0; i < 25; i++) {
+      await frame()
+      const chains = [document.documentElement, document.body, paper, write,
+        ...write.querySelectorAll<HTMLElement>('.cm-scroller, .cm-editor')]
+      const vertical = chains.filter(node => {
+        const overflow = getComputedStyle(node).overflowY
+        return node.scrollHeight > node.clientHeight + 1 && (/^(auto|scroll)$/.test(overflow) ||
+          (node === document.scrollingElement && overflow === 'visible'))
+      }).map(node => node.className || node.tagName)
+      const paragraph = write.querySelector('.cm-line:not(.live-h1):not(.live-empty)')
+      painted.push({ viewport: innerWidth, document: write.getBoundingClientRect().width, footer: document.querySelector('.yy-statusbar')!.getBoundingClientRect().bottom,
+        height: innerHeight, textHeight: paragraph?.getBoundingClientRect().height ?? 0, scrollbars: vertical })
+    }
+    for (let i = 0; i < 3; i++) {
       await wait(50)
       samples.push(await layout())
     }
-    return samples
+    return { samples, painted }
   }
   const start = await layout(true)
   const maximized = await afterClick()
+  if (scenario.captureTitlebar) {
+    await mark('titlebar-expanded', { width: innerWidth, height: innerHeight })
+    await wait(1600)
+  }
   const restored = await afterClick()
-  const lastMax = maximized.at(-1)!
-  const lastRestored = restored.at(-1)!
+  const lastMax = maximized.samples.at(-1)!
+  const lastRestored = restored.samples.at(-1)!
   await mark('titlebar-observed', { start, maximized, restored })
   check(lastMax.zoomed !== start.zoomed && lastRestored.zoomed === start.zoomed, '双击标题栏切换原生放大状态')
   const close = (a: number, b: number) => Math.abs(a - b) <= 2
-  for (const sample of [lastMax, lastRestored]) {
+  const firstResize = (samples: Awaited<ReturnType<typeof afterClick>>['samples'], initial: Awaited<ReturnType<typeof layout>>) =>
+    samples.find(sample => sample.rootSize.some((dimension, index) => !close(dimension, initial.rootSize[index])))
+  const firstMax = firstResize(maximized.samples, start)
+  const firstRestore = firstResize(restored.samples, lastMax)
+  check(firstMax && firstRestore, '放大和恢复都采到宿主尺寸变化')
+  for (const sample of [firstMax!, firstRestore!, lastMax, lastRestored]) {
     check(sample.contentSize.every((dim, index) => close(dim, sample.rootSize[index]) &&
       close(dim, sample.webviewFrame[index + 2]) && close(dim, sample.html[index])),
     '窗口、WebView 和网页视口尺寸一致 ' + JSON.stringify(sample))
     check(close(sample.body[0], sample.html[0]) && close(sample.footer, sample.html[1]), '文档区域和状态栏填满窗口')
   }
-  return { start, maximized: lastMax, restored: lastRestored }
+  const intermediates = (direction: Awaited<ReturnType<typeof afterClick>>) => direction.painted.filter(sample =>
+    sample.viewport > start.html[0] + 2 && sample.viewport < lastMax.html[0] - 2)
+  const growing = intermediates(maximized)
+  const shrinking = intermediates(restored)
+  for (const samples of [growing, shrinking]) {
+    check(new Set(samples.map(sample => sample.viewport)).size >= 3 && new Set(samples.map(sample => sample.document)).size >= 3,
+      '窗口动画中间帧连续重排正文')
+    check(samples.every(sample => close(sample.footer, sample.height)), '动画中状态栏贴着窗口底部')
+    check(samples.every(sample => sample.scrollbars.length === 1 && sample.scrollbars[0].includes('yy-paper')),
+      '动画中正文保持单一纵向滚动容器')
+  }
+  check(growing.some(sample => sample.textHeight !== maximized.painted[0].textHeight),
+    '窗口到达终点前，段落已经随宽度重新换行')
+  return { start, maximized: lastMax, restored: lastRestored, firstMax, firstRestore,
+    intermediateWidths: { maximize: [...new Set(growing.map(sample => sample.viewport))], restore: [...new Set(shrinking.map(sample => sample.viewport))] } }
 }
 
 async function verifyOpenCode(ports: Ports, scenario: Case) {
@@ -742,9 +798,16 @@ async function verifyFull(ports: Ports, scenario: Case) {
 
     chooseOption(panel, '添加上下文', '当前选区')
     await until(() => ports.writing.view.context?.text === selected)
-    check(panel.querySelector('.yy-context-fulltext')?.textContent === selected, '发送前可预览完整选区')
+    check(panel.querySelector('[aria-label="上下文全文预览"]')?.textContent === selected, '发送前可预览完整选区')
     chooseOption(panel, '写作操作', '改写')
+    if (!scenario.model) {
+      chooseOption(panel, '思考强度', '思考 · 高')
+      await until(() => writing.settings.active?.reasoningEffort === 'high')
+    }
     panel.querySelector<HTMLFormElement>('.yy-ai-composer')!.requestSubmit()
+    if (!scenario.model) {
+      await until(() => panel.querySelector('.yy-ai-conversation > article .yy-ai-reasoning[open] .yy-msg-body')?.textContent?.includes('先核对改写范围。') === true)
+    }
     await until(() => !ports.writing.view.pending, 60_000)
     const proposal = ports.writing.pending
     check(proposal && !writing.error, '模型返回差异：' + writing.error)
@@ -753,6 +816,12 @@ async function verifyFull(ports: Ports, scenario: Case) {
     check(ports.text() !== original.text, 'AI 建议已应用')
     const answer = ports.writing.view.messages.at(-1)?.text
     check(answer?.toLowerCase().includes('verbose'), '生成使用已保存的改写提示词')
+    if (!scenario.model) {
+      const thought = panel.querySelector<HTMLDetailsElement>('.yy-ai-messages .yy-ai-reasoning')!
+      check(thought && !thought.open && answer === 'The draft is verbose.', '完成后思考可展开，改稿使用正文')
+      thought.querySelector('summary')!.click()
+      await until(() => thought.open && thought.textContent?.includes('先核对改写范围。') === true)
+    }
     await ports.action({ type: 'undo' })
     check(ports.text() === original.text, 'AI 应用可撤销')
     const saved = openPrompts()
@@ -765,8 +834,8 @@ async function verifyFull(ports: Ports, scenario: Case) {
     await ports.action({ type: 'ai-context-clear' })
     const added = openModels()
     const providers = [
-      { protocol: 'anthropic', name: 'Anthropic 夹具', label: 'Anthropic Messages', next: 'qa-claude' },
-      { protocol: 'responses', name: 'Responses 夹具', label: 'Responses', next: 'qa-response' },
+      { protocol: 'anthropic', name: 'Anthropic 夹具', label: 'Anthropic Messages', next: 'claude-opus-4-6', reasoning: '核对 Anthropic 的思考文本。' },
+      { protocol: 'responses', name: 'Responses 夹具', label: 'Responses', next: 'gpt-5.4-qa', reasoning: '核对 Responses 的思考摘要。' },
     ] as const
     for (const provider of providers) {
       button(added, '添加供应商').click()
@@ -784,12 +853,15 @@ async function verifyFull(ports: Ports, scenario: Case) {
     }
     closeModels(added)
     const protocols: AiProtocol[] = ['chat']
-    for (const { protocol, name, next } of providers) {
+    for (const { protocol, name, next, reasoning } of providers) {
       chooseOption(panel, '切换模型', next, name)
       await until(() => writing.settings.active?.model === next)
       check(!writing.messages.length, '各供应商的会话分开保存')
+      chooseOption(panel, '思考强度', '思考 · 低')
+      await until(() => writing.settings.active?.reasoningEffort === 'low')
       await ports.action({ type: 'ai-send', intent: 'chat', prompt: 'Answer in just one short sentence. What is Markdown?' })
-      check(!writing.error && writing.messages.at(-1)?.text === `${protocol}·${next}`, '协议流式输出 ' + protocol + ' ' + writing.error)
+      const reply = writing.messages.at(-1)
+      check(!writing.error && reply?.text === `${protocol}·${next}` && reply.reasoning === reasoning, '协议流式输出 ' + protocol + ' ' + writing.error)
       protocols.push(protocol)
     }
     if (scenario.aiFixtureKey) {
@@ -803,10 +875,13 @@ async function verifyFull(ports: Ports, scenario: Case) {
     closeModels(remove)
     chooseOption(panel, '切换模型', 'qa-shared', 'Anthropic 夹具')
     await until(() => writing.settings.active?.providerId !== 'legacy')
-    check(writing.settings.active?.model === 'qa-shared' && writing.messages.at(-1)?.text === 'anthropic·qa-claude', '同供应商切换模型保留会话')
+    check(writing.settings.active?.model === 'qa-shared' && writing.messages.at(-1)?.text === 'anthropic·claude-opus-4-6', '同供应商切换模型保留会话')
+    chooseOption(panel, '思考强度', '思考 · 中')
+    await until(() => writing.settings.active?.reasoningEffort === 'medium')
     result.ai = { answer, hunks: proposal.view.hunks, undo: true, promptSettings: true, protocols,
       sources: { chat: scenario.model ? 'local-model' : 'fixture', anthropic: 'fixture', responses: 'fixture' },
       migrated: true, catalog: true, active: writing.settings.active, systemCredential: !!scenario.aiFixtureKey }
+    await mark('writing', result.ai)
   }
 
   const pluginText = '\n\n插件首行  \r\n下一行\t\r末尾  '
@@ -1144,6 +1219,153 @@ async function verifyDocumentPlugins(ports: Ports, scenario: Case) {
   return { batchFormat: true, bom: true, diskConflict: true, imageDeduplication: true, cancel: true, tableLayout: true }
 }
 
+async function verifyLiveWriting(ports: Ports, scenario: Case) {
+  const sample = scenario.writingLive!
+  const writing = ports.writing.view
+  const result: Record<string, unknown> = { model: writing.settings.active?.model }
+  check(await ports.openPath(scenario.guide, 1, false), '打开写作验收样稿')
+  document.querySelector<HTMLButtonElement>('[data-toggle="ai"]')!.click()
+  const panel = document.querySelector('.yy-ai-pane')!
+  const composer = panel.querySelector<HTMLFormElement>('form')!
+  const input = composer.querySelector('textarea')!
+  try {
+    await ports.action({ type: 'ai-chat-new' })
+    chooseOption(panel, '添加上下文', '全文')
+    await until(() => writing.context?.text === sample.markdown)
+    panel.querySelector<HTMLButtonElement>('.yy-ai-agent-toggle')!.click()
+    chooseOption(panel, '工具审批方式', '请求批准')
+    await until(() => writing.agentApprovalMode === 'ask')
+    setInput(input, '/skill document-review')
+    composer.requestSubmit()
+    await until(() => panel.querySelector('.yy-ai-skill-chip')?.textContent === '文档审阅')
+    setInput(input, '请先读取文档并核对负责人和截止时间，再用改稿工具只将「状态：草稿」更新为「状态：可评审」。保留其余内容，完成后用一句话确认。')
+    composer.requestSubmit()
+    await until(() => writing.pending)
+    const approvals = new Set<string>()
+    await until(() => {
+      const approval = writing.agent?.approval
+      if (approval && !approvals.has(approval.id)) {
+        check(ports.text() === sample.markdown, '工具等待批准时保留原稿')
+        const button = panel.querySelector<HTMLButtonElement>('.yy-ai-approval .yy-btn-primary')
+        check(button, '工具审批卡可批准本轮')
+        approvals.add(approval.id)
+        button.click()
+      }
+      return !writing.pending
+    }, 155_000)
+    const suggestion = ports.writing.pending?.view
+    const activity = writing.agent
+    const steps = activity?.trace.filter(entry => entry.kind === 'tool') ?? []
+    const exchange = panel.querySelector('.yy-ai-messages .yy-ai-exchange:last-child')
+    const displayedSteps = exchange?.querySelectorAll('.yy-ai-trace-tool strong')
+    check(!writing.error && suggestion?.hunks, writing.error || '智能体生成可审阅的修改建议')
+    check(writing.messages[0]?.skill === '文档审阅', '斜杠选用的内置技能随本轮消息保存')
+    check(approvals.size >= 2 && activity && activity.round >= 2 && steps.some(step => step.title === '读取文档片段' && !step.failed) &&
+      steps.some(step => step.title === '提出修改建议' && !step.failed), '完成读取和改稿工具续接')
+    check(displayedSteps?.length === steps.length && [...displayedSteps].every((node, index) => node.textContent === steps[index]?.title) &&
+      exchange?.lastElementChild?.classList.contains('yy-msg-assistant'), '工具记录在最终回复之前按调用顺序呈现')
+    check(ports.text() === sample.markdown, '审阅前保持样稿')
+    panel.querySelector<HTMLButtonElement>('[data-suggestion-action="apply-all"]')!.click()
+    const expected = sample.markdown.replace('状态：草稿', '状态：可评审')
+    await until(() => ports.text() === expected)
+    result.agent = { passed: true, skill: writing.messages[0]?.skill, rounds: activity.round, approvedBatches: approvals.size, steps: steps.map(step => step.title),
+      reply: writing.messages.at(-1)?.text, usage: writing.messages.at(-1)?.usage, exactChange: true }
+  } catch (error) {
+    if (writing.pending) {
+      await ports.action({ type: 'ai-cancel' })
+      await until(() => !writing.pending)
+    }
+    result.agent = { passed: false, error: reason(error), rounds: writing.agent?.round, steps: writing.agent?.trace.filter(entry => entry.kind === 'tool') }
+  }
+  try {
+    const toggle = panel.querySelector<HTMLButtonElement>('.yy-ai-agent-toggle')!
+    if (toggle.getAttribute('aria-pressed') === 'true') toggle.click()
+    await ports.action({ type: 'ai-chat-select', id: sample.chat })
+    setInput(input, '/compact')
+    composer.requestSubmit()
+    await until(() => !writing.pending && (writing.conversations?.covered === 2 || !panel.querySelector<HTMLElement>('.yy-ai-error')!.hidden), 100_000)
+    const archive = await invoke<{ conversations: Conversation[] }>('ai_conversations')
+    const compressed = archive.conversations.find(item => item.id === sample.chat)
+    check(compressed?.covered === 2, panel.querySelector('.yy-ai-error')?.textContent || '旧记录有两条被摘要覆盖')
+    const prior = compressed.messages.slice(0, compressed.covered).reduce((size, item) => size + item.text.length, 0)
+    check(compressed.messages.length === 4 && compressed.summary.length < prior && compressed.summary.includes(sample.code), '摘要缩短历史，并准确保留验收识别码')
+    const summary = panel.querySelector<HTMLDetailsElement>('.yy-ai-compaction')!
+    summary.querySelector('summary')!.click()
+    check(summary.open && summary.querySelector('pre')?.textContent === compressed.summary, '直接在会话中展开压缩摘要')
+    setInput(input, '本对话之前约定的发布会验收识别码是什么？请直接给出识别码。')
+    composer.requestSubmit()
+    await until(() => writing.pending)
+    await until(() => !writing.pending, 100_000)
+    const reply = writing.messages.at(-1)?.text
+    check(!writing.error && reply?.includes(sample.code), writing.error || '后续对话使用摘要中的信息')
+    result.compression = { passed: true, covered: compressed.covered, priorCharacters: prior, summaryCharacters: compressed.summary.length, reply }
+  } catch (error) {
+    result.compression = { passed: false, error: reason(error) }
+  }
+  const submit = async (prompt: string) => {
+    const prior = writing.messages
+    setInput(input, prompt)
+    composer.requestSubmit()
+    await until(() => writing.pending || writing.messages !== prior || !panel.querySelector<HTMLElement>('.yy-ai-error')!.hidden)
+    await until(() => !writing.pending, 100_000)
+    const reply = writing.messages.at(-1)
+    check(!writing.error && writing.messages !== prior && reply?.role === 'assistant',
+      writing.error || panel.querySelector('.yy-ai-error')?.textContent || '完成真实模型回复')
+    return reply!
+  }
+  try {
+    await ports.action({ type: 'ai-chat-new' })
+    await ports.action({ type: 'ai-attach', paths: [sample.cacheFile] })
+    check(writing.attachments?.[0]?.kind === 'text' && panel.querySelector('.yy-ai-attachment'), '真实文件已出现在输入区')
+    const usage = []
+    for (const prompt of ['请直接给出材料里的主馆通行校验码。', '复核材料中的主馆通行校验码，只输出该校验码。', '最后再按材料确认一次主馆通行校验码，原样输出。']) {
+      const reply = await submit(prompt)
+      check(reply.text.includes(sample.cacheCode), '真实模型按附件内容答复')
+      usage.push(reply.usage?.[0] ?? null)
+      if (usage.length >= 2 && (usage.at(-1)?.cachedTokens ?? 0) > 0) break
+    }
+    const hit = usage.slice(1).some(item => (item?.cachedTokens ?? 0) > 0)
+    check(!!panel.querySelector('.yy-ai-cache') === usage.some(item => item?.cachedTokens !== undefined), '回复显示供应商实际返回的缓存统计')
+    const budget = panel.querySelector<HTMLDetailsElement>('.yy-ai-budget')!
+    budget.querySelector('summary')!.click()
+    check(budget.open && budget.textContent?.includes('预计已用'), '可展开上下文用量')
+    if (usage.some(item => item?.inputTokens !== undefined)) check(budget.textContent?.includes('最近请求实测输入'), '上下文详情显示供应商实测输入')
+    budget.open = false
+    result.cache = { passed: hit, usage, textFile: true }
+    const id = writing.attachments?.[0]?.id
+    if (id) await ports.action({ type: 'ai-attachment-remove', id })
+  } catch (error) {
+    result.cache = { passed: false, error: reason(error) }
+  }
+  if (sample.imageCode) {
+    try {
+      await ports.action({ type: 'ai-chat-new' })
+      const canvas = document.createElement('canvas')
+      canvas.width = 400
+      canvas.height = 200
+      const paint = canvas.getContext('2d')!
+      paint.fillStyle = '#fff'
+      paint.fillRect(0, 0, canvas.width, canvas.height)
+      paint.fillStyle = '#161616'
+      paint.font = '70px monospace'
+      paint.textAlign = 'center'
+      paint.fillText(sample.imageCode, 200, 122)
+      const png = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'))
+      check(png, '生成无外部数据的图片验收样本')
+      await ports.action({ type: 'ai-attach', images: [new File([png!], '视觉验收.png', { type: 'image/png' })] })
+      const thumb = panel.querySelector<HTMLImageElement>('.yy-ai-attachment summary img')
+      check(thumb, '图片缩略图已显示')
+      await until(() => thumb!.naturalWidth === 400)
+      const reply = await submit('请直接输出图片中央的四位数字。')
+      check(reply.text.includes(sample.imageCode), '模型准确识别只出现在图片中的数字')
+      result.vision = { passed: true, reply: reply.text, usage: reply.usage }
+    } catch (error) {
+      result.vision = { passed: false, error: reason(error) }
+    }
+  }
+  return result
+}
+
 export async function runNativeQa(ports: Ports) {
   try {
     const scenario = await config()
@@ -1159,21 +1381,55 @@ export async function runNativeQa(ports: Ports) {
       if (scenario.phase === 'windows' && ports.state.path?.endsWith('纯文本.txt')) await testWindowDraft(ports, false)
       return
     }
+    if (scenario.phase === 'finder-open') {
+      const windows = async () => (await invoke<{ label: string; title: string }[]>('qa_windows')).filter(item => !item.label.startsWith('panel-'))
+      if (scenario.finderWarm) {
+        check(!ports.state.path && !ports.state.dirty, '就绪的启动窗口为空')
+        await mark('finder-ready', {})
+      }
+      await until(() => ports.state.path?.endsWith('/验收.md') === true, 30_000)
+      check(ports.text().length > 0, 'Finder 文件已经进入主文档')
+      await mark('finder-first', { windows: (await windows()).map(item => item.label) })
+      let second = await windows()
+      for (let tries = 0; !second.some(item => item.title === '纯文本.txt') && tries < 120; tries++) {
+        await wait(100)
+        second = await windows()
+      }
+      check(second.length === 2 && second.some(item => item.title === '纯文本.txt'), '重复打开聚焦原窗口，第二份文档才新开窗口')
+      await mark('finder-open', { warm: !!scenario.finderWarm, windows: second.map(item => item.title).sort(), extraBlank: false })
+      return
+    }
+    if (scenario.phase === 'vault' || scenario.phase === 'vault-recover') {
+      if (scenario.phase === 'vault') {
+        await ports.action({ type: 'ai-provider-save', key: scenario.aiFixtureKey,
+          provider: { id: crypto.randomUUID(), name: '密钥验收', endpoint: scenario.aiFixture! + '/responses/v1',
+            protocol: 'responses', models: ['gpt-5.4-qa'], modelOptions: { 'gpt-5.4-qa': { reasoningEffort: 'low' } } } })
+      } else await ports.action({ type: 'ai-chat-new' })
+      const saved = ports.writing.view.settings.providers[0]
+      check(saved?.hasKey && !saved.legacyKey, '当前供应商使用页屿内保存的密钥')
+      await ports.action({ type: 'ai-send', intent: 'chat', prompt: '验证已保存的测试密钥' })
+      const { messages, error } = ports.writing.view
+      check(!error && messages.at(-1)?.text === 'responses·gpt-5.4-qa', error || '模型服务收到正确的鉴权')
+      await mark(scenario.phase, scenario.phase === 'vault' ? { savedAndAuthorized: true } : { authorizedAfterRestart: true })
+      return
+    }
     // 后台文档窗口的动画帧可能暂停。读写与恢复验收只等待已载入的数据。
     if (scenario.phase !== 'windows') await frame()
     if (scenario.phase === 'measure') await measure(ports, scenario)
-    else if (scenario.phase === 'titlebar') await mark('titlebar', await verifyTitlebarResize())
+    else if (scenario.phase === 'titlebar') await mark('titlebar', await verifyTitlebarResize(ports, scenario))
     else if (scenario.phase === 'opencode') {
       await verifyOpenCode(ports, scenario)
       await mark('opencode', { reviewed: true })
     }
     else if (scenario.phase === 'windows') await mark('windows', await verifyWindows(ports, scenario))
+    else if (scenario.phase === 'writing-live') await mark('writing-live', await verifyLiveWriting(ports, scenario))
     else if (scenario.phase === 'recover') {
       check(ports.text() === scenario.recoveryText && ports.state.dirty && ports.state.mode === 'source', '强制结束后恢复内容和源码模式')
       check((await native.preferences())?.animations === false && document.documentElement.dataset.yeyuMotion === 'off', '重启保留动画开关')
       if (scenario.activeModel) {
         const { providers, active } = ports.writing.view.settings
         check(active?.providerId === scenario.activeModel.providerId && active.model === scenario.activeModel.model &&
+          active.reasoningEffort === scenario.activeModel.reasoningEffort &&
           providers.length === 2 && providers.every(provider => provider.models.length === 2), '重启保留供应商、多个模型和当前选择')
       }
       await mark('recovery', { recovered: true, mode: ports.state.mode, dirty: ports.state.dirty,

@@ -1,7 +1,7 @@
 import { el } from './helpers'
 import { icons } from './icons'
 
-export type ChoiceItem = { value: string; label: string; detail?: string }
+export type ChoiceItem = { value: string; label: string; detail?: string; triggerLabel?: string }
 
 let sequence = 0
 
@@ -67,7 +67,7 @@ export class ChoicePicker {
 
   private renderLabel() {
     const item = this.items.find(option => option.value === this.selection)
-    const text = item ? [item.detail, item.label].filter(Boolean).join(' · ') : this.placeholder
+    const text = item ? item.triggerLabel ?? [item.detail, item.label].filter(Boolean).join(' · ') : this.placeholder
     this.label.textContent = text
     this.button.title = text
   }

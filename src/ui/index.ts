@@ -27,6 +27,7 @@ import { MenuBar } from './menus'
 import { createPages } from './pages'
 import { PluginManager } from './plugins'
 import { ShortcutRegistry, detectMac, type ShortcutCommandId } from './shortcuts'
+import { sidebarSizing } from './sidebar-sizing'
 import './shell.css'
 import './ai.css'
 import './motion.css'
@@ -269,7 +270,28 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
 
   // Topbar
   const topbar = el('header', { className: 'yy-topbar yy-chrome' })
-  if (actions.macTitlebar) topbar.setAttribute('data-tauri-drag-region', 'deep')
+  if (actions.macTitlebar) {
+    topbar.setAttribute('data-tauri-drag-region', 'deep')
+    const controls = 'a, button, input, select, textarea, label, summary, [contenteditable="true"], [tabindex]:not([tabindex="-1"]), [data-tauri-drag-region="false"]'
+    const zoomClick = (event: MouseEvent) => event.button === 0 && event.detail === 2 &&
+      event.target instanceof Element && !event.target.closest(controls)
+    let secondClick: { x: number; y: number } | undefined
+    topbar.addEventListener('mousedown', event => {
+      secondClick = undefined
+      if (!zoomClick(event)) return
+      // 普通拖拽仍走 Tauri。双击的第二次按下由标题栏自己接管，避免两条放大操作同时执行。
+      event.stopPropagation()
+      event.preventDefault()
+      secondClick = { x: event.clientX, y: event.clientY }
+    })
+    topbar.addEventListener('mouseup', event => {
+      const start = secondClick
+      secondClick = undefined
+      if (!start) return
+      event.stopPropagation()
+      if (zoomClick(event) && event.clientX === start.x && event.clientY === start.y) dispatch({ type: 'titlebar-zoom' })
+    })
+  }
 
   const topLeft = el('div', { className: 'yy-topbar-left' })
   const topCenter = el('div', { className: 'yy-topbar-center' })
@@ -455,6 +477,8 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   const leftSlot = el('div', { className: 'yy-sidebar-slot yy-sidebar-slot-left' }, leftPanel.element)
   const rightSlot = el('div', { className: 'yy-sidebar-slot yy-sidebar-slot-right' }, rightPanel)
   bodyEl.append(leftSlot, stageEl, rightSlot)
+  const sidebars = sidebarSizing(bodyEl, { left: leftSlot, right: rightSlot },
+    (side, width) => dispatch({ type: 'sidebar-resize', side, width }))
 
   // Bottom Status Bar
   const statusBar = el('footer', { className: 'yy-statusbar yy-chrome' })
@@ -507,21 +531,22 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   }
 
   function syncPanel(slot: HTMLElement, open: boolean) {
-    if (slot.dataset.open === String(open)) return
+    if (slot.dataset.open === String(open)) return false
     // 收起时保留画面直到动画结束，同时立即移出点击和键盘导航范围。
     if (!open && slot.contains(document.activeElement)) focusEditor()
     slot.inert = !open
     slot.setAttribute('aria-hidden', String(!open))
     slot.dataset.open = String(open)
+    return true
   }
 
   function syncLayout() {
-    syncPanel(leftSlot, leftOpen)
+    const leftChanged = syncPanel(leftSlot, leftOpen)
     leftToggleBtn.classList.toggle('is-active', leftOpen)
     leftToggleBtn.setAttribute('aria-pressed', String(leftOpen))
 
     if (!rightOpen || rightTab !== 'ai') aiPanel.closePickers()
-    syncPanel(rightSlot, rightOpen)
+    if (syncPanel(rightSlot, rightOpen) || leftChanged) sidebars.refresh()
     aiPanel.element.toggleAttribute('hidden', rightTab !== 'ai')
     mcpPanel.element.toggleAttribute('hidden', rightTab !== 'mcp')
 
@@ -587,6 +612,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
     readonlyBanner.toggleAttribute('hidden', !isReadonly)
 
     liveModeBtn.classList.toggle('is-active', state.mode === 'live')
+    paperEl.dataset.documentWidth = state.documentWidth ?? 'default'
     liveModeBtn.setAttribute('aria-pressed', String(state.mode === 'live'))
     sourceModeBtn.classList.toggle('is-active', state.mode === 'source')
     sourceModeBtn.setAttribute('aria-pressed', String(state.mode === 'source'))
@@ -710,6 +736,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
 
     importShortcutBindings: bindings => shortcuts.importBindings(bindings, isMac),
     setSidebarTab: tab => leftPanel.setTab(tab),
+    setSidebarWidths: sidebars.set,
     setFindOptions: options => findBar.setOptions(options),
 
     setTitlebar(view) {
@@ -745,6 +772,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
       appearance.destroy()
       menuBar.destroy()
       leftPanel.destroy()
+      sidebars.destroy()
       aiPanel.closePickers()
       modals.destroy()
       closePlugins()

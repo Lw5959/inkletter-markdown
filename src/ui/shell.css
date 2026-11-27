@@ -127,6 +127,12 @@ body {
   overflow: hidden;
 }
 
+/* 调整桌面窗口时只有正文和各侧栏各自滚动，窗口页面本身不产生滚动条。 */
+html:has(#app > .yy-shell:not(.yy-mobile)),
+body:has(#app > .yy-shell:not(.yy-mobile)) {
+  overflow: hidden;
+}
+
 /* 细滑块跟随主题。滚动区域由 WebView 处理，边缘仍留出拖拽空间。 */
 @media not all and (forced-colors: active) {
   .yy-shell {
@@ -801,6 +807,30 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
   transition: none;
 }
 
+.yy-shell .yy-sidebar-grip {
+  position: absolute;
+  inset-block: 0;
+  z-index: 1;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+
+.yy-sidebar-slot-left > .yy-sidebar-grip { right: -4px; }
+.yy-sidebar-slot-right > .yy-sidebar-grip { left: -4px; }
+.yy-sidebar-slot:not([data-open="true"]) > .yy-sidebar-grip { visibility: hidden; }
+.yy-shell .yy-body[data-sidebar-drag] { cursor: col-resize; user-select: none; }
+
+.yy-shell .yy-sidebar-grip:is(:hover, :focus-visible)::after,
+.yy-shell .yy-body[data-sidebar-drag="left"] .yy-sidebar-slot-left > .yy-sidebar-grip::after,
+.yy-shell .yy-body[data-sidebar-drag="right"] .yy-sidebar-slot-right > .yy-sidebar-grip::after {
+  content: '';
+  position: absolute;
+  inset: 0 3px;
+  background: var(--yy-accent);
+}
+
 .yy-shell[data-tool-page] :is(.yy-topbar-left > [data-toggle="left"], .yy-doc-title-btn, .yy-topbar-right, .yy-statusbar) {
   display: none;
 }
@@ -1253,6 +1283,16 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 .yy-shell .yy-stage > .yy-paper.document-theme {
   min-width: 0;
   margin: 0;
+}
+
+.yy-paper[data-document-width="wide"] { --yy-document-width: 1080px; }
+.yy-paper[data-document-width="extra-wide"] { --yy-document-width: 1320px; }
+.yy-paper[data-document-width="full"] { --yy-document-width: 100%; }
+.yy-shell .yy-stage > .yy-paper:is([data-document-width="wide"], [data-document-width="extra-wide"], [data-document-width="full"]) #write {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: var(--yy-document-width);
+  margin-inline: auto;
 }
 
 :where(.yy-paper.document-theme[data-typewriter="true"]) {

@@ -67,7 +67,8 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
         listAiModels: ${discover} ? async request => {
           modelRequests.push(request)
           if (request.endpoint.includes('offline')) throw new Error('无法连接供应商')
-          return ['alpha-write', 'beta-code', 'alpha-write']
+          const alpha = { id: 'alpha-write', metadata: { displayName: 'Alpha 写作', contextTokens: 64000, outputTokens: 4096, reasoningEfforts: ['low', 'high'] } }
+          return [alpha, { id: 'beta-code', metadata: {} }, alpha]
         } : undefined,
         onWindowAppearance(theme) { nativeThemes.push(theme) },
         dispatch(action) {
@@ -84,7 +85,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     })()`)
   }
 
-  async function openViewSubmenu(name: '文档主题' | '协作侧栏') {
+  async function openViewSubmenu(name: '文档主题' | '协作侧栏' | '正文宽度') {
     await page.locator('[data-menu="view"]').click()
     await page.locator('.yy-menu-popover').getByRole('menuitem', { name, exact: true }).click()
     return page.locator('.yy-submenu-panel')
@@ -94,6 +95,195 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     const submenu = await openViewSubmenu('协作侧栏')
     await submenu.getByRole('menuitemcheckbox', { name: /^MCP 工具与连接/ }).click()
   }
+
+  it('隐藏标题标记的光标节点与标题共用一行，源码中的空行照常保留', async () => {
+    await mountTestHarness()
+    const first = await page.evaluate<{ gaps: number[]; originalBlank: boolean; unchanged: boolean }>(`(async () => {
+      const editor = window.__test.editor
+      const text = '# 首行标题\\n\\n第二段正文。\\n\\n## 后续标题'
+      editor.setMarkdown(text)
+      editor.select({ anchor: 2, head: 2 })
+      editor.focus()
+      await new Promise(resolve => requestAnimationFrame(resolve))
+      const gaps = [...document.querySelectorAll('#write .cm-line :is(h1,h2)')].map(heading =>
+        heading.getBoundingClientRect().top - heading.parentElement.getBoundingClientRect().top)
+      editor.setMarkdown('\\n' + text)
+      await new Promise(resolve => requestAnimationFrame(resolve))
+      const originalBlank = document.querySelector('#write .cm-line')?.textContent === ''
+      editor.setMode('source')
+      return { gaps, originalBlank, unchanged: editor.getMarkdown() === '\\n' + text }
+    })()`)
+    expect(first.gaps).toHaveLength(2)
+    expect(first.gaps.every(gap => Math.abs(gap) <= 1)).toBe(true)
+    expect(first.originalBlank).toBe(true)
+    expect(first.unchanged).toBe(true)
+  }, 15_000)
+
+  it('实时目录和独立的 Markdown 标记行不会挤出空白行', async () => {
+    await mountTestHarness()
+    const text = ['[TOC]', '', '一级标题', '===', '', '```js', 'let value = 1;', '```', '', '末段'].join('\n')
+    const caret = text.indexOf('value')
+    await page.evaluate(({ text, caret }) => {
+      const { editor } = (window as any).__test
+      editor.setMarkdown(text)
+      editor.select({ anchor: caret, head: caret })
+    }, { text, caret })
+    const toc = page.locator('#write .live-toc')
+    await toc.getByText('一级标题', { exact: true }).waitFor()
+    const tocGaps = await toc.evaluate(nav => {
+      const r = nav.getBoundingClientRect()
+      const line = nav.parentElement!.getBoundingClientRect()
+      const css = getComputedStyle(nav)
+      return [r.top - line.top - Number.parseFloat(css.marginTop), line.bottom - r.bottom - Number.parseFloat(css.marginBottom)]
+    })
+    expect(tocGaps.every(gap => Math.abs(gap) <= 1)).toBe(true)
+    const hidden = page.locator('#write .cm-line.live-markup-only')
+    expect(await hidden.allTextContents()).toEqual(['===', '```js', '```'])
+    expect(await hidden.evaluateAll(lines => lines.every(line => line.getBoundingClientRect().height === 0))).toBe(true)
+    await page.evaluate(anchor => (window as any).__test.editor.select({ anchor, head: anchor }), text.indexOf('===') + 1)
+    await page.locator('#write .cm-line:not(.live-markup-only)').getByText('===', { exact: true }).waitFor()
+    expect(await page.evaluate('window.__test.editor.getMarkdown()')).toBe(text)
+  }, 15_000)
+
+  it('正文宽度档位随视图菜单生效，窄窗口下以可用空间为上限', async () => {
+    await mountTestHarness()
+    await page.setViewportSize({ width: 1740, height: 840 })
+    try {
+      await page.evaluate(`window.__test.dispatch = action => {
+        if (action.type === 'document-width') window.__test.shell.setState({
+          title: '宽度.md', path: null, dirty: false, mode: 'live', detail: '', words: 0,
+          characters: 0, line: 1, column: 1, workspace: null, autosave: false, presentation: {},
+          documentWidth: action.width,
+        })
+      }`)
+      const width = async () => (await page.locator('#write').boundingBox())!.width
+      const standard = await width()
+      const choose = async (label: string) => (await openViewSubmenu('正文宽度')).getByRole('menuitemcheckbox', { name: label, exact: true }).click()
+      await choose('宽')
+      const wide = await width()
+      await choose('超宽')
+      const extra = await width()
+      await choose('铺满')
+      expect(standard).toBeLessThan(wide)
+      expect(wide).toBeLessThan(extra)
+      expect(extra).toBeLessThan(await width())
+      await page.setViewportSize({ width: 640, height: 760 })
+      // 在同一帧读取正文和容器，避免 ResizeObserver 调整侧栏时比较两个不同的布局。
+      await expect.poll(() => page.locator('#write').evaluate(node =>
+        node.getBoundingClientRect().width <= node.closest('.yy-paper')!.getBoundingClientRect().width)).toBe(true)
+      await choose('主题默认')
+      await page.setViewportSize({ width: 1740, height: 840 })
+      expect(await width()).toBe(standard)
+      expect(await page.evaluate('window.__test.editor.getMarkdown()')).toContain('第一段正文。')
+    } finally { await page.setViewportSize({ width: 1360, height: 860 }) }
+  }, 15_000)
+
+  it('自动更新开关仅在启用时检查，发现新版本后仍需点击安装', async () => {
+    await mountTestHarness()
+    await page.evaluate(`(async () => {
+      const { mockIPC } = await import('/node_modules/@tauri-apps/api/mocks.js')
+      mockIPC(command => command === 'plugin:app|version' ? '0.2.23' : null)
+      const { showUpdate, showAutomaticUpdate } = await import('/src/ui/update-dialog.ts')
+      const qa = window.__updateQa = { enabled: false, calls: [], release: false, installed: 0 }
+      const check = async source => {
+        qa.calls.push(source)
+        return qa.release ? { version: '0.3.0', notes: '', kind: 'install', apply: async () => { qa.installed++ } } : null
+      }
+      const prefs = { enabled: () => qa.enabled, save: async enabled => { qa.enabled = enabled } }
+      qa.manual = () => showUpdate(check, undefined, prefs)
+      qa.startup = () => showAutomaticUpdate(check, prefs)
+      await qa.startup()
+      qa.manual()
+    })()`)
+    const dialog = page.getByRole('dialog', { name: '软件更新' })
+    await dialog.getByText('已是最新版本').waitFor()
+    const option = dialog.getByRole('checkbox', { name: '启动时自动检查更新' })
+    expect(await option.isChecked()).toBe(false)
+    expect(await page.evaluate('window.__updateQa.calls.length')).toBe(1)
+    await option.check()
+    await dialog.getByRole('button', { name: '关闭' }).click()
+    await page.evaluate('window.__updateQa.release = true; window.__updateQa.startup()')
+    await dialog.getByText('发现新版本 0.3.0').waitFor()
+    expect(await option.isChecked()).toBe(true)
+    expect(await page.evaluate('window.__updateQa.calls.length')).toBe(2)
+    expect(await page.evaluate('window.__updateQa.installed')).toBe(0)
+    await option.uncheck()
+    await dialog.getByRole('button', { name: '关闭' }).click()
+    await page.evaluate('window.__updateQa.startup()')
+    expect(await page.evaluate('window.__updateQa.calls.length')).toBe(2)
+  }, 15_000)
+
+  it('文本附件可续用，图片按模型能力校验，容量显示预估和实测', async () => {
+    await mountTestHarness()
+    await page.evaluate(`(async () => {
+      const { mockIPC } = await import('/node_modules/@tauri-apps/api/mocks.js')
+      const { Writing } = await import('/src/ai.ts')
+      const { clipboardImages } = await import('/src/ai-attachments.ts')
+      const provider = {
+        id: 'fixture', name: '附件测试', endpoint: 'https://example.test', protocol: 'chat', hasKey: false,
+        models: ['text', 'vision'], modelOptions: {
+          text: { detected: { inputModalities: ['text'], contextTokens: 16000, outputTokens: 2000 } },
+          vision: { detected: { inputModalities: ['text', 'image/png'], contextTokens: 16000, outputTokens: 2000 } },
+        },
+      }
+      let active = { providerId: provider.id, model: 'text' }
+      const requests = window.__attachmentRequests = []
+      mockIPC(async (command, data) => {
+        if (command === 'ai_settings') return { providers: [provider], active }
+        if (command === 'ai_model_select') { active = data.selection; return { providers: [provider], active } }
+        if (command !== 'ai_stream') return null
+        requests.push(structuredClone(data.messages))
+        const send = item => window.__TAURI_INTERNALS__.runCallback(data.event.id, item)
+        send({ index: 0, message: { kind: 'delta', text: '已读取附件。' } })
+        send({ index: 1, message: { kind: 'done', usage: { cachedTokens: 128, inputTokens: 540 } } })
+        send({ index: 2, end: true })
+      })
+      const { shell, editor } = window.__test
+      const writing = new Writing(view => shell.setAI(view))
+      window.__test.dispatch = async action => {
+        if (action.type === 'ai-model-select') return writing.configure(action)
+        if (action.type === 'ai-send') return writing.send(action.intent, action.prompt, editor, 1, 1)
+        if (action.type === 'ai-attachment-remove') return writing.removeAttachment(action.id)
+        if (action.type === 'ai-attach') {
+          const files = action.images ? await clipboardImages(action.images)
+            : [{ kind: 'text', name: '记录.txt', text: '合成的验收记录' }]
+          return writing.addAttachments(files, writing.view.conversations?.active)
+        }
+      }
+      window.__pasteImage = async () => {
+        const canvas = document.createElement('canvas')
+        const png = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'))
+        const clipboardData = new DataTransfer()
+        clipboardData.items.add(new File([png], '截图.png', { type: 'image/png' }))
+        document.querySelector('.yy-ai-input').dispatchEvent(new ClipboardEvent('paste', { clipboardData, cancelable: true }))
+      }
+      await writing.load()
+    })()`)
+    await page.locator('[data-toggle="ai"]').click()
+    await page.getByRole('button', { name: '添加文件或图片' }).click()
+    await page.locator('.yy-ai-attachment summary').getByText('记录.txt').click()
+    await page.getByLabel('记录.txt 预览').getByText('合成的验收记录').waitFor()
+    await page.evaluate('window.__pasteImage()')
+    await page.locator('.yy-ai-error').getByText('当前模型不支持图片输入。', { exact: false }).waitFor()
+    await page.getByRole('combobox', { name: '切换模型' }).click()
+    await page.getByRole('option', { name: /^vision/ }).click()
+    await page.evaluate('window.__pasteImage()')
+    await page.locator('.yy-ai-attachment summary').getByText('截图.png').waitFor()
+    const composer = page.getByLabel('AI 指令输入')
+    for (const prompt of ['读附件', '再核对一次']) {
+      await composer.fill(prompt)
+      await page.getByRole('button', { name: '发送', exact: true }).click()
+      await expect.poll(() => page.locator('.yy-ai-cache').count()).toBe(prompt === '读附件' ? 1 : 2)
+    }
+    const requests = await page.evaluate('window.__attachmentRequests') as Array<Array<{ text: string; files?: { mediaType: string }[] }>>
+    expect(requests[1].slice(0, requests[0].length)).toEqual(requests[0])
+    expect(requests[0].find(item => item.files)?.files?.[0].mediaType).toBe('image/png')
+    await page.getByLabel('上下文窗口', { exact: true }).click()
+    await page.getByText('最近请求实测输入 540 Token').waitFor()
+    await page.getByText('模型总窗口 16,000 Token').waitFor()
+    await page.getByRole('button', { name: '移除 截图.png' }).click()
+    expect(await page.locator('.yy-ai-attachment img').count()).toBe(0)
+  }, 15_000)
 
   async function controlColors(control: Locator) {
     return control.evaluate(element => {
@@ -793,7 +983,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     await settings.locator('input[type="password"]').fill('fixture-key')
     await settings.getByRole('button', { name: '获取模型' }).click()
     const options = settings.getByRole('group', { name: '可用模型' })
-    await options.getByRole('checkbox', { name: 'alpha-write' }).check()
+    await options.getByRole('checkbox', { name: /alpha-write/ }).check()
     const filter = settings.getByRole('searchbox', { name: '筛选可用模型' })
     await filter.fill('beta')
     await options.getByRole('checkbox', { name: 'beta-code' }).check()
@@ -801,28 +991,85 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     expect(await settings.getByRole('textbox', { name: /模型 ID/ }).count()).toBe(2)
     expect(await settings.getByLabel('模型 ID 1').inputValue()).toBe('alpha-write')
     expect(await settings.getByLabel('模型 ID 2').inputValue()).toBe('beta-code')
+    expect(await settings.getByLabel('模型显示名 1').getAttribute('placeholder')).toBe('Alpha 写作')
+    expect(await settings.getByLabel('模型输入上限 1').getAttribute('placeholder')).toBe('59904')
+    expect(await settings.getByLabel('模型输出上限 1').getAttribute('placeholder')).toBe('4096')
+    await settings.getByLabel('模型显示名 1').fill('编辑专用')
+    await settings.getByLabel('模型输入上限 1').fill('24000')
+    await settings.getByLabel('模型输出上限 1').fill('2048')
+    await settings.getByLabel('模型思考强度 1').selectOption('high')
 
     await endpoint.fill('https://offline.example.test/v1')
     await settings.getByRole('button', { name: '获取模型' }).click()
     await settings.getByText('无法连接供应商').waitFor()
     expect(await settings.getByLabel('模型 ID 2').inputValue()).toBe('beta-code')
     await endpoint.fill('http://models.example.test:8080/team/v1')
+    await settings.getByRole('button', { name: '获取模型' }).click()
+    await settings.getByText('已获取 1 个现有模型的规格，可以保存配置').waitFor()
+    expect(await settings.getByLabel('模型显示名 1').inputValue()).toBe('编辑专用')
+    expect(await settings.getByLabel('模型输出上限 1').inputValue()).toBe('2048')
     await settings.getByRole('button', { name: '保存配置' }).click()
     expect(await page.evaluate('window.__test.modelRequests[0]')).toMatchObject({
       endpoint: 'http://models.example.test:8080/team/v1', protocol: 'chat', key: 'fixture-key',
     })
     expect(await page.evaluate('window.__test.actions.at(-1).provider.models')).toEqual(['alpha-write', 'beta-code'])
+    expect(await page.evaluate('window.__test.actions.at(-1).provider.modelOptions["alpha-write"]')).toEqual({
+      displayName: '编辑专用', inputTokens: 24000, outputTokens: 2048, reasoningEffort: 'high',
+      detected: { displayName: 'Alpha 写作', contextTokens: 64000, outputTokens: 4096, reasoningEfforts: ['low', 'high'] },
+    })
   }, 10000)
+
+  it('拖动两侧分隔线和键盘微调后记住宽度，窄窗口中保留正文', async () => {
+    await mountTestHarness()
+    await page.locator('[data-toggle="ai"]').click()
+    const left = page.getByRole('separator', { name: '调整左侧栏宽度' })
+    const right = page.getByRole('separator', { name: '调整右侧栏宽度' })
+    async function drag(grip: Locator, dx: number) {
+      const bounds = (await grip.boundingBox())!
+      const x = bounds.x + bounds.width / 2
+      const y = bounds.y + bounds.height / 2
+      await page.mouse.move(x, y)
+      await page.mouse.down()
+      await page.mouse.move(x + dx, y, { steps: 4 })
+      await page.mouse.up()
+    }
+    await drag(left, 84)
+    await drag(right, -120)
+    await right.press('ArrowLeft')
+    expect(await left.getAttribute('aria-valuenow')).toBe('304')
+    expect(await right.getAttribute('aria-valuenow')).toBe('496')
+    expect(await page.evaluate('window.__test.actions.filter(item => item.type === "sidebar-resize")')).toEqual([
+      { type: 'sidebar-resize', side: 'left', width: 304 },
+      { type: 'sidebar-resize', side: 'right', width: 480 },
+      { type: 'sidebar-resize', side: 'right', width: 496 },
+    ])
+    await page.locator('[data-right-tab="mcp"]').click()
+    expect(await right.getAttribute('aria-valuenow')).toBe('496')
+    await page.getByRole('button', { name: '关闭右侧协作栏' }).click()
+    expect(await right.count()).toBe(0)
+    await page.locator('[data-toggle="ai"]').click()
+    expect(await right.getAttribute('aria-valuenow')).toBe('496')
+    try {
+      await page.setViewportSize({ width: 640, height: 860 })
+      await expect.poll(() => page.locator('.yy-paper').evaluate(node => node.clientWidth)).toBeGreaterThanOrEqual(192)
+      expect(Number(await right.getAttribute('aria-valuenow'))).toBeGreaterThanOrEqual(248)
+      expect(Number(await left.getAttribute('aria-valuenow'))).toBeGreaterThanOrEqual(192)
+    } finally {
+      await page.setViewportSize({ width: 1360, height: 860 })
+    }
+    await expect.poll(() => right.getAttribute('aria-valuenow')).toBe('496')
+    expect(await left.getAttribute('aria-valuenow')).toBe('304')
+  })
 
   it('在桌面侧栏渲染历史和流式 Markdown，宽表和代码可横向滚动', async () => {
     await mountTestHarness()
     const fence = '\x60'.repeat(3)
     const column = Array.from({ length: 12 }, (_, i) => '第' + (i + 1) + '列')
     const answer = [
-      '## 回复排版', '', '- **粗体项目**', '- 第二项', '',
+      '## 回复排版', '', '', '', '- **粗体项目**', '', '- 第二项', '',
       '| ' + column.join(' | ') + ' |', '| ' + column.map(() => '---:').join(' | ') + ' |',
       '| ' + column.map(() => '详情').join(' | ') + ' |', '', fence + 'js',
-      'const code = "' + 'value'.repeat(160) + '"', fence, '',
+      'const code = "' + 'value'.repeat(160) + '"', '', 'console.log(code)', fence, '',
       '[参考链接](https://example.test/docs)', '', '![图片说明](https://example.test/picture.png)',
     ].join('\n')
     await page.evaluate(answer => {
@@ -831,20 +1078,27 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       native.__test.shell.setAI({
         settings: { providers: [], active: null }, prompts: {}, context: null,
         messages: [{ role: 'user', text: '**让我看原样输入**' }, { role: 'assistant', text: answer }],
-        stream: '### 流式标题\n\n- 实时 **加粗**', pending: true, error: '', suggestion: null, canRetry: false,
+        stream: '### 流式标题\n\n\n\n- 实时 **加粗**\n\n- 第二条', pending: true, error: '', suggestion: null, canRetry: false,
       })
     }, answer)
     await page.locator('[data-toggle="ai"]').click()
     const assistant = page.locator('.yy-ai-messages .yy-msg-assistant')
     await assistant.getByRole('heading', { name: '回复排版' }).waitFor()
     expect(await assistant.locator('li strong').textContent()).toBe('粗体项目')
+    const listGap = (list: Locator) => list.evaluate(node => {
+      const [first, second] = node.querySelectorAll('li > p')
+      return second.getBoundingClientRect().top - first.getBoundingClientRect().bottom
+    })
+    expect(await listGap(assistant.locator('ul'))).toBeLessThan(20)
     expect(await assistant.locator('th').first().evaluate(node => getComputedStyle(node).textAlign)).toBe('right')
     expect(await assistant.locator('.yy-markdown-table-scroll').evaluate(node => node.scrollWidth > node.clientWidth)).toBe(true)
     expect(await assistant.locator('pre').evaluate(node => node.scrollWidth > node.clientWidth)).toBe(true)
+    expect(await assistant.locator('pre').textContent()).toContain('\n\nconsole.log(code)')
     expect(await assistant.locator('img').count()).toBe(0)
     expect(await page.locator('.yy-msg-user .yy-msg-body').textContent()).toBe('**让我看原样输入**')
     await page.getByRole('heading', { name: '流式标题' }).waitFor()
     expect(await page.locator('.yy-ai-conversation > .yy-msg-assistant li strong').textContent()).toBe('加粗')
+    expect(await listGap(page.locator('.yy-ai-conversation > .yy-msg-assistant ul'))).toBeLessThan(20)
     await assistant.getByRole('link', { name: '参考链接' }).click()
     expect(await page.evaluate('window.__clickedLink')).toEqual({ command: 'visit_link', args: { url: 'https://example.test/docs' } })
   }, 10000)
@@ -866,14 +1120,21 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       const callbacks = new Map()
       let id = 0
       const observed = []
+      const modelOptions = { 'writer-alt': { displayName: '快速写作', reasoningEffort: 'medium' } }
+      const catalog = { providers: [{ id: 'fixture', endpoint: 'https://models.example.test/v1',
+        protocol: 'chat', name: '测试模型', models: ['deepseek-v4.1-flash', 'writer-alt'], modelOptions, hasKey: false }],
+        active: { providerId: 'fixture', model: 'deepseek-v4.1-flash' } }
       window.__desktopAi = { observed, archive }
       window.__TAURI_INTERNALS__ = {
         transformCallback(fn) { callbacks.set(++id, fn); return id },
         unregisterCallback(i) { callbacks.delete(i) },
         async invoke(cmd, data) {
-          if (cmd === 'ai_settings') return { providers: [{ id: 'fixture', endpoint: 'https://models.example.test/v1',
-            protocol: 'chat', name: '测试模型', models: ['writer'], hasKey: false }],
-            active: { providerId: 'fixture', model: 'writer' } }
+          if (cmd === 'ai_model_select') {
+            const { model, reasoningEffort } = data.selection
+            if (data.updateEffort) (modelOptions[model] ??= {}).reasoningEffort = reasoningEffort
+            catalog.active = { ...data.selection, reasoningEffort: modelOptions[model]?.reasoningEffort }
+          }
+          if (cmd === 'ai_settings' || cmd === 'ai_model_select') return structuredClone(catalog)
           if (cmd === 'ai_conversations') {
             if (data?.value) Object.assign(archive, structuredClone(data.value))
             return data?.value ? null : structuredClone(archive)
@@ -884,24 +1145,26 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
             const send = callbacks.get(data.event.id)
             const plan = { id: 'plan', name: 'update_plan', arguments: JSON.stringify({ plan: [{ step: '整理摘要任务', status: 'completed' }] }) }
             const text = request.history.length ? '## 智能体结论\n\n已复核。' : ''
-            if (text) send({ index: 0, message: { kind: 'delta', text } })
-            send({ index: text ? 1 : 0, end: true })
+            send({ index: 0, message: { kind: 'reasoning', text: text ? '复核工具结果。' : '先读取材料。' } })
+            if (text) send({ index: 1, message: { kind: 'delta', text } })
+            send({ index: text ? 2 : 1, end: true })
             return { text, calls: text ? [] : [plan], output: [{ role: 'assistant', content: text }] }
           }
           if (cmd !== 'ai_stream') return null
           const messages = structuredClone(data.messages)
-          observed.push({ command: cmd, id: data.id, sessionId: data.sessionId, messages })
+          observed.push({ command: cmd, id: data.id, sessionId: data.sessionId, selection: data.selection, messages })
           const send = callbacks.get(data.event.id)
           if (window.__desktopAi.failNext) {
             window.__desktopAi.failNext = false
             send({ index: 0, end: true })
             throw new Error('测试供应商拒绝请求')
           }
+          send({ index: 0, message: { kind: 'reasoning', text: '先核对**写作要求**。' } })
           if (messages.at(-1).text.endsWith('检查连续提交')) await new Promise(resolve => { window.__finishOnce = resolve })
-          const text = messages[0].text.startsWith('压缩这段') ? '已压缩的历史重点' : window.__desktopAi.reply ?? '收到。'
-          send({ index: 0, message: { kind: 'delta', text } })
-          send({ index: 1, message: { kind: 'done' } })
-          send({ index: 2, end: true })
+          const text = messages[0].text.startsWith('压缩这段') ? window.__desktopAi.summary ?? '已压缩的历史重点' : window.__desktopAi.reply ?? '收到。'
+          send({ index: 1, message: { kind: 'delta', text } })
+          send({ index: 2, message: { kind: 'done' } })
+          send({ index: 3, end: true })
           return null
         }
       }
@@ -917,6 +1180,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
         const current = window.__test.writing
         if (action.type === 'ai-send') await current.send(action.intent, action.prompt, editor, 1, revision, { agent: action.agent })
         else if (action.type === 'ai-context') current.preview(action.scope, editor, 1, revision, '测试.md')
+        else if (action.type === 'ai-model-select') await current.configure(action)
         else if (action.type === 'ai-retry') await current.retry()
         else if (action.type === 'ai-compress' || action.type.startsWith('ai-chat-')) await current.manageChat(action)
       }
@@ -927,12 +1191,34 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     const manage = page.getByRole('dialog', { name: '对话管理' })
     const composer = page.getByLabel('AI 指令输入')
     const send = page.getByRole('button', { name: '发送', exact: true })
+    const effort = page.getByRole('combobox', { name: '思考强度' })
+    const chooseEffort = async (level: '低' | '最高') => {
+      const label = '思考 · ' + level
+      await effort.click()
+      await page.getByRole('option', { name: label, exact: true }).click()
+      await expect.poll(() => effort.textContent()).toBe(label)
+    }
+    await chooseEffort('低')
+    const models = page.getByRole('combobox', { name: '切换模型' })
+    await composer.fill('/model')
+    await composer.press('Enter')
+    await page.getByRole('option', { name: /快速写作.*writer-alt/ }).click()
+    await expect.poll(() => models.textContent()).toBe('测试模型 · 快速写作')
+    expect(await effort.textContent()).toBe('思考 · 中')
+    await models.click()
+    await page.getByRole('option', { name: /deepseek-v4\.1-flash/ }).click()
+    await expect.poll(() => effort.textContent()).toBe('思考 · 低')
     await chats.click()
     await manage.getByRole('button', { name: '重命名 原项目' }).click()
     await manage.getByLabel('对话标题').fill('设备复核')
     await manage.getByRole('button', { name: '保存标题' }).click()
     await manage.getByRole('button', { name: '设备复核', exact: true }).waitFor()
-    await manage.getByRole('button', { name: '新建对话' }).click()
+    await manage.getByRole('button', { name: '关闭' }).click()
+    await composer.fill('/')
+    await composer.press('ArrowDown')
+    expect(await page.getByRole('option', { name: /\/new.*新建对话/ }).getAttribute('aria-selected')).toBe('true')
+    await composer.press('Enter')
+    await expect.poll(() => chats.getAttribute('title')).toBe('新对话')
     await composer.fill('检查连续提交')
     await composer.evaluate(input => {
       const form = input.closest('form')!
@@ -940,9 +1226,17 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }))
     })
     await expect.poll(() => page.evaluate('window.__desktopAi.observed.length')).toBe(1)
+    expect(await page.evaluate('window.__desktopAi.observed[0].selection.reasoningEffort')).toBe('low')
+    await page.locator('.yy-ai-conversation > .yy-msg-assistant details[open]').getByText('写作要求', { exact: true }).waitFor()
+    expect(await effort.getAttribute('aria-disabled')).toBe('true')
     expect(await page.locator('.yy-msg-user').count()).toBe(1)
     await page.evaluate('window.__finishOnce()')
     await page.getByText('收到。', { exact: true }).waitFor()
+    const finishedThought = page.locator('.yy-ai-messages .yy-ai-reasoning')
+    expect(await finishedThought.getAttribute('open')).toBeNull()
+    await finishedThought.locator('summary').click()
+    await finishedThought.getByText('写作要求', { exact: true }).waitFor()
+    await chooseEffort('最高')
     await page.evaluate('window.__desktopAi.failNext = true')
     await page.getByRole('button', { name: '重新生成上条回复' }).click()
     await page.getByText('测试供应商拒绝请求', { exact: true }).waitFor()
@@ -951,6 +1245,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     await page.evaluate(`window.__desktopAi.reply = '**新的回复**'`)
     await page.getByRole('button', { name: '重试上次请求' }).click()
     await expect.poll(() => page.evaluate('window.__desktopAi.observed.length')).toBe(3)
+    expect(await page.evaluate('window.__desktopAi.observed[2].selection.reasoningEffort')).toBe('max')
     await page.evaluate('window.__finishOnce()')
     await page.getByText('新的回复', { exact: true }).waitFor()
     const retries = await page.evaluate('window.__desktopAi.observed.slice(0, 3)') as { id: string; sessionId: string }[]
@@ -977,9 +1272,23 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     await page.getByRole('option', { name: '对话', exact: true }).click()
     await chats.click()
     await manage.getByRole('button', { name: '设备复核', exact: true }).click()
+    await page.evaluate('window.__desktopAi.summary = "更长的摘要".repeat(40)')
+    await composer.fill('/compact')
+    await composer.press('Enter')
+    await page.getByText('本次摘要未缩短上下文', { exact: false }).waitFor()
+    expect(await page.evaluate('window.__desktopAi.archive.conversations.find(item => item.title === "设备复核").covered')).toBe(0)
+    await page.evaluate('delete window.__desktopAi.summary')
+    await composer.fill('/comp')
+    await page.getByRole('listbox', { name: 'AI 命令' }).getByRole('option', { name: /\/compact.*压缩上下文/ }).waitFor()
+    await composer.press('Enter')
+    const summary = page.locator('.yy-ai-conversation > .yy-ai-compaction')
+    await summary.getByText(/上下文摘要 · 4 条 · .* → 8 字符/).click()
+    await summary.getByText('已压缩的历史重点', { exact: true }).waitFor()
+    expect(await page.locator('.yy-msg-user').getByText('/compact', { exact: true }).count()).toBe(0)
     await chats.click()
-    await manage.getByRole('button', { name: '压缩上下文' }).click()
     await manage.getByText('已压缩 4 条消息').waitFor()
+    await manage.locator('.yy-ai-compaction summary').click()
+    await manage.getByText('已压缩的历史重点', { exact: true }).waitFor()
     await manage.getByRole('button', { name: '关闭' }).click()
     expect(await page.getByText('只保留在原始记录的标记', { exact: true }).count()).toBe(1)
     await page.getByRole('button', { name: '智能体', exact: true }).click()
@@ -993,6 +1302,15 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     expect(await page.evaluate('window.__desktopAi.archive.conversations.length')).toBe(2)
     await page.evaluate('window.__desktopAi.reload()')
     await page.getByRole('heading', { name: '智能体结论' }).waitFor()
+    expect(await effort.textContent()).toBe('思考 · 最高')
+    const exchange = page.locator('.yy-ai-messages .yy-ai-exchange').last()
+    const agentThoughts = exchange.locator('.yy-ai-reasoning')
+    expect(await agentThoughts.count()).toBe(2)
+    await agentThoughts.first().locator('summary').click()
+    await agentThoughts.last().locator('summary').click()
+    expect(await agentThoughts.locator('p').allTextContents()).toEqual(['先读取材料。', '复核工具结果。'])
+    expect(await exchange.locator('.yy-ai-trace > *').evaluateAll(nodes => nodes.map(node => node.matches('details') ? '思考' : node.querySelector('strong')?.textContent)))
+      .toEqual(['思考', '更新执行计划'])
     await chats.click()
     await manage.getByRole('button', { name: '删除 检查连续提交' }).click()
     await manage.getByRole('button', { name: '确认删除' }).click()
@@ -1022,6 +1340,80 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     expect(shortened).toContain('保留的问题 2')
     expect(shortened).not.toContain('需要自动压缩的旧段')
   }, 20000)
+
+  it('智能体逐轮等待批准，越界工具被审核拒绝，拒绝和取消会停止', async () => {
+    await mountTestHarness()
+    await page.evaluate(String.raw`(async () => {
+      const { mockIPC } = await import('/node_modules/@tauri-apps/api/mocks.js')
+      const { Writing } = await import('/src/ai.ts')
+      const { shell, editor } = window.__test
+      const observed = window.__agentApprovals = []
+      mockIPC(async (command, data) => {
+        if (command === 'ai_settings') return {
+          providers: [{ id: 'fixture', name: '测试服务', endpoint: 'https://agent.example.test/v1', protocol: 'chat', models: ['write'], hasKey: false }],
+          active: { providerId: 'fixture', model: 'write' },
+        }
+        if (command !== 'ai_agent_turn') return null
+        const { request, event } = data
+        observed.push(structuredClone(request))
+        window.__TAURI_INTERNALS__.runCallback(event.id, { index: 0, end: true })
+        const read = (id, document) => ({ id, name: 'read_document', arguments: JSON.stringify({ document, start_line: 3, end_line: 3 }) })
+        if (request.history.length) await new Promise(resolve => { window.__finishApprovedAgent = resolve })
+        return request.history.length
+          ? { text: '已读取批准的片段。', calls: [], output: [] }
+          : { text: '', calls: [read('valid', 1), read('outside', 99)], output: [] }
+      })
+      const writing = new Writing(view => shell.setAI(view))
+      window.__test.dispatch = async action => {
+        if (action.type === 'ai-agent-approval-mode') writing.setAgentApprovalMode(action.mode)
+        if (action.type === 'ai-agent-approval') writing.decideAgentApproval(action.id, action.allow)
+        if (action.type === 'ai-context') writing.preview(action.scope, editor, 1, 1, '审批样稿.md')
+        if (action.type === 'ai-send') await writing.send(action.intent, action.prompt, editor, 1, 1, { agent: action.agent })
+        if (action.type === 'ai-retry') await writing.retry()
+        if (action.type === 'ai-cancel') await writing.cancel()
+      }
+      await writing.load()
+    })()`)
+    await page.locator('[data-toggle="ai"]').click()
+    await page.getByRole('button', { name: '智能体', exact: true }).click()
+    const mode = page.getByRole('combobox', { name: '工具审批方式' })
+    expect(await mode.textContent()).toBe('自动审核')
+    await mode.click()
+    await page.getByRole('option', { name: '请求批准' }).click()
+    await expect.poll(() => mode.textContent()).toBe('请求批准')
+    await page.getByRole('combobox', { name: '添加上下文' }).click()
+    await page.getByRole('option', { name: '全文' }).click()
+    const request = page.getByRole('region', { name: '智能体工具审批' })
+    const send = page.getByRole('button', { name: '发送', exact: true })
+    const input = page.getByLabel('AI 指令输入')
+    await input.fill('读取第一段正文')
+    await send.click()
+    await request.getByText('审批样稿.md · 第 3–3 行').waitFor()
+    expect(await request.locator('li').count()).toBe(1)
+    expect(await page.evaluate('window.__agentApprovals.length')).toBe(1)
+    expect(await page.evaluate('JSON.stringify(window.__agentApprovals)')).not.toContain('第一段正文。')
+    await request.getByRole('button', { name: '批准本轮' }).click()
+    const liveTrace = page.getByRole('log', { name: '本轮智能体活动' })
+    await liveTrace.getByText('读取文档片段', { exact: true }).first().waitFor()
+    expect(await page.getByText('已读取批准的片段。', { exact: true }).count()).toBe(0)
+    await page.evaluate('window.__finishApprovedAgent()')
+    await page.getByText('已读取批准的片段。', { exact: true }).waitFor()
+    const results = await page.evaluate('window.__agentApprovals[1].history[0].results') as { id: string; error: boolean; content: string }[]
+    expect(results).toMatchObject([{ id: 'valid', error: false }, { id: 'outside', error: true }])
+    expect(results[0].content).toContain('第一段正文。')
+
+    await input.fill('再读一遍')
+    await send.click()
+    await request.getByRole('button', { name: '拒绝本轮' }).click()
+    await page.getByText('已拒绝本轮工具请求，智能体已停止').waitFor()
+    expect(await page.evaluate('window.__agentApprovals.length')).toBe(3)
+    await page.getByRole('button', { name: '重试上次请求' }).click()
+    await request.waitFor()
+    await page.getByRole('button', { name: '取消生成' }).click()
+    await page.getByText('智能体已取消', { exact: true }).waitFor()
+    expect(await request.isVisible()).toBe(false)
+    expect(await page.evaluate('window.__agentApprovals.length')).toBe(4)
+  }, 12000)
 
   it('提取待办只显示本轮核对过的事项，普通和智能体模式共用校验', async () => {
     await mountTestHarness()
@@ -1137,9 +1529,9 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     const modelDialog = page.getByRole('dialog', { name: '模型配置' })
     await page.getByRole('button', { name: '模型配置', exact: true }).click()
     const protocols = modelDialog.getByRole('combobox', { name: 'API 协议' })
-    expect(await modelDialog.locator('select').count()).toBe(0)
+    expect(await protocols.evaluate(node => node.tagName)).toBe('BUTTON')
     await protocols.press('ArrowDown')
-    expect(await page.getByRole('option').count()).toBe(3)
+    expect(await page.getByRole('listbox', { name: 'API 协议' }).getByRole('option').count()).toBe(3)
     await protocols.press('Escape')
     expect(await modelDialog.isVisible()).toBe(true)
     expect(await protocols.getAttribute('aria-expanded')).toBe('false')
@@ -1206,7 +1598,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       })
     }, { text: fullContextText, settings })
 
-    expect(await page.locator('.yy-context-fulltext').textContent()).toBe(fullContextText)
+    expect(await page.getByLabel('上下文全文预览').textContent()).toBe(fullContextText)
     expect(await page.getByRole('combobox', { name: '切换模型' }).isEnabled()).toBe(false)
 
     // Cancel while pending
@@ -1493,7 +1885,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
           }
           if (cmd === 'visit_link' || cmd === 'android_open_update') updateOps.push('打开浏览器')
           if (cmd === 'ai_settings') return { providers: [], active: null }
-          if (cmd === 'ai_list_models') { modelRequests.push(payload.request); return ['local-edit'] }
+          if (cmd === 'ai_list_models') { modelRequests.push(payload.request); return [{ id: 'local-edit', metadata: {} }] }
           if (cmd === 'plugin_list') return installed
           if (cmd === 'plugin_market_list') return payload.source ? { name: '页屿插件市场', source: payload.source, plugins: [] } : builtins()
           if (cmd === 'plugin_market_install' && payload.source === null && payload.id === bundled.id && payload.sha256 === bundled.sha256) {
@@ -1626,6 +2018,90 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     }
   }, 15000)
 
+  it('Android 按斜杠选用内置技能，导入 SKILL.md 后重启仍可使用', async () => {
+    const phone = await browser.newPage({ viewport: { width: 390, height: 760 }, isMobile: true, hasTouch: true })
+    phone.setDefaultTimeout(5000)
+    try {
+      await phone.addInitScript(() => {
+        const native = window as unknown as Record<string, any>
+        const note = 'content://qa/document/notes'
+        const skill = 'content://qa/skill/SKILL.md'
+        const requests: { role: string; text: string }[][] = []
+        const channels = new Map<number, (frame: unknown) => void>()
+        let callback = 0
+        native.__skillRequests = requests
+        native.__TAURI_INTERNALS__ = {
+          transformCallback(fn: (frame: unknown) => void) { channels.set(++callback, fn); return callback },
+          unregisterCallback(id: number) { channels.delete(id) },
+          async invoke(cmd: string, payload: any) {
+            if (cmd === 'android_pick') return note
+            if (cmd === 'android_pick_many') return [skill]
+            if (cmd === 'android_read') return payload.uri === skill
+              ? { uri: skill, name: 'SKILL.md', text: '\uFEFF---\r\nname: release-review\r\ndescription: >\r\n  核对发布稿的事实\r\n  和验收记录。\r\n---\r\n只能使用已经确认的发布编号。\r\n', bom: true, version: '1', writable: false }
+              : { uri: note, name: '会议材料.md', text: '# 会议材料\n\n决定从下周开始试行。', bom: false, version: '1', writable: true }
+            if (cmd === 'android_load_session') return JSON.parse(localStorage.getItem('skill-session') ?? 'null')
+            if (cmd === 'android_save_session') localStorage.setItem('skill-session', JSON.stringify(payload.session))
+            if (cmd === 'ai_settings') return {
+              providers: [{ id: 'fixture', name: '写作模型', endpoint: 'https://agent.example.test/v1', protocol: 'chat', models: ['write'], hasKey: false }],
+              active: { providerId: 'fixture', model: 'write' },
+            }
+            if (cmd === 'ai_stream') {
+              requests.push(structuredClone(payload.messages))
+              const send = channels.get(payload.event.id)
+              send?.({ index: 0, message: { kind: 'delta', text: '已整理材料。' } })
+              send?.({ index: 1, message: { kind: 'done' } })
+              send?.({ index: 2, end: true })
+            }
+            return null
+          },
+        }
+      })
+      const openAi = async () => {
+        await phone.getByRole('button', { name: '打开文件', exact: true }).tap()
+        await phone.getByRole('heading', { name: '会议材料.md' }).waitFor()
+        await phone.getByRole('button', { name: '更多操作' }).tap()
+        await phone.getByRole('button', { name: 'AI 写作', exact: true }).tap()
+        await phone.getByRole('combobox', { name: '切换模型' }).waitFor()
+      }
+      const writing = phone.getByRole('region', { name: 'AI 写作助手' })
+      const input = writing.getByLabel('AI 指令输入')
+      const library = phone.getByRole('region', { name: '写作技能' })
+      await phone.goto(baseUrl + '/mobile.html')
+      await openAi()
+      await input.fill('/skills')
+      await phone.getByRole('option', { name: /\/skills.*写作技能/ }).tap()
+      expect(await library.locator('.yy-ai-skill-row').count()).toBe(4)
+      await library.getByRole('button', { name: '使用 会议纪要' }).tap()
+      await writing.locator('.yy-ai-skill-chip').getByText('会议纪要').waitFor()
+      expect(await phone.evaluate('window.__skillRequests.length')).toBe(0)
+      await writing.getByRole('combobox', { name: '添加上下文' }).tap()
+      await phone.getByRole('option', { name: '全文' }).tap()
+      await writing.getByRole('button', { name: '发送', exact: true }).tap()
+      await writing.getByText('已整理材料。', { exact: true }).waitFor()
+      expect(await phone.evaluate('window.__skillRequests[0][0].text')).toContain('合并同一议题的讨论')
+      expect(await writing.locator('.yy-ai-skill-chip').isVisible()).toBe(false)
+
+      await writing.getByRole('button', { name: '写作技能' }).tap()
+      await library.getByRole('button', { name: '导入 SKILL.md' }).tap()
+      await library.getByText('核对发布稿的事实 和验收记录。').waitFor()
+      const saved = await phone.evaluate('JSON.parse(localStorage.getItem("skill-session")).services.aiSkills[0]')
+      expect(saved).toMatchObject({ name: 'release-review', instructions: '只能使用已经确认的发布编号。' })
+
+      await phone.reload()
+      await openAi()
+      await input.fill('/skill release-review')
+      await input.press('Enter')
+      await writing.locator('.yy-ai-skill-chip').getByText('release-review').waitFor()
+      await input.fill('核对这次发布')
+      await writing.getByRole('button', { name: '发送', exact: true }).tap()
+      await writing.getByText('已整理材料。', { exact: true }).waitFor()
+      expect(await phone.evaluate('window.__skillRequests[0][0].text')).toContain('只能使用已经确认的发布编号。')
+      expect(await phone.evaluate('window.__skillRequests[0].at(-1).text')).toContain('核对这次发布')
+    } finally {
+      await phone.close()
+    }
+  }, 16000)
+
   it('Android 智能体多轮读取授权文档，审阅后才写入，可取消和重试', async () => {
     const phone = await browser.newPage({ viewport: { width: 390, height: 760 }, isMobile: true, hasTouch: true })
     phone.setDefaultTimeout(5000)
@@ -1678,8 +2154,8 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
               call('read2', 'read_document', { document: 1, start_line: 7, end_line: 7 }),
             ])
             if (request.history.length === 2) return respond('', [
-              call('edit1', 'propose_edit', { start_line: 3, end_line: 3, markdown: '第一处建议。' }),
-              call('edit2', 'propose_edit', { start_line: 7, end_line: 7, markdown: '第二处建议。' }),
+              call('edit1', 'propose_edit', { start_line: 3, end_line: 3, markdown: '第一处建议。\r\n' }),
+              call('edit2', 'propose_edit', { start_line: 7, end_line: 7, markdown: '第二处建议。\n' }),
             ])
             return respond('已提出**两处修改**')
           },
@@ -1708,9 +2184,9 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       })
       expect(await dimensions(send)).toEqual([44, 44])
       await send.tap()
-      await writing.getByText('智能体已完成', { exact: true }).waitFor()
+      await writing.getByText('两处修改', { exact: true }).waitFor()
       expect(await writing.locator('.yy-ai-messages .yy-markdown-content strong').textContent()).toBe('两处修改')
-      expect(await writing.getByRole('list', { name: '智能体步骤' }).getByRole('listitem').count()).toBe(7)
+      expect(await writing.locator('.yy-ai-messages .yy-ai-trace-tool').count()).toBe(7)
       const diff = writing.getByRole('region', { name: '差异审阅建议' })
       expect(await diff.locator('[data-hunk]').count()).toBe(2)
       const requests = await phone.evaluate('window.__agentFixture.requests') as {

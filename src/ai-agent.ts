@@ -1,11 +1,11 @@
 import { parser } from '@lezer/markdown'
-import type { AiAgentPlanItem, AiAgentStep, AiSelection } from './contracts'
+import type { AiAgentApproval, AiAgentPlanItem, AiAgentStep, AiInputFile, AiSelection, AiUsage } from './contracts'
 import { frontMatter } from './editor/front-matter'
 import { Channel, invoke } from './native'
 import type { StreamEvent } from './native'
 
 export type AgentDocument = { name: string; text: string }
-export type AgentMessage = { role: 'system' | 'user' | 'assistant'; text: string }
+export type AgentMessage = { role: 'system' | 'user' | 'assistant'; text: string; files?: AiInputFile[] }
 export type AgentInput = {
   id: string
   sessionId: string
@@ -17,17 +17,18 @@ export type AgentInput = {
 
 type Arguments = Record<string, unknown>
 type ToolCall = { id: string; name: string; arguments: string }
-type Turn = { text: string; calls: ToolCall[]; output: unknown[] }
+type Turn = { text: string; calls: ToolCall[]; output: unknown[]; usage?: AiUsage }
 type ToolResult = { id: string; content: string; error: boolean }
 type Exchange = { output: unknown[]; results: ToolResult[] }
 type Change = { from: number; to: number; text: string }
-type Result = { value: object; detail: string }
+type Result = { value: object; detail: string; plan?: AiAgentPlanItem[] }
+type Prepared = { detail: string; markdown?: string; run: () => Result }
 type Tool = {
   title: string
   name: string
   description: string
   schema: object
-  run: (args: Arguments) => Result
+  prepare: (args: Arguments) => Prepared
 }
 
 const lineNumber = { type: 'integer', minimum: 1 }
@@ -57,8 +58,8 @@ function lineRange(args: Arguments, count: number, limit: number) {
   return { start, end }
 }
 
-function define(name: string, title: string, description: string, properties: Record<string, object>, run: Tool['run']): Tool {
-  return { name, title, description, schema: { type: 'object', properties, required: Object.keys(properties), additionalProperties: false }, run }
+function define(name: string, title: string, description: string, properties: Record<string, object>, prepare: Tool['prepare']): Tool {
+  return { name, title, description, schema: { type: 'object', properties, required: Object.keys(properties), additionalProperties: false }, prepare }
 }
 
 function agentSources(documents: { name: string; starts: number[] }[], target: AgentInput['target']) {
@@ -71,7 +72,7 @@ function agentSources(documents: { name: string; starts: number[] }[], target: A
   ].join('\n')
 }
 
-function workspace(documents: AgentDocument[], target: AgentInput['target'], updatePlan: (plan: AiAgentPlanItem[]) => void) {
+function workspace(documents: AgentDocument[], target: AgentInput['target']) {
   // 工具查询已预览的快照，编号不能解析为文件路径或重新读取磁盘。
   const sources = documents.map(({ name, text }) => ({ name, text, starts: lines(text) }))
   const changes: Change[] = []
@@ -88,8 +89,8 @@ function workspace(documents: AgentDocument[], target: AgentInput['target'], upd
       }
       return { step: value.step.trim().slice(0, 160), status: value.status }
     })
-    updatePlan(items)
-    return { value: { updated: true }, detail: items.length + ' 个计划步骤' }
+    return { detail: items.map(item => item.step).join(' · '),
+      run: () => ({ value: { updated: true }, detail: items.length + ' 个计划步骤', plan: items }) }
   })]
   const get = (index: unknown) => {
     const item = typeof index === 'number' && Number.isSafeInteger(index) ? sources[index - 1] : null
@@ -101,18 +102,20 @@ function workspace(documents: AgentDocument[], target: AgentInput['target'], upd
       const query = typeof args.query === 'string' ? args.query.trim() : ''
       if (!query || query.length > 160) throw new Error('请输入 1 到 160 个字符的关键词')
       const keyword = query.toLowerCase()
-      const matches: { document: number; line: number; excerpt: string }[] = []
-      for (const [i, source] of sources.entries()) {
-        for (const [j, start] of source.starts.entries()) {
-          const value = source.text.slice(start, lineEnd(source.text, source.starts, j + 1))
-          const at = value.toLowerCase().indexOf(keyword)
-          if (at < 0) continue
-          if (matches.length === 16) return { value: { matches, truncated: true }, detail: '「' + query + '」至少匹配 16 行' }
-          const excerptFrom = Math.max(0, at - 60)
-          matches.push({ document: i + 1, line: j + 1, excerpt: value.slice(excerptFrom, excerptFrom + 260).trim() })
+      return { detail: '在已选文档中查找「' + query + '」', run() {
+        const matches: { document: number; line: number; excerpt: string }[] = []
+        for (const [i, source] of sources.entries()) {
+          for (const [j, start] of source.starts.entries()) {
+            const value = source.text.slice(start, lineEnd(source.text, source.starts, j + 1))
+            const at = value.toLowerCase().indexOf(keyword)
+            if (at < 0) continue
+            if (matches.length === 16) return { value: { matches, truncated: true }, detail: '「' + query + '」至少匹配 16 行' }
+            const excerptFrom = Math.max(0, at - 60)
+            matches.push({ document: i + 1, line: j + 1, excerpt: value.slice(excerptFrom, excerptFrom + 260).trim() })
+          }
         }
-      }
-      return { value: { matches }, detail: '「' + query + '」匹配 ' + matches.length + ' 行' }
+        return { value: { matches }, detail: '「' + query + '」匹配 ' + matches.length + ' 行' }
+      } }
     }),
     define('read_document', '读取文档片段', '按行读取一个已确认的文档。行号含首尾，从 1 开始，一次最多 80 行。', {
       document: lineNumber, start_line: lineNumber, end_line: lineNumber,
@@ -121,58 +124,66 @@ function workspace(documents: AgentDocument[], target: AgentInput['target'], upd
       const { start, end } = lineRange(args, source.starts.length, 80)
       const from = source.starts[start - 1]
       const to = lineEnd(source.text, source.starts, end)
-      return {
+      const detail = source.name + ' · 第 ' + start + '–' + end + ' 行'
+      return { detail, run: () => ({
         value: { document: args.document, start_line: start, end_line: end, total_lines: source.starts.length,
           markdown: source.text.slice(from, Math.min(to, from + 9000)), truncated: to - from > 9000 },
-        detail: source.name + ' · 第 ' + start + '–' + end + ' 行',
-      }
+        detail,
+      }) }
     }),
     define('document_outline', '查看文档大纲', '列出一个已确认的 Markdown 文档的标题、层级和行号。', { document: lineNumber }, args => {
       const source = get(args.document)
-      const headings: { line: number; level: number; title: string }[] = []
-      let line = 0
-      const normalized = source.text.replace(/\r\n?/g, '\n')
-      const normalStarts = lines(normalized)
-      const metadata = frontMatter(normalized)?.[0].length ?? 0
-      parser.parse(normalized).iterate({
-        enter(node) {
-          // 语法树使用正规化行尾，下面用同一文本的行位置定位标题。
-          const level = /^(?:ATX|Setext)Heading([1-6])$/.exec(node.name)
-          if (!level || node.from < metadata || headings.length >= 120) return
-          while (line + 1 < source.starts.length && normalStarts[line + 1] <= node.from) line++
-          const from = source.starts[line]
-          const title = source.text.slice(from, lineEnd(source.text, source.starts, line + 1))
-            .replace(/^\s*#{1,6}\s+|\s+#+\s*$/g, '').trim().slice(0, 240)
-          headings.push({ line: line + 1, level: Number(level[1]), title })
-        },
-      })
-      return { value: { total_lines: source.starts.length, headings, truncated: headings.length === 120 }, detail: source.name + ' · ' + headings.length + ' 个标题' }
+      return { detail: source.name, run() {
+        const headings: { line: number; level: number; title: string }[] = []
+        let line = 0
+        const normalized = source.text.replace(/\r\n?/g, '\n')
+        const normalStarts = lines(normalized)
+        const metadata = frontMatter(normalized)?.[0].length ?? 0
+        parser.parse(normalized).iterate({
+          enter(node) {
+            // 语法树使用正规化行尾，下面用同一文本的行位置定位标题。
+            const level = /^(?:ATX|Setext)Heading([1-6])$/.exec(node.name)
+            if (!level || node.from < metadata || headings.length >= 120) return
+            while (line + 1 < source.starts.length && normalStarts[line + 1] <= node.from) line++
+            const from = source.starts[line]
+            const title = source.text.slice(from, lineEnd(source.text, source.starts, line + 1))
+              .replace(/^\s*#{1,6}\s+|\s+#+\s*$/g, '').trim().slice(0, 240)
+            headings.push({ line: line + 1, level: Number(level[1]), title })
+          },
+        })
+        return { value: { total_lines: source.starts.length, headings, truncated: headings.length === 120 }, detail: source.name + ' · ' + headings.length + ' 个标题' }
+      } }
     }),
   )
 
   if (target) {
     const starts = lines(target.text)
-    const propose = (args: Arguments, from: number, to: number) => {
-      if (typeof args.markdown !== 'string' || args.markdown.length > 24000) throw new Error('单段建议最多 24000 个字符')
-      const same = changes.find(change => change.from === from && change.to === to)
-      if (changes.some(change => change !== same && change.from <= to && from <= change.to)) {
-        throw new Error('建议与先前的行范围重叠，请合并成同一个范围')
-      }
+    const propose = ({ markdown }: Arguments, from: number, to: number, detail: string): Prepared => {
+      if (typeof markdown !== 'string' || markdown.length > 24000) throw new Error('单段建议最多 24000 个字符')
       const original = target.text.slice(from, to)
       const eol = original.match(/\r\n|[\r\n]/)?.[0] ?? target.eol
-      const text = args.markdown.replace(/\r\n|[\r\n]/g, eol)
-      if (same) same.text = text
-      else changes.push({ from, to, text })
-      return { value: { accepted_for_review: true, changed: original !== text }, detail: original === text ? '内容与原文一致' : '已加入差异审阅' }
+      let text = markdown.replace(/\r\n|[\r\n]/g, eol)
+      // 按行替换保留原文行尾，模型附带的一个末尾换行不能在相邻行之间增加空段。
+      if (!target.insert && /[\r\n]/.test(target.text.charAt(to)) && text.endsWith(eol)) text = text.slice(0, -eol.length)
+      return { detail, markdown: text, run() {
+        const same = changes.find(change => change.from === from && change.to === to)
+        if (changes.some(change => change !== same && change.from <= to && from <= change.to)) {
+          throw new Error('建议与先前的行范围重叠，请合并成同一个范围')
+        }
+        if (same) same.text = text
+        else changes.push({ from, to, text })
+        return { value: { accepted_for_review: true, changed: original !== text },
+          detail: original === text ? '内容与原文一致' : detail + ' · 已加入差异审阅' }
+      } }
     }
     tools.push(target.insert
-      ? define('propose_insert', '提出插入建议', '提出在当前编辑器光标插入完整 Markdown，等用户审阅后应用。', { markdown: text }, args => propose(args, 0, 0))
-      : define('propose_edit', '提出修改建议', '替换文档 1 内指定行的 Markdown，等用户审阅后应用。首尾均包含，行号从 1 开始。', {
+      ? define('propose_insert', '提出插入建议', '提出在当前编辑器光标插入完整 Markdown，等用户审阅后应用。', { markdown: text },
+        args => propose(args, 0, 0, '编辑器原光标位置'))
+      : define('propose_edit', '提出修改建议', '替换文档 1 内指定行的 Markdown，等用户审阅后应用。首尾均包含，行号从 1 开始。编辑器保留被替换范围之外的原有换行。', {
         start_line: lineNumber, end_line: lineNumber, markdown: text,
       }, args => {
         const { start, end } = lineRange(args, starts.length, starts.length)
-        const result = propose(args, starts[start - 1], lineEnd(target.text, starts, end))
-        return { ...result, detail: '第 ' + start + '–' + end + ' 行 · ' + result.detail }
+        return propose(args, starts[start - 1], lineEnd(target.text, starts, end), '已选范围内第 ' + start + '–' + end + ' 行')
       }))
   }
 
@@ -190,14 +201,16 @@ function workspace(documents: AgentDocument[], target: AgentInput['target'], upd
 }
 
 export async function runAgent(input: AgentInput, callbacks: {
-  signal: AbortSignal; round: (round: number) => void; delta: (text: string) => void; step: (step: AiAgentStep) => void;
-  plan: (plan: AiAgentPlanItem[]) => void
+  signal: AbortSignal; round: (round: number) => void; delta: (text: string) => void; reasoning: (text: string) => void;
+  step: (step: AiAgentStep) => void;
+  approve?: (request: AiAgentApproval) => Promise<boolean>
 }) {
-  const { tools, replacement, context } = workspace(input.documents, input.target, callbacks.plan)
+  const { tools, replacement, context } = workspace(input.documents, input.target)
   const messages = input.messages.map((message, i) =>
     i === input.messages.length - 1 ? { ...message, text: context + '\n\n' + message.text } : message)
   const definitions = tools.map(({ name, description, schema }) => ({ name, description, schema }))
   const history: Exchange[] = []
+  const usage: AiUsage[] = []
   let calls = 0
   for (let round = 1; round <= MAX_ROUNDS; round++) {
     callbacks.signal.throwIfAborted()
@@ -205,32 +218,52 @@ export async function runAgent(input: AgentInput, callbacks: {
     const event = new Channel<StreamEvent>()
     let accepting = true
     event.onmessage = item => {
-      if (accepting && !callbacks.signal.aborted && item.kind === 'delta') callbacks.delta(item.text)
+      if (!accepting || callbacks.signal.aborted) return
+      if (item.kind === 'delta') callbacks.delta(item.text)
+      if (item.kind === 'reasoning') callbacks.reasoning(item.text)
     }
     const reply = await invoke<Turn | null>('ai_agent_turn', {
       request: { id: input.id, sessionId: input.sessionId, selection: input.selection, messages, history, tools: definitions }, event,
     }).finally(() => { accepting = false })
     callbacks.signal.throwIfAborted()
     if (!reply) throw new DOMException('已取消生成', 'AbortError')
-    if (!reply.calls.length) return { text: reply.text, proposal: replacement() }
+    if (reply.usage) usage.push(reply.usage)
+    if (!reply.calls.length) return { text: reply.text, proposal: replacement(), usage }
     calls += reply.calls.length
     if (calls > MAX_CALLS || round === MAX_ROUNDS) throw new Error('已达到智能体的步骤上限，请缩小任务范围')
-    const results: ToolResult[] = []
     if (new Set(reply.calls.map(call => call.id)).size !== reply.calls.length) throw new Error('模型重复使用了工具调用编号')
-    for (const call of reply.calls) {
-      callbacks.signal.throwIfAborted()
+    // 两种模式都先检验工具、参数和文档范围。审批只允许已经通过检查的操作进入执行阶段。
+    const prepared = reply.calls.map(call => {
       const tool = tools.find(item => item.name === call.name)
+      const title = tool?.title ?? '文档工具'
       try {
         if (!tool) throw new Error('该工具不在本次授权范围内')
         const args: unknown = JSON.parse(call.arguments || '{}')
         if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('工具参数应是一个对象')
-        const result = tool.run(args as Arguments)
-        results.push({ id: call.id, content: JSON.stringify(result.value), error: false })
-        callbacks.step({ title: tool.title, detail: result.detail })
+        return { id: call.id, title, operation: tool.prepare(args as Arguments) }
       } catch (error) {
-        const message = error instanceof SyntaxError ? '工具参数不是有效的 JSON' : (error as Error).message
-        results.push({ id: call.id, content: JSON.stringify({ error: message }), error: true })
-        callbacks.step({ title: tool?.title ?? '文档工具', detail: message, failed: true })
+        return { id: call.id, title, error: error instanceof SyntaxError ? '工具参数不是有效的 JSON' : (error as Error).message }
+      }
+    })
+    if (callbacks.approve) {
+      const tools = prepared.flatMap(({ title, operation }) => operation ? [{ title, detail: operation.detail, markdown: operation.markdown }] : [])
+      if (tools.length && !await callbacks.approve({ id: crypto.randomUUID(), round, tools })) {
+        callbacks.signal.throwIfAborted()
+        throw new Error('已拒绝本轮工具请求，智能体已停止')
+      }
+    }
+    const results: ToolResult[] = []
+    for (const { id, title, operation, error } of prepared) {
+      callbacks.signal.throwIfAborted()
+      try {
+        if (!operation) throw new Error(error)
+        const result = operation.run()
+        results.push({ id, content: JSON.stringify(result.value), error: false })
+        callbacks.step({ title, detail: result.detail, plan: result.plan })
+      } catch (error) {
+        const message = (error as Error).message
+        results.push({ id, content: JSON.stringify({ error: message }), error: true })
+        callbacks.step({ title, detail: message, failed: true })
       }
     }
     history.push({ output: reply.output, results })

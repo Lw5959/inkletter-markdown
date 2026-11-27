@@ -1,6 +1,6 @@
 use super::{
-    Event, Jobs, Message, Protocol, config, model_event, model_messages, stream_request,
-    stream_response, system_messages,
+    Event, Jobs, Message, Protocol, attachments, cache, config, model_event, model_messages,
+    models, reasoning, stream_request, stream_response, system_messages,
 };
 use crate::store::{Store, err};
 use config::{Models, Selection, Target};
@@ -88,6 +88,8 @@ pub struct Reply {
     text: String,
     calls: Vec<Call>,
     output: Vec<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    usage: Option<cache::Usage>,
 }
 
 fn request_body(
@@ -135,6 +137,7 @@ fn request_body(
     if !tools.is_empty() {
         body["tools"] = json!(tools);
     }
+    reasoning::request_options(&mut body, settings);
     body
 }
 
@@ -364,6 +367,7 @@ impl Collected {
             text,
             calls,
             output,
+            usage: None,
         })
     }
 }
@@ -377,18 +381,21 @@ async fn turn(
     channel: &Channel<Event>,
 ) -> Result<Reply, String> {
     let protocol = settings.protocol;
-    let body = request_body(
+    let expect_usage = cache::requests_usage(&endpoint, protocol);
+    attachments::validate(&request.messages, &settings)?;
+    let mut body = request_body(
         &settings,
         &request.messages,
         &request.tools,
         &request.history,
     );
+    models::apply_limits(&mut body, &settings)?;
     let request = stream_request(
         http,
         endpoint,
         protocol,
         key.as_deref(),
-        &body,
+        body,
         &request.session_id,
     )?
     .timeout(Duration::from_secs(120));
@@ -396,6 +403,7 @@ async fn turn(
     let mut events = response.bytes_stream().eventsource();
     let mut collected = Collected::default();
     let mut bytes = 0;
+    let mut usage = None;
     while let Some(frame) = events.next().await {
         let frame = frame.map_err(err)?;
         bytes += frame.data.len();
@@ -408,10 +416,10 @@ async fn turn(
         }
         let data: Value =
             serde_json::from_str(&frame.data).map_err(|_| "供应商返回了无法识别的流式数据")?;
-        if let Some(text) = collected
-            .frame(protocol, &frame.event, &data)?
-            .filter(|text| !text.is_empty())
-        {
+        let delta = collected.frame(protocol, &frame.event, &data)?;
+        usage = cache::usage(protocol, &data).or(usage);
+        reasoning::emit(channel, protocol, &frame.event, &data)?;
+        if let Some(text) = delta.filter(|text| !text.is_empty()) {
             channel
                 .send(Event::Delta {
                     text: text.to_owned(),
@@ -419,10 +427,17 @@ async fn turn(
                 .map_err(err)?;
         }
         if collected.complete {
+            if protocol == Protocol::Chat
+                && usage.is_none()
+                && (expect_usage || data.get("usage").is_some())
+            {
+                usage = cache::chat_tail(&mut events).await;
+            }
             break;
         }
     }
-    let reply = collected.finish(protocol)?;
+    let mut reply = collected.finish(protocol)?;
+    reply.usage = usage;
     Ok(reply)
 }
 
@@ -541,6 +556,7 @@ mod tests {
         use std::{
             io::{BufRead, BufReader, Read, Write},
             net::TcpListener,
+            sync::{Arc, Mutex},
         };
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let endpoint = Url::parse(&format!(
@@ -554,7 +570,8 @@ mod tests {
                     json!({"choices":[{"delta":{"reasoning_content":"fixture-reasoning"}}]}),
                     json!({"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","function":{"name":"read_document","arguments":"{\"document\":"}}]}}]}),
                     json!({"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"1}"}}]}}]}),
-                    json!({"choices":[{"delta":{},"finish_reason":"tool_calls"}]}),
+                    json!({"choices":[{"delta":{},"finish_reason":"tool_calls"}],"usage":null}),
+                    json!({"choices":[],"usage":{"prompt_tokens":900,"prompt_tokens_details":{"cached_tokens":640}}}),
                 ],
                 vec![json!({"choices":[{"delta":{"content":"已读取"},"finish_reason":"stop"}]})],
             ];
@@ -579,6 +596,8 @@ mod tests {
                 reader.read_exact(&mut bytes).unwrap();
                 let body: Value = serde_json::from_slice(&bytes).unwrap();
                 assert_eq!(body["tools"][0]["function"]["name"], "read_document");
+                assert_eq!(body["reasoning_effort"], "high");
+                assert_eq!(body["max_tokens"], 2048);
                 if round == 1 {
                     assert_eq!(
                         body["messages"][2]["reasoning_content"],
@@ -595,10 +614,17 @@ mod tests {
             }
         });
         let http = Client::builder().no_proxy().build().unwrap();
-        let channel = Channel::new(|_| Ok(()));
+        let events = Arc::new(Mutex::new(Vec::<Value>::new()));
+        let received = Arc::clone(&events);
+        let channel = Channel::new(move |body| {
+            received.lock().unwrap().push(body.deserialize().unwrap());
+            Ok(())
+        });
         let settings = || Target {
             protocol: Protocol::Chat,
             model: "test-model".into(),
+            reasoning_effort: Some(reasoning::Effort::High),
+            output_tokens: Some(2048),
             ..Default::default()
         };
         let reply = turn(
@@ -612,6 +638,10 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(reply.calls[0].arguments, "{\"document\":1}");
+        assert_eq!(
+            serde_json::to_value(reply.usage).unwrap(),
+            json!({"inputTokens":900,"cachedTokens":640})
+        );
         let mut follow = request();
         follow.history.push(exchange(reply));
         let reply = turn(&http, endpoint, settings(), None, follow, &channel)
@@ -619,6 +649,13 @@ mod tests {
             .unwrap();
         assert_eq!(reply.text, "已读取");
         assert!(reply.calls.is_empty());
+        assert_eq!(
+            *events.lock().unwrap(),
+            [
+                json!({"kind":"reasoning","text":"fixture-reasoning"}),
+                json!({"kind":"delta","text":"已读取"})
+            ]
+        );
         server.join().unwrap();
     }
 }
