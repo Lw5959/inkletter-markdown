@@ -47,6 +47,7 @@ type MenuCommand =
   | {
       kind: 'item'
       label: string
+      location?: string
       shortcutId?: ShortcutCommandId
       checked?: boolean
       disabled?: boolean
@@ -63,6 +64,7 @@ export interface MenuBarContext {
   dispatch: (action: ShellAction) => void
   shortcuts: ShortcutRegistry
   getState: () => ShellState
+  loadRecentFiles: () => Promise<readonly string[]>
   getThemes: () => { themes: Theme[]; local: Theme[]; active: string }
   getImageMode: () => ImageMode
   setImageMode: (mode: ImageMode) => void
@@ -102,6 +104,9 @@ export class MenuBar {
   private liveSubmenuItems: (() => MenuCommand[]) | null = null
   private submenuCloseTimer = 0
   private openMenu: TopMenuKey | null = null
+  private recentFiles: readonly string[] | undefined
+  private recentError = false
+  private recentRequest: Promise<readonly string[]> | undefined
   private docPointerDown: (event: MouseEvent) => void
   private docKeyDown: (event: KeyboardEvent) => void
   private onResize: () => void
@@ -160,7 +165,7 @@ export class MenuBar {
     })
     this.submenu = el('div', {
       className: 'yy-submenu-panel',
-      attrs: { role: 'menu', hidden: '' },
+      attrs: { role: 'menu', hidden: '', tabindex: '-1' },
     })
     // 子菜单独立于可滚动的一级菜单，避免滚动容器裁切展开的内容。
     this.element.append(this.dropdown, this.submenu)
@@ -241,6 +246,7 @@ export class MenuBar {
       return [
         { kind: 'item', label: '新建文档', shortcutId: 'file.new', onSelect: () => this.ctx.dispatch({ type: 'new' }) },
         { kind: 'item', label: '打开文件…', shortcutId: 'file.open', onSelect: () => this.ctx.dispatch({ type: 'open' }) },
+        { kind: 'submenu', label: '最近打开', items: () => this.buildRecentItems() },
         { kind: 'item', label: '打开文件夹…', shortcutId: 'file.openFolder', onSelect: () => this.ctx.dispatch({ type: 'open-folder' }) },
         { kind: 'item', label: '快速打开…', shortcutId: 'nav.quickOpen', onSelect: () => this.ctx.onOpenQuickOpen() },
         { kind: 'item', label: '重新打开最近关闭', onSelect: () => this.ctx.dispatch({ type: 'reopen' }) },
@@ -474,6 +480,37 @@ export class MenuBar {
     ]
   }
 
+  private buildRecentItems(): MenuCommand[] {
+    if (!this.recentFiles?.length) return [{
+      kind: 'heading',
+      label: this.recentError ? '无法读取最近打开的文档' : this.recentFiles ? '暂无最近打开的文档' : '正在读取最近记录…',
+    }]
+    const current = this.ctx.getState().path
+    return this.recentFiles.map(path => {
+      // Windows 路径也可能使用正斜杠，POSIX 文件名里的反斜杠应保留。
+      const nameStart = Math.max(path.lastIndexOf('/'), path.startsWith('/') ? -1 : path.lastIndexOf('\\')) + 1
+      return {
+        kind: 'item',
+        label: path.slice(nameStart),
+        location: path.slice(0, nameStart),
+        icon: path === current ? icons.check : icons.file,
+        onSelect: () => this.ctx.dispatch({ type: 'open-recent', path }),
+      }
+    })
+  }
+
+  private loadRecentFiles() {
+    // 各窗口共用磁盘记录。打开文件菜单时重新读取，并丢弃旧请求的结果。
+    const request = this.recentRequest = this.ctx.loadRecentFiles()
+    const sync = (files?: readonly string[]) => {
+      if (this.recentRequest !== request) return
+      this.recentFiles = files ?? this.recentFiles
+      this.recentError = files === undefined
+      if (this.openMenu === 'file') this.refreshSubmenu()
+    }
+    void request.then(sync, () => sync())
+  }
+
   private buildThemeItems(): MenuCommand[] {
     const { themes, local, active } = this.ctx.getThemes()
     const groups = [
@@ -534,7 +571,8 @@ export class MenuBar {
             event.preventDefault()
             event.stopPropagation()
             this.openSubmenu(btn, entry.items)
-            this.submenu.querySelector<HTMLButtonElement>('.yy-menu-item:not([disabled])')?.focus()
+            const first = this.submenu.querySelector<HTMLButtonElement>('.yy-menu-item:not([disabled])') ?? this.submenu
+            first.focus()
           }
         })
         container.append(btn)
@@ -544,6 +582,7 @@ export class MenuBar {
       const btn = el('button', {
         className: 'yy-menu-item',
         type: 'button',
+        title: entry.location ? entry.location + entry.label : undefined,
         attrs: {
           role: entry.theme ? 'menuitemradio' : entry.checked !== undefined ? 'menuitemcheckbox' : 'menuitem',
           ...(entry.checked !== undefined ? { 'aria-checked': String(entry.checked) } : {}),
@@ -555,7 +594,10 @@ export class MenuBar {
         className: 'yy-menu-check',
         html: entry.checked ? icons.check : entry.icon ?? '',
       })
-      const labelEl = el('span', { className: 'yy-menu-label', text: entry.label })
+      const labelEl = entry.location
+        ? el('span', { className: 'yy-menu-label yy-menu-file' },
+          el('span', { text: entry.label }), el('span', { className: 'yy-menu-file-location', text: entry.location }))
+        : el('span', { className: 'yy-menu-label', text: entry.label })
       btn.append(checkSlot, labelEl)
       if (entry.theme?.swatch) {
         const sample = el('span', {
@@ -628,21 +670,21 @@ export class MenuBar {
     this.positionSubmenu()
   }
 
-  refreshThemeMenu() {
+  refreshSubmenu() {
     if (!this.liveSubmenuItems) return
-    // Typora 主题可能在菜单已打开时才扫描完成，更新后把焦点留在同一项。
+    // 主题和最近记录可能晚于菜单加载。刷新时保留位置和键盘焦点。
     const active = document.activeElement
     const previous = active instanceof HTMLButtonElement && this.submenu.contains(active) ? active : null
     const scroll = this.submenu.scrollTop
     this.renderEntries(this.submenu, this.liveSubmenuItems())
     this.submenu.scrollTop = scroll
-    if (previous) {
+    if (previous || active === this.submenu) {
       const options = [...this.submenu.querySelectorAll<HTMLButtonElement>('button:not([disabled])')]
-      const match = options.find(option => previous.dataset.themeId
+      const match = options.find(option => previous?.dataset.themeId
         ? option.dataset.themeId === previous.dataset.themeId
-        : option.textContent === previous.textContent)
-      const next = match ?? options[0]
-      next?.focus()
+        : option.textContent === previous?.textContent)
+      const next = match ?? options[0] ?? this.submenu
+      next.focus({ preventScroll: next === match })
     }
     this.positionSubmenu()
   }
@@ -719,6 +761,7 @@ export class MenuBar {
   open(key: TopMenuKey, focusFirst = false) {
     this.closeSubmenu()
     this.openMenu = key
+    if (key === 'file') this.loadRecentFiles()
     for (const [menuKey, trigger] of this.triggers) {
       const active = menuKey === key
       trigger.classList.toggle('is-open', active)

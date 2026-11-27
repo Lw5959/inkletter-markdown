@@ -90,6 +90,7 @@ const state: ShellState = {
 const macTitlebar = detectMac()
 const shell = mountShell(document.querySelector<HTMLElement>('#app')!, {
   dispatch: act,
+  loadRecentFiles: async () => (await native.preferences())?.recent ?? settings.recent,
   listAiModels,
   pluginMarket: {
     official: officialPluginMarket,
@@ -289,6 +290,25 @@ async function openPath(path: string, line?: number, newWindow = true) {
   if (!newWindow) return loadPath(path, line, true)
   await openPaths([path], line)
   return true
+}
+
+async function openRecent(path: string) {
+  try {
+    await openPath(path)
+  } catch {
+    const choice = await choose('无法打开最近文件', '文档可能已移动或暂时无法访问。', [
+      { value: 'cancel', label: '取消', autofocus: true },
+      { value: 'forget', label: '移出记录' },
+      { value: 'pick', label: '重新选择文件', primary: true },
+    ])
+    if (choice === 'pick') {
+      const replacement = await open({ filters: [markdownFilter] })
+      if (!replacement) return
+      await openPath(replacement)
+      if (replacement === path) return
+    } else if (choice !== 'forget') return
+    settings.recent = await native.recent(path, true)
+  }
 }
 
 async function loadPath(path: string, line: number | undefined, replace = false) {
@@ -813,6 +833,7 @@ async function dispatch(action: ShellAction) {
       break
     }
     case 'open-path': await openPath(action.path, action.line); break
+    case 'open-recent': await openRecent(action.path); break
     case 'check-update': checkAppUpdate(); break
     case 'markdown-default': {
       const result = await invoke<'applied' | 'systemSettings' | 'finder'>('markdown_default')
@@ -826,7 +847,7 @@ async function dispatch(action: ShellAction) {
     case 'reopen': {
       settings.recent = (await native.preferences())?.recent ?? settings.recent
       const path = settings.recent.find(path => path !== state.path)
-      if (path) await openPath(path)
+      if (path) await openRecent(path)
       else update('没有其他最近打开的文档')
       break
     }

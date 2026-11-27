@@ -594,15 +594,16 @@
   overflow-wrap: anywhere;
 }
 
-.yy-shell .yy-ai-settings {
+/* 宽度限制只作用于弹窗。移动端把同一个表单挂到全屏工具页。 */
+.yy-shell .yy-ai-settings[role="dialog"] {
   width: min(510px, 100%);
 }
 
-.yy-shell .yy-ai-settings:has(.yy-ai-prompt-settings) {
+.yy-shell .yy-ai-settings[role="dialog"]:has(.yy-ai-prompt-settings) {
   width: min(660px, 100%);
 }
 
-.yy-shell .yy-ai-settings:has(.yy-ai-catalog) {
+.yy-shell .yy-ai-settings[role="dialog"]:has(.yy-ai-catalog) {
   width: min(735px, 100%);
 }
 

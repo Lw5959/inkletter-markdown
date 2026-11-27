@@ -247,6 +247,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
     dispatch,
     shortcuts,
     getState: () => state,
+    loadRecentFiles: actions.loadRecentFiles ?? (async () => []),
     getThemes: () => ({ themes, local: localThemes, active: activeThemeId }),
     getImageMode: () => imageMode,
     setImageMode: mode => {
@@ -729,7 +730,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
       if (themeStyle.textContent !== css) themeStyle.textContent = css
       paperEl.dataset.theme = current?.id ?? 'default'
       appearance.select(current)
-      menuBar.refreshThemeMenu()
+      menuBar.refreshSubmenu()
     },
 
     getAppearance: appearance.get,

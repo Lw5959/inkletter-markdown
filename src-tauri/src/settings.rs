@@ -27,6 +27,7 @@ pub async fn settings_save(
 #[tauri::command]
 pub async fn settings_recent(
     path: PathBuf,
+    forget: Option<bool>,
     store: State<'_, Store>,
     lock: State<'_, SettingsLock>,
 ) -> Result<Vec<PathBuf>, String> {
@@ -39,7 +40,9 @@ pub async fn settings_recent(
         .map_err(err)?
         .unwrap_or_default();
     recent.retain(|existing| existing != &path);
-    recent.insert(0, path);
+    if !forget.unwrap_or(false) {
+        recent.insert(0, path);
+    }
     recent.truncate(24);
     current.insert("recent".into(), serde_json::to_value(&recent).map_err(err)?);
     store.write("settings.json", &current)?;

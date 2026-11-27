@@ -121,6 +121,7 @@ export type ShellAction =
   | { type: 'markdown-default' }
   | { type: 'check-update' }
   | { type: 'open-path'; path: string; line?: number }
+  | { type: 'open-recent'; path: string }
   | { type: 'mode'; mode: EditorMode }
   | { type: 'document-width'; width: DocumentWidth }
   | { type: 'titlebar-zoom' }
@@ -187,6 +188,7 @@ export type ShellState = {
 }
 export type ShellActions = {
   dispatch: (action: ShellAction) => void | Promise<string | void>
+  loadRecentFiles?: () => Promise<readonly string[]>
   listAiModels?: (request: AiModelDiscovery) => Promise<AiDiscoveredModel[]>
   pluginMarket?: PluginMarketPort
   onWindowAppearance?: (appearance: Appearance | null) => void

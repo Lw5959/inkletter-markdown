@@ -207,9 +207,17 @@
 .yy-shell.yy-mobile .yy-tool-page :is(input:not([type="checkbox"], [type="radio"]), textarea) { min-width: 0; max-width: 100%; font-size: 16px; }
 .yy-shell.yy-mobile .yy-tool-page :is(.yy-btn, .yy-plugin-tab, .yy-icon-btn, .yy-picker-trigger) { min-height: 44px; }
 .yy-shell.yy-mobile .yy-tool-page .yy-ai-settings-head { padding: 6px 12px; }
+.yy-shell.yy-mobile .yy-ai-settings-head:not(:has(p)) { display: none; }
 .yy-shell.yy-mobile .yy-ai-settings-head :is(h2, button) { display: none; }
-.yy-shell.yy-mobile .yy-ai-settings-fields { min-height: 0; padding: 6px 12px 12px; }
-.yy-shell.yy-mobile .yy-ai-settings-actions { flex-wrap: wrap; padding: 6px 12px; }
+.yy-shell.yy-mobile .yy-ai-settings-fields {
+  flex: 1;
+  min-height: 0;
+  padding: 10px 12px 12px;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable both-edges;
+}
+.yy-shell.yy-mobile .yy-ai-settings-actions { flex: none; flex-wrap: wrap; padding: 6px 12px; }
+.yy-shell.yy-mobile .yy-ai-settings :is(.yy-input, .yy-ai-provider-choice) { min-height: 44px; }
 .yy-shell.yy-mobile .yy-ai-task-list { flex-direction: row; flex-wrap: wrap; }
 .yy-shell.yy-mobile .yy-ai-task-choice { min-height: 44px; }
 .yy-shell.yy-mobile .yy-tool-page-panel .yy-plugin-body { padding: 12px 14px; }
@@ -217,9 +225,33 @@
 .yy-shell.yy-mobile .yy-market-tools > button { width: 44px; height: 44px; }
 .yy-mobile-brief-page .app-dialog-actions button { min-height: 44px; }
 
-@media (max-width: 480px) {
+@media (min-width: 700px) {
+  /* 平板工具页的标题、表单和操作栏沿同一组边距对齐。 */
+  .yy-shell.yy-mobile .yy-tool-page:has(.yy-ai-settings) {
+    --yy-ai-settings-gutter: max(clamp(24px, 4vw, 40px), calc((100% - 1080px) / 2));
+    --yy-ai-settings-nav: clamp(148px, 20%, 216px);
+  }
+  .yy-shell.yy-mobile .yy-tool-page:has(.yy-ai-settings) > .yy-tool-page-header,
+  .yy-shell.yy-mobile .yy-tool-page :is(.yy-ai-settings-head, .yy-ai-settings-fields, .yy-ai-settings-actions) {
+    padding-inline: var(--yy-ai-settings-gutter);
+  }
+  .yy-shell.yy-mobile .yy-ai-settings-fields { padding-block: 20px; }
+  .yy-shell.yy-mobile .yy-ai-setting-error { margin-inline: var(--yy-ai-settings-gutter); }
+  .yy-shell.yy-mobile .yy-ai-settings-actions { padding-block: 10px; }
+  .yy-shell.yy-mobile :is(.yy-ai-catalog, .yy-ai-prompt-settings) {
+    grid-template-columns: var(--yy-ai-settings-nav) minmax(0, 1fr);
+    gap: clamp(20px, 2.4vw, 32px);
+  }
+  .yy-shell.yy-mobile .yy-ai-task-list { flex-direction: column; flex-wrap: nowrap; }
+  .yy-shell.yy-mobile .yy-ai-model-entry > .yy-icon-btn { min-width: 44px; }
+}
+
+@media (max-width: 600px) {
   .yy-shell.yy-mobile :is(.yy-ai-catalog, .yy-ai-prompt-settings) { grid-template-columns: minmax(0, 1fr); gap: 10px; }
   .yy-shell.yy-mobile .yy-ai-provider-nav { border-right: 0; border-bottom: 1px solid var(--yy-border); padding: 0 0 10px; }
+}
+
+@media (max-width: 480px) {
   .yy-android .app-review-grid { grid-template-columns: minmax(0, 1fr); }
   .yy-android .app-review-files { max-height: 22dvh; border: 0; border-bottom: 1px solid var(--yy-border-strong); }
 }

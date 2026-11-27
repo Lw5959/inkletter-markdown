@@ -381,7 +381,7 @@ function openSettings(modals: DialogPresenter, options: {
   })
   close.addEventListener('click', () => modals.close())
   header.append(heading, close)
-  const fields = el('fieldset', { className: 'yy-ai-settings-fields' })
+  const fields = el('fieldset', { className: 'yy-ai-settings-fields', attrs: { 'data-page-scroll': '' } })
   fields.append(options.body)
   const status = el('p', { className: 'yy-ai-setting-error', attrs: { role: 'alert', hidden: '' } })
   const footer = el('footer', { className: 'yy-ai-settings-actions' })

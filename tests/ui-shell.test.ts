@@ -1676,6 +1676,102 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     expect(actions).toContainEqual({ type: 'suggestion-dismiss', id: 'sug-1' })
   })
 
+  it('桌面从文件菜单重开最近文档，跨启动保留记录并能移出失效项', async () => {
+    const recent = {
+      opened: 'C:\\项目\\新打开.md',
+      first: 'D:\\项目\\方案.md',
+      second: '/tmp/验收/方案.md',
+      missing: '/tmp/验收/已移动.md',
+    }
+    const storageKey = 'qa-desktop-recent-files'
+    const start = async () => {
+      await page.goto(baseUrl + '/__ui_harness__')
+      await page.evaluate(`(async () => {
+        const { mockIPC, mockWindows } = await import('/node_modules/@tauri-apps/api/mocks.js')
+        const paths = ${JSON.stringify(recent)}
+        const key = ${JSON.stringify(storageKey)}
+        const history = () => JSON.parse(localStorage.getItem(key) ?? '[]')
+        let request = null
+        mockWindows('main')
+        mockIPC((cmd, args) => {
+          switch (cmd) {
+            case 'settings_load': return { recent: history(), animations: false }
+            case 'theme_list': case 'plugin_list': case 'typora_theme_paths': return []
+            case 'ai_settings': return { providers: [], active: null }
+            case 'plugin:dialog|open': return [paths.opened]
+            case 'document_windows_open':
+              if (args.paths.includes(paths.missing)) throw new Error('文件已移动')
+              if (args.reuse) request = { path: args.paths[0] }
+              return null
+            case 'document_window_request': {
+              window.__recentReady = true
+              const current = request
+              request = null
+              return current
+            }
+            case 'open_document': {
+              const name = args.path.split(/[\\\\/]/).at(-1)
+              return { path: args.path, name, text: '# ' + name, version: '1', bom: false }
+            }
+            case 'document_version': return '1'
+            case 'settings_recent': {
+              const files = history().filter(path => path !== args.path)
+              if (!args.forget) files.unshift(args.path)
+              localStorage.setItem(key, JSON.stringify(files))
+              return files
+            }
+            default: return null
+          }
+        }, { shouldMockEvents: true })
+        await import('/src/main.ts')
+      })()`)
+      await expect.poll(() => page.evaluate('window.__recentReady')).toBe(true)
+    }
+    await page.goto(baseUrl + '/__ui_harness__')
+    await page.evaluate(({ key, files }) => localStorage.setItem(key, JSON.stringify(files)), {
+      key: storageKey, files: [recent.first, recent.second, recent.missing],
+    })
+    try {
+      const fileMenu = page.getByRole('menuitem', { name: '文件', exact: true })
+      const historyMenu = page.getByRole('menu', { name: '最近打开', exact: true })
+      const showRecent = async () => {
+        await fileMenu.click()
+        await page.getByRole('menuitem', { name: '最近打开', exact: true }).press('ArrowRight')
+        await historyMenu.waitFor()
+      }
+      await start()
+      await showRecent()
+      const items = historyMenu.getByRole('menuitem')
+      await expect.poll(() => items.evaluateAll(rows => rows.map(row => row.getAttribute('title')))).toEqual([
+        recent.first, recent.second, recent.missing,
+      ])
+      expect(await items.first().evaluate(item => item === document.activeElement)).toBe(true)
+      await items.first().press('ArrowLeft')
+      await page.getByRole('menuitem', { name: /^打开文件…/ }).click()
+      await expect.poll(() => page.locator('#write').innerText()).toContain('新打开.md')
+      await expect.poll(() => page.evaluate(key => JSON.parse(localStorage.getItem(key)!)[0], storageKey)).toBe(recent.opened)
+
+      await start()
+      await showRecent()
+      await expect.poll(() => items.first().getAttribute('title')).toBe(recent.opened)
+      await historyMenu.getByRole('menuitem', { name: '方案.md /tmp/验收/', exact: true }).click()
+      await expect.poll(() => page.locator('#write').innerText()).toContain('方案.md')
+      await expect.poll(() => page.evaluate(key => JSON.parse(localStorage.getItem(key)!)[0], storageKey)).toBe(recent.second)
+
+      await showRecent()
+      await historyMenu.getByRole('menuitem', { name: /已移动\.md/ }).click()
+      const unavailable = page.getByRole('dialog', { name: '无法打开最近文件' })
+      await unavailable.getByRole('button', { name: '移出记录' }).click()
+      await unavailable.waitFor({ state: 'hidden' })
+      await showRecent()
+      await expect.poll(() => items.evaluateAll(rows => rows.map(row => row.getAttribute('title')))).toEqual([
+        recent.second, recent.opened, recent.first,
+      ])
+    } finally {
+      await page.evaluate(key => localStorage.removeItem(key), storageKey)
+    }
+  }, 15000)
+
   it('软件更新从帮助菜单进入，支持签名更新和 DEB 应用内下载', async () => {
     const api = 'https://api.github.com/repos/Lw5959/yeyu/releases/latest'
     await page.route(api, route => route.abort())
@@ -2015,6 +2111,85 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     } finally {
       await page.unroute(updates)
       await page.setViewportSize({ width: 1360, height: 860 })
+    }
+  }, 15000)
+
+  it('Android 平板模型配置横竖屏对齐，分屏自动改单列并保持保存入口', async () => {
+    const tablet = await browser.newPage({ viewport: { width: 1280, height: 854 }, deviceScaleFactor: 1.5, isMobile: true, hasTouch: true })
+    await tablet.emulateMedia({ reducedMotion: 'reduce' })
+    try {
+      await tablet.addInitScript(() => {
+        const native = window as unknown as Record<string, unknown>
+        const provider = { id: 'local', name: '本地写作', endpoint: 'http://192.0.2.10:8080/v1',
+          protocol: 'chat', models: Array.from({ length: 8 }, (_, index) => 'local-' + (index + 1)), hasKey: false }
+        native.__TAURI_INTERNALS__ = { invoke: async (cmd: string) => {
+          if (cmd === 'android_insets') return { top: 24, bottom: 16, left: 20, right: 12 }
+          if (cmd === 'ai_settings') return { providers: [provider], active: { providerId: 'local', model: 'local-1' } }
+          return null
+        } }
+      })
+      await tablet.goto(baseUrl + '/mobile.html')
+      await tablet.getByRole('button', { name: '更多操作', exact: true }).click()
+      await tablet.getByRole('button', { name: 'AI 写作', exact: true }).click()
+      const writing = tablet.getByRole('region', { name: 'AI 写作助手' })
+      await writing.getByRole('button', { name: '模型配置', exact: true }).click()
+      const modelPage = tablet.getByRole('region', { name: '模型配置', exact: true })
+      const footer = modelPage.locator('footer')
+      const providerName = modelPage.getByLabel('供应商名称')
+      await providerName.fill('平板编辑草稿')
+
+      for (const { width, height, columns } of [
+        { width: 1280, height: 854, columns: 2 },
+        { width: 820, height: 1100, columns: 2 },
+        { width: 540, height: 700, columns: 1 },
+        { width: 390, height: 760, columns: 1 },
+        { width: 820, height: 320, columns: 2 },
+      ]) {
+        await tablet.setViewportSize({ width, height })
+        await expect.poll(async () => {
+          const rect = await footer.boundingBox()
+          return rect && Math.round(rect.y + rect.height)
+        }).toBe(height - 16)
+        const layout = await modelPage.evaluate(section => {
+          const bounds = (selector: string) => section.querySelector(selector)!.getBoundingClientRect()
+          const fields = section.querySelector<HTMLElement>('.yy-ai-settings-fields')!
+          const form = bounds('.yy-ai-settings')
+          const grid = bounds('.yy-ai-catalog')
+          const editor = bounds('.yy-ai-provider-editor')
+          const nav = bounds('.yy-ai-provider-nav')
+          return { form: form.toJSON(), grid: grid.toJSON(), editor: editor.toJSON(), nav: nav.toJSON(),
+            inputHeight: bounds('[name="provider-name"]').height, contentHeight: fields.clientHeight,
+            overflow: fields.scrollWidth - fields.clientWidth, pageScroll: bounds('.yy-tool-page-body').height - form.height }
+        })
+        expect(layout.form.left).toBe(20)
+        expect(layout.form.right).toBe(width - 12)
+        expect(Math.abs(layout.grid.left + layout.grid.right - layout.form.left - layout.form.right)).toBeLessThan(2)
+        expect(layout.overflow).toBeLessThanOrEqual(1)
+        expect(Math.abs(layout.pageScroll)).toBeLessThan(2)
+        expect(layout.inputHeight).toBeGreaterThanOrEqual(44)
+        expect(await providerName.inputValue()).toBe('平板编辑草稿')
+        if (columns === 2) {
+          expect(layout.editor.left).toBeGreaterThan(layout.nav.right)
+          expect(layout.grid.width).toBeGreaterThan(width - 240)
+        } else {
+          expect(layout.editor.left).toBe(layout.nav.left)
+          expect(layout.editor.top).toBeGreaterThan(layout.nav.bottom)
+        }
+        expect(layout.contentHeight).toBeGreaterThan(100)
+      }
+      await modelPage.getByLabel('模型 ID 8', { exact: true }).scrollIntoViewIfNeeded()
+      expect(await modelPage.locator('.yy-ai-settings-fields').evaluate(fields => fields.scrollTop)).toBeGreaterThan(0)
+      expect(await modelPage.locator('.yy-tool-page-body').evaluate(body => body.scrollTop)).toBe(0)
+      expect((await modelPage.getByRole('button', { name: '保存配置' }).boundingBox())!.height).toBeGreaterThanOrEqual(44)
+      await tablet.setViewportSize({ width: 1280, height: 854 })
+      await modelPage.getByRole('button', { name: '返回' }).click()
+      await writing.getByRole('button', { name: '默认提示词' }).click()
+      const prompts = tablet.getByRole('region', { name: '默认提示词' })
+      const promptGrid = (await prompts.locator('.yy-ai-prompt-settings').boundingBox())!
+      expect(promptGrid.width).toBeGreaterThan(1040)
+      await prompts.getByRole('button', { name: '保存提示词' }).waitFor()
+    } finally {
+      await tablet.close()
     }
   }, 15000)
 

@@ -477,6 +477,11 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
   overflow-wrap: anywhere;
 }
 
+.yy-shell .yy-submenu-panel:has(.yy-menu-file) { width: 308px; }
+.yy-shell .yy-menu-file { display: grid; gap: 2px; }
+.yy-shell .yy-menu-file > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.yy-shell .yy-menu-file-location { color: var(--yy-ink-muted); font-size: 11px; }
+
 /* Shared Buttons, Inputs, Badges ------------------------------------------ */
 
 .yy-shell .yy-icon {
