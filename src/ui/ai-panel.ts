@@ -535,7 +535,7 @@ export class AiPanel {
         if (existing) return existing
         const item = el('article', { className: 'yy-msg yy-msg-' + message.role })
         const body = message.role === 'assistant' ? replyBody() : el('div', { className: 'yy-msg-body', text: message.text })
-        item.append(el('div', { className: 'yy-msg-role', text: message.role === 'user' ? '你' + (message.skill ? ' · ' + message.skill : '') : '页屿 AI' }))
+        item.append(el('div', { className: 'yy-msg-role', text: message.role === 'user' ? '你' + (message.skill ? ' · ' + message.skill : '') : '墨笺 AI' }))
         if (message.attachments?.length) item.append(el('div', { className: 'yy-ai-sent-attachments', text: message.attachments.join(' · ') }))
         if (message.role === 'assistant') {
           if (message.reasoning) {

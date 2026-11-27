@@ -1,10 +1,12 @@
 # 本地打包与更新
 
-页屿在 GitHub 和 Gitee 的 `inkletter-markdown` 仓库发布安装包。macOS 的 Apple Silicon 和 Intel 各有一个 DMG，各自的签名应用归档也独立，更新按当前运行架构选择。 [GitHub](https://github.com/Lw5959/inkletter-markdown/releases) · [Gitee](https://gitee.com/Lw5959/inkletter-markdown/releases)
+墨笺在 GitHub 和 Gitee 的 `inkletter-markdown` 仓库发布安装包。macOS 的 Apple Silicon 和 Intel 各有一个 DMG，各自的签名应用归档也独立，更新按当前运行架构选择。 [GitHub](https://github.com/Lw5959/inkletter-markdown/releases) · [Gitee](https://gitee.com/Lw5959/inkletter-markdown/releases)
 
 0.2.26 是 `yeyu` 仓库的最后一个版本。旧版通过原更新源安装 0.2.26 后会自动从 `inkletter-markdown` 检查更新。先发布并验证新仓库的过渡版，再把旧仓库的更新清单指向旧仓库中的同版附件。
 
 每次提升应用版本都在本机生成对应的安装包，并以 `v<版本号>` 发布。发布说明写明本版改动、可下载的平台和实际验收范围。
+
+墨笺沿用原应用标识、签名和 Linux、Windows 的安装标识，用户可直接从页屿升级。发布资产沿用 `Yeyu_` 文件名前缀，以匹配 0.2.26 的安装包校验。
 
 ## 准备签名
 
@@ -36,9 +38,9 @@ Debian 构建需要 `appstreamcli`、`desktop-file-validate`、`gpg`、`zsyncmak
 ## 发布到 GitHub 和 Gitee
 
 1. 将安装包归入 `release/<版本号>/`，保留架构及扩展名。用 `node scripts/stage-desktop-release.mjs <bundle目录> <平台> <产物目录>` 整理桌面包。Android 包命名为 `Yeyu_<版本号>_android-arm64.apk`。
-2. 用 `node scripts/release-manifest.mjs <产物目录> v<版本号> Lw5959/inkletter-markdown <Gitee 清单目录> <发布说明.md>` 生成两套 `latest.json` 与 `SHA256SUMS`。为 0.2.26 旧仓库生成清单时，第三个参数和可选的第六个参数均使用 `Lw5959/yeyu`。清单保留 Markdown 原文，供页屿的更新界面渲染。执行 `shasum -a 256 -c SHA256SUMS` 核对文件摘要，并用配置中的公钥核对五个桌面更新包的签名。
+2. 用 `node scripts/release-manifest.mjs <产物目录> v<版本号> Lw5959/inkletter-markdown <Gitee 清单目录> <发布说明.md>` 生成两套 `latest.json` 与 `SHA256SUMS`。为 0.2.26 旧仓库生成清单时，第三个参数和可选的第六个参数均使用 `Lw5959/yeyu`。清单保留 Markdown 原文，供墨笺的更新界面渲染。执行 `shasum -a 256 -c SHA256SUMS` 核对文件摘要，并用配置中的公钥核对五个桌面更新包的签名。
 3. 将源码和同一标签推到两个仓库。使用同一份 Markdown 创建两个站点的发行版，上传同一批安装包和签名，以及对应站点的清单。Gitee 的附件名须与清单中的文件名一致，单个附件须在 100 MB 以内。
 4. 用 `pnpm tauri signer sign --app-version <版本号> <Gitee 清单目录>/latest.json` 为 Gitee 清单签名。在 Gitee 的 `updates` 分支提交 `latest.json` 和 `latest.json.sig`。确认所有附件可匿名下载后，再推动这个分支，让客户端见到完整版本。
 5. 将完整的 GitHub Release 设为最新。从 GitHub 的 `releases/latest/download/latest.json` 和 Gitee 的 `raw/updates/latest.json` 回读版本，核对附件摘要与签名。
 
-应用内「检查更新」可选自动、GitHub 或 Gitee。自动会检查两个源，同版本下载失败时可切换。手动选择按指定的来源检查和下载。macOS、Windows 和 Linux AppImage 使用发布签名验证更新包。Linux DEB 和 Android 在页屿里显示下载进度并核对 SHA-256。Gitee 上的 DEB 和 APK 摘要来自签名清单。Android 首次从页屿安装时需要在系统设置中授权来源，返回后可继续安装。Linux 缺少关联的安装程序时，可将 DEB 保存到指定位置。
+应用内「检查更新」可选自动、GitHub 或 Gitee。自动会检查两个源，同版本下载失败时可切换。手动选择按指定的来源检查和下载。macOS、Windows 和 Linux AppImage 使用发布签名验证更新包。Linux DEB 和 Android 在墨笺里显示下载进度并核对 SHA-256。Gitee 上的 DEB 和 APK 摘要来自签名清单。Android 首次从墨笺安装时需要在系统设置中授权来源，返回后可继续安装。Linux 缺少关联的安装程序时，可将 DEB 保存到指定位置。

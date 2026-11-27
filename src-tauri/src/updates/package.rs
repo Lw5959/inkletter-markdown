@@ -350,7 +350,7 @@ async fn download_response(client: &Client, mut url: Url) -> Result<Response, St
             .filter(|target| {
                 response.status().is_redirection() && asset_redirect(source.as_deref(), target)
             })
-            .ok_or("无法从页屿发布下载安装包")?;
+            .ok_or("无法从墨笺发布下载安装包")?;
     }
     Err("安装包下载重定向次数过多".into())
 }

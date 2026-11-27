@@ -267,9 +267,9 @@ class MarkdownDocuments(private val activity: Activity) : Plugin(activity) {
             val file = File(invoke.parseArgs(UpdateArgs::class.java).path).canonicalFile
             require(file.parentFile == File(activity.cacheDir, "updates").canonicalFile &&
                 file.name.startsWith("Yeyu_") && file.name.endsWith("_android-arm64.apk") && file.isFile) {
-                "找不到已校验的页屿安装包"
+                "找不到已校验的墨笺安装包"
             }
-            // Android 8 起，由用户为当前应用授权安装来源。回到页屿后可直接打开已下载的 APK。
+            // Android 8 起，由用户为当前应用授权安装来源。回到墨笺后可直接打开已下载的 APK。
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !activity.packageManager.canRequestPackageInstalls()) {
                 activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                     Uri.fromParts("package", activity.packageName, null)))

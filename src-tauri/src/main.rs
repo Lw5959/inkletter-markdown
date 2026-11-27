@@ -226,7 +226,7 @@ fn main() {
             mcp::mcp_resolve,
         ])
         .build(tauri::generate_context!())
-        .expect("无法启动页屿");
+        .expect("无法启动墨笺");
 
     app.run(|_app, _event| {
         if let tauri::RunEvent::ExitRequested {

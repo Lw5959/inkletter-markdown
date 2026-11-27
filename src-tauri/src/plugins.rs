@@ -186,7 +186,7 @@ fn compile_wasm(package: &Package, wasm: &str) -> Result<(Engine, Module), Strin
         Module::new(&engine, wasm).map_err(|error| format!("无法加载 WebAssembly：{error}"))?;
     // 空链接器只允许模块内部运算，插件没有文件、网络与系统接口。
     if module.imports().next().is_some() {
-        return Err("页屿插件只能使用独立编译的 WebAssembly 模块".into());
+        return Err("墨笺插件只能使用独立编译的 WebAssembly 模块".into());
     }
     let func = |name: &str, params: &[ValType], result: ValType| matches!(module.get_export(name), Some(ExternType::Func(ty)) if ty.params() == params && ty.results() == [result]);
     if !matches!(module.get_export("memory"), Some(ExternType::Memory(_)))

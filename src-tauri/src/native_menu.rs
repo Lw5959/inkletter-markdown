@@ -8,22 +8,22 @@ const MENU_ACTION_EVENT: &str = "yeyu:menu-action";
 
 pub fn build(app: &AppHandle<Wry>) -> tauri::Result<Menu<Wry>> {
     let about = AboutMetadata {
-        name: Some("页屿".into()),
+        name: Some("墨笺".into()),
         version: Some(app.package_info().version.to_string()),
         ..Default::default()
     };
-    let application = SubmenuBuilder::new(app, "页屿")
-        .about_with_text("关于页屿", Some(about))
+    let application = SubmenuBuilder::new(app, "墨笺")
+        .about_with_text("关于墨笺", Some(about))
         .text("check-update", "检查更新…")
         .separator()
         .services_with_text("服务")
         .separator()
-        // ⌘H 由页屿用于文内替换，隐藏应用仍可从菜单调用。
-        .text(HIDE_APP, "隐藏页屿")
+        // ⌘H 由墨笺用于文内替换，隐藏应用仍可从菜单调用。
+        .text(HIDE_APP, "隐藏墨笺")
         .hide_others_with_text("隐藏其他应用")
         .show_all_with_text("全部显示")
         .separator()
-        .quit_with_text("退出页屿")
+        .quit_with_text("退出墨笺")
         .build()?;
 
     // 文档动作的快捷键由前端管理，此处只添加菜单入口。
@@ -70,7 +70,7 @@ pub fn handle_event(app: &AppHandle<Wry>, event: MenuEvent) {
     match action {
         HIDE_APP => {
             if let Err(error) = app.hide() {
-                eprintln!("隐藏页屿失败：{error}");
+                eprintln!("隐藏墨笺失败：{error}");
             }
         }
         "check-update" | "new" | "open" | "open-folder" | "save" | "save-as" | "print" => {

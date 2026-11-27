@@ -1,4 +1,4 @@
-# 页屿 Markdown 编辑器
+# 墨笺 Markdown 编辑器
 
 - 正式根目录为本仓库。桌面运行用 `pnpm tauri dev`，前端检查用 `pnpm check`，测试用 `pnpm test`，发布构建用 `pnpm tauri build`。
 - `src/editor/` 维护 Markdown 文档模型、编辑器视图、渲染和编辑器样式。`src/ui/` 维护桌面界面与交互。`src/contracts.ts` 维护两者边界，`src/main.ts` 与 `src-tauri/` 维护应用协调及原生能力。

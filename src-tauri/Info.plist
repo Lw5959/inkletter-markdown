@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
   <key>CFBundleDisplayName</key>
-  <string>页屿</string>
+  <string>墨笺</string>
   <key>CFBundleName</key>
-  <string>页屿</string>
+  <string>墨笺</string>
   <key>CFBundleDevelopmentRegion</key>
   <string>zh-Hans</string>
   <key>UTImportedTypeDeclarations</key>

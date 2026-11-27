@@ -177,7 +177,7 @@ fn create_editor(
                     WebviewWindowBuilder::new(&handle, label, WebviewUrl::External(url))
                         .window_features(features)
                         .inner_size(f64::from(width), f64::from(height))
-                        .title("页屿")
+                        .title("墨笺")
                         .visible(false)
                         .focused(false)
                         .skip_taskbar(true)

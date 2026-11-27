@@ -19,7 +19,7 @@ pub async fn markdown_default(app: AppHandle) -> Result<DefaultMarkdown, String>
     {
         use tauri_plugin_opener::OpenerExt;
 
-        // Windows 的默认应用由系统设置确认，安装程序只登记页屿为候选项。
+        // Windows 的默认应用由系统设置确认，安装程序只登记墨笺为候选项。
         app.opener()
             .open_url(
                 "ms-settings:defaultapps?registeredAppUser=Yeyu",
@@ -35,7 +35,7 @@ pub async fn markdown_default(app: AppHandle) -> Result<DefaultMarkdown, String>
         let _ = app;
         const DESKTOP_ID: &str = "Yeyu.desktop";
         const MARKDOWN_MIME: &str = "text/markdown";
-        let entry = gio::DesktopAppInfo::new(DESKTOP_ID).ok_or("请先安装页屿的桌面入口")?;
+        let entry = gio::DesktopAppInfo::new(DESKTOP_ID).ok_or("请先安装墨笺的桌面入口")?;
         entry.set_as_default_for_type(MARKDOWN_MIME).map_err(err)?;
         let default = gio::AppInfo::default_for_type(MARKDOWN_MIME, false);
         if !default
@@ -82,7 +82,7 @@ mod macos {
                 .pathExtension()
                 .is_some_and(|extension| extension.to_string() == "app")
         {
-            let _ = reply.send(Err("请先安装并打开页屿应用，再设置默认打开方式".into()));
+            let _ = reply.send(Err("请先安装并打开墨笺应用，再设置默认打开方式".into()));
             return;
         }
         let sample = match tempfile::Builder::new().suffix(".md").tempfile() {

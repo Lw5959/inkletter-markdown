@@ -34,8 +34,9 @@ export function createPluginMarket(port: PluginMarketPort, options: {
     el('span', { className: 'yy-field-label', text: '市场目录' }), address), sourceButtons)
   const status = el('p', { className: 'yy-plugin-note', attrs: { role: 'status', hidden: '' } })
   const error = el('p', { className: 'yy-plugin-error', attrs: { role: 'alert', hidden: '' } })
-  const list = el('div', { className: 'yy-market-list' })
-  panel.append(toolbar, sourceForm, status, error, list)
+  const count = el('p', { className: 'yy-market-count', attrs: { 'aria-live': 'polite', hidden: '' } })
+  const list = el('div', { className: 'yy-market-list', attrs: { role: 'region', 'aria-label': '插件目录' } })
+  panel.append(toolbar, sourceForm, status, error, count, list)
 
   let catalog: PluginCatalog | undefined
   let channel: MarketChannel = 'online'
@@ -47,6 +48,8 @@ export function createPluginMarket(port: PluginMarketPort, options: {
     for (const control of [refresh, settings, address, useOfficial, saveSource]) control.disabled = busy || loading
     options.onChannel(channel, busy)
     panel.dataset.marketHost = catalog?.source ? new URL(catalog.source).host : ''
+    list.setAttribute('aria-busy', String(loading || busy))
+    count.hidden = !catalog
     list.replaceChildren()
     if (!catalog) return
     const words = search.value.trim().toLowerCase().split(/\s+/)
@@ -54,6 +57,8 @@ export function createPluginMarket(port: PluginMarketPort, options: {
       const details = [plugin.name, plugin.description, plugin.author, plugin.id].join(' ').toLowerCase()
       return words.every(word => details.includes(word))
     })
+    count.textContent = matches.length === catalog.plugins.length
+      ? `${matches.length} 个插件` : `${matches.length} / ${catalog.plugins.length} 个插件`
     for (const plugin of matches) {
       list.append(pluginCard(plugin, busy || loading, async () => {
         if (plugin.availability === 'installed') {
@@ -180,17 +185,19 @@ function iconButton(label: string, svg: string) {
 
 function pluginCard(plugin: MarketPlugin, busy: boolean, onSelect: () => Promise<void>) {
   const row = el('article', { className: 'yy-market-card', attrs: { 'aria-label': plugin.name } })
-  const info = el('div', { className: 'yy-market-info' })
-  const version = plugin.installedVersion && plugin.installedVersion !== plugin.version
-    ? `已安装 ${plugin.installedVersion} · 市场 ${plugin.version}` : `版本 ${plugin.version}`
-  info.append(
-    el('h3', { text: plugin.name }),
-    el('p', { className: 'yy-plugin-note', text: `${plugin.author} · ${version} · ${plugin.license}` }),
+  const heading = el('header', { className: 'yy-market-heading' },
+    el('span', { className: 'yy-market-glyph', html: icons.plug, attrs: { 'aria-hidden': 'true' } }),
+    el('div', { className: 'yy-market-info' },
+      el('h3', { text: plugin.name }),
+      el('p', { className: 'yy-plugin-note', text: plugin.author }),
+    ),
   )
+  const version = plugin.installedVersion && plugin.installedVersion !== plugin.version
+    ? `${plugin.installedVersion} → ${plugin.version}` : `v${plugin.version}`
   const labels = { install: '安装', update: '更新', installed: '已安装', incompatible: '接口不兼容' }
   const operation = plugin.availability
   const action = el('button', {
-    className: 'yy-btn yy-market-action' + (operation === 'install' || operation === 'update' ? ' yy-btn-primary' : ''),
+    className: 'yy-btn yy-market-action' + (operation === 'update' ? ' yy-btn-primary' : ''),
     type: 'button',
     text: labels[operation],
     attrs: {
@@ -200,6 +207,10 @@ function pluginCard(plugin: MarketPlugin, busy: boolean, onSelect: () => Promise
   })
   action.disabled = busy || operation === 'incompatible'
   action.addEventListener('click', () => { void onSelect() })
-  row.append(info, action, el('p', { className: 'yy-market-description', text: plugin.description }))
+  const footer = el('footer', { className: 'yy-market-footer' },
+    el('p', { className: 'yy-plugin-note', text: `${version} · ${plugin.license}` }),
+    action,
+  )
+  row.append(heading, el('p', { className: 'yy-market-description', text: plugin.description }), footer)
   return row
 }

@@ -92,7 +92,7 @@ export class McpPanel {
   }
 
   private buildBridgeCard(): HTMLElement {
-    const card = el('section', { className: 'yy-card yy-mcp-bridge', attrs: { 'aria-label': '页屿 MCP 服务与授权' } })
+    const card = el('section', { className: 'yy-card yy-mcp-bridge', attrs: { 'aria-label': '墨笺 MCP 服务与授权' } })
 
     const authRow = el('div', { className: 'yy-bridge-row' })
     const authLeft = el('div', { className: 'yy-row-gap' })

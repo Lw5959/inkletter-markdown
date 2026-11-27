@@ -234,7 +234,7 @@ impl WorkspaceServer {
         if authorized(&self.store, &self.root).map_err(mcp_error)? {
             Ok(())
         } else {
-            Err(mcp_error("请在页屿的 MCP 侧栏授权此工作区"))
+            Err(mcp_error("请在墨笺的 MCP 侧栏授权此工作区"))
         }
     }
 

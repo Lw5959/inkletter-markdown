@@ -1,4 +1,4 @@
 {
-  "app": { "windows": [{ "label": "main", "title": "页屿", "url": "mobile.html" }] },
+  "app": { "windows": [{ "label": "main", "title": "墨笺", "url": "mobile.html" }] },
   "bundle": { "fileAssociations": [] }
 }

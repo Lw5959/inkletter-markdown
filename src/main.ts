@@ -25,10 +25,10 @@ import { Protocol } from './mcp'
 import { bind, chooseHunks, relocate, suggestion } from './suggestions'
 import { checkPublishedPackage, type ReleaseInfo } from './release-updates'
 import { showAutomaticUpdate, showUpdate, type UpdatePreferences, type UpdateProgress, type UpdateSource } from './ui/update-dialog'
+import { officialPluginMarket, resolvePluginMarketSource } from './plugin-market-source'
 
 const markdownFilter = { name: 'Markdown', extensions: ['md', 'markdown', 'mdown', 'mkd', 'mkdn', 'mdwn', 'mdtxt', 'mdtext', 'text', 'txt', 'rmd', 'qmd', 'mdx'] }
 const imageFilter = { name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif', 'tiff', 'heic', 'ico'] }
-const officialPluginMarket = 'https://lw5959.github.io/yeyu-plugin-market/index.json'
 const defaults: Preferences = {
   autosave: true, autoCheckUpdates: false, animations: true, theme: 'default', typoraThemes: {}, workspace: null, mcp: [],
   hidden: false, allFiles: false, fileGlob: '', zoom: 1, remoteImages: false, uploadEndpoint: '', recent: [],
@@ -749,12 +749,12 @@ async function installPlugin(path: string) {
 }
 
 function pluginMarketSource() {
-  return settings.pluginMarketSource.trim() || officialPluginMarket
+  return resolvePluginMarketSource(settings.pluginMarketSource)
 }
 
 async function loadPluginMarket(source?: string, refresh = false) {
   if (!loaded) throw new Error('正在载入应用，请稍后重试')
-  const url = source?.trim() || pluginMarketSource()
+  const url = resolvePluginMarketSource(source?.trim() || settings.pluginMarketSource)
   const catalog = await invoke<PluginCatalog>('plugin_market_list', {
     source: url, refresh,
   })
@@ -837,8 +837,8 @@ async function dispatch(action: ShellAction) {
     case 'check-update': checkAppUpdate(); break
     case 'markdown-default': {
       const result = await invoke<'applied' | 'systemSettings' | 'finder'>('markdown_default')
-      if (result === 'applied') update('页屿已是 Markdown 的默认打开方式')
-      else if (result === 'systemSettings') update('已打开默认应用设置，请将 .md 和 .markdown 设为页屿')
+      if (result === 'applied') update('墨笺已是 Markdown 的默认打开方式')
+      else if (result === 'systemSettings') update('已打开默认应用设置，请将 .md 和 .markdown 设为墨笺')
       else await choose('设置 Markdown 默认打开方式',
         '在 Finder 选中 .md 文件，打开「显示简介」，将「打开方式」设为 Yeyu，再点「全部更改」。',
         [{ value: 'ok', label: '好', primary: true, autofocus: true }])
@@ -1145,7 +1145,7 @@ async function dispatch(action: ShellAction) {
     case 'ai-chat-new': case 'ai-chat-select': case 'ai-chat-rename': case 'ai-chat-remove': case 'ai-compress':
       await writing.manageChat(action); break
     case 'plugin-install': {
-      const path = await open({ filters: [{ name: '页屿插件', extensions: ['json'] }] })
+      const path = await open({ filters: [{ name: '墨笺插件', extensions: ['json'] }] })
       if (path) await installPlugin(path)
       break
     }
@@ -1323,7 +1323,7 @@ async function migrateTyporaPreferences() {
     if (changes?.upload) rows.push('图床 · ' + (changes.upload.service === 'picgo' ? 'PicGo / PicList' : new URL(changes.upload.endpoint).host))
     if (changes?.unsupportedUpload) notes.push('原图床工具需要单独配置。支持 PicGo、PicList 和 HTTP 上传接口。')
     const shortcutCount = Object.keys(changes?.shortcuts ?? {}).length
-    if (shortcutCount) rows.push(`快捷键 · ${shortcutCount} 项，冲突项保留页屿当前配置`)
+    if (shortcutCount) rows.push(`快捷键 · ${shortcutCount} 项，冲突项保留墨笺当前配置`)
     if (changes?.unsupportedShortcuts) notes.push(`${changes.unsupportedShortcuts} 个快捷键缺少对应命令或键位。`)
     if (changes?.sidebar) rows.push('侧栏 · ' + ({ files: '文件', outline: '大纲', search: '检索' }[changes.sidebar]))
     if (changes?.autosave !== undefined) rows.push('自动保存 · ' + (changes.autosave ? '开启' : '关闭'))

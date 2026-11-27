@@ -208,7 +208,7 @@ export function showUpdate(check: UpdateCheck, pages?: UpdatePages, preferences?
       const result = await release.install()
       if (!active()) return
       if (result === 'permission') {
-        showStatus('需要安装授权', '请在系统设置中允许页屿安装应用，返回后再点「安装更新」。')
+        showStatus('需要安装授权', '请在系统设置中允许墨笺安装应用，返回后再点「安装更新」。')
       } else if (result === 'installer') {
         showStatus('已打开安装包', '请在系统界面确认安装。')
       } else {
@@ -238,7 +238,7 @@ export function showUpdate(check: UpdateCheck, pages?: UpdatePages, preferences?
       if (result === false) {
         closeDialog()
       } else if (release.kind === 'install') {
-        showStatus('更新已安装', '页屿正在重新启动。')
+        showStatus('更新已安装', '墨笺正在重新启动。')
       } else {
         showStatus('更新已下载', '安装包已校验，可以开始安装。')
         showAction(release.save ? '打开安装包' : '安装更新', () => installPackage(release))
@@ -270,8 +270,8 @@ export function showUpdate(check: UpdateCheck, pages?: UpdatePages, preferences?
       }
       const installs = release.kind === 'install'
       showStatus('发现新版本 ' + release.version, installs
-        ? '确认后将下载并校验安装包，安装完成后重启页屿。'
-        : '更新将在页屿内下载并校验，完成后可打开安装包。')
+        ? '确认后将下载并校验安装包，安装完成后重启墨笺。'
+        : '更新将在墨笺内下载并校验，完成后可打开安装包。')
       showAction(installs ? '安装更新' : '下载更新', () => apply(release))
       const rendered = release.notes.trim() ? await renderMarkdownContent(release.notes) : '暂无发布说明。'
       if (!currentCheck()) return

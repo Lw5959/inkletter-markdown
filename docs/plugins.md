@@ -1,6 +1,6 @@
-# 页屿插件开发指南
+# 墨笺插件开发指南
 
-页屿插件接收 Markdown 文本并返回修改后的文本。JavaScript 可以直接编写 ES 模块，Rust 使用 WebAssembly。两种语言都可从文件或市场安装。启用后从「编辑 → 运行插件」执行，修改经差异审阅后应用，应用后可撤销。
+墨笺插件接收 Markdown 文本并返回修改后的文本。JavaScript 可以直接编写 ES 模块，Rust 使用 WebAssembly。两种语言都可从文件或市场安装。启用后从「编辑 → 运行插件」执行，修改经差异审阅后应用，应用后可撤销。
 
 | 示例 | 语言 | 用法 |
 | --- | --- | --- |
@@ -45,7 +45,7 @@ export function normalize(text) {
 pnpm plugin:pack normalize.yeyu-plugin.json normalize.mjs
 ```
 
-打包器检查 `.js` 或 `.mjs` 的语法，将 UTF-8 源码写到 `javascript` 字段。需要依赖时先用自己的构建工具产出一个独立的 ES 模块。安装时会加载模块并核对命令导出。页屿 0.2.2 起支持此接口。每次安装校验或运行有 2 秒执行预算，JavaScript 堆最多 32 MiB。运行时提供标准语言内建对象，模块加载、DOM、Node.js、文件和网络接口均未开放。[rquickjs 源码](https://github.com/DelSkayn/rquickjs)
+打包器检查 `.js` 或 `.mjs` 的语法，将 UTF-8 源码写到 `javascript` 字段。需要依赖时先用自己的构建工具产出一个独立的 ES 模块。安装时会加载模块并核对命令导出。墨笺 0.2.2 起支持此接口。每次安装校验或运行有 2 秒执行预算，JavaScript 堆最多 32 MiB。运行时提供标准语言内建对象，模块加载、DOM、Node.js、文件和网络接口均未开放。[rquickjs 源码](https://github.com/DelSkayn/rquickjs)
 
 ## Rust
 
@@ -58,7 +58,7 @@ cargo build --locked --release --target wasm32-unknown-unknown --manifest-path e
 pnpm plugin:pack examples/plugins/document-toc.yeyu-plugin.json examples/plugins/workflows/target/wasm32-unknown-unknown/release/document-toc.wasm
 ```
 
-打包器将 `.wasm` 编码为 Base64，写到 `wasm` 字段。采用其他语言的 WebAssembly 编译器时，模块按下表导出函数。页屿用 Wasmi 加载无导入的模块，线性内存最多 32 MiB，并限制指令数。[Wasmi 源码](https://github.com/wasmi-labs/wasmi)
+打包器将 `.wasm` 编码为 Base64，写到 `wasm` 字段。采用其他语言的 WebAssembly 编译器时，模块按下表导出函数。墨笺用 Wasmi 加载无导入的模块，线性内存最多 32 MiB，并限制指令数。[Wasmi 源码](https://github.com/wasmi-labs/wasmi)
 
 | Wasm 导出 | 用法 |
 | --- | --- |
@@ -66,20 +66,20 @@ pnpm plugin:pack examples/plugins/document-toc.yeyu-plugin.json examples/plugins
 | `alloc(length: i32) -> i32` | 返回可写入 `length` 字节的地址 |
 | `<命令 ID>(ptr: i32, length: i32) -> i64` | 返回输出地址和长度，高 32 位为地址，低 32 位为 UTF-8 字节数 |
 
-地址和长度按无符号 32 位数打包。命令可以在原缓冲区修改，也可以返回另一个缓冲区。页屿只传入此次命令的文本。卸载、停用或更新后，仍在运行的旧结果会丢弃。单包最多 2 MiB，输入和输出各最多 4 MiB。
+地址和长度按无符号 32 位数打包。命令可以在原缓冲区修改，也可以返回另一个缓冲区。墨笺只传入此次命令的文本。卸载、停用或更新后，仍在运行的旧结果会丢弃。单包最多 2 MiB，输入和输出各最多 4 MiB。
 
 ## 多文档和图片命令
 
-页屿 0.2.3 提供接口 3。清单仍选择一个 `javascript` 或 `wasm` 模块，导出函数沿用上面的接口。使用 `workflow` 声明下列工作流。
+墨笺 0.2.3 提供接口 3。清单仍选择一个 `javascript` 或 `wasm` 模块，导出函数沿用上面的接口。使用 `workflow` 声明下列工作流。
 
-| 工作流 | 输入和返回 | 页屿负责的操作 |
+| 工作流 | 输入和返回 | 墨笺负责的操作 |
 | --- | --- | --- |
 | `files` | 每次传入一篇文档的 Markdown。返回完整的替换文本 | 选择本地文件、逐篇显示差异、勾选并保存。保存核对预览版本，沿用原 BOM |
 | `images` | 输入 JSON 字符串 `{"images":[{"digest":"…","extension":"png"}]}`。返回同顺序的文件名数组，编码为 JSON 字符串 | 识别本文的本地行内图片，计算 BLAKE3，按摘要与扩展名聚合。确认后复制图片并更新链接 |
 
 图片名称用小写字母、数字、下划线和连字符，名称主体最多 100 个字符，文件扩展名与输入一致。同一数组内各文件名唯一。可使用摘要生成稳定的名字。文件路径和文件字节由应用读取，模块接收的图片信息是摘要与扩展名。二次运行时可复用同名、同内容的副本。包清单和用法见[图片整理](../examples/plugins/image-organizer.md)与[批量格式化](../examples/plugins/batch-format.md)。
 
-桌面版 0.2.21 提供接口 4。`mcp` 工作流把已授权工作区的 MCP 启动配置作为 JSON 字符串传入命令，形状为 `{"mcpServers":{"yeyu":{"command":"…","args":["…"]}}}`。命令返回客户端配置文本，页屿提供复制操作。实际的文档访问和修改建议仍由 MCP 服务检查工作区授权。 [OpenCode 示例](../examples/plugins/opencode.md)
+桌面版 0.2.21 提供接口 4。`mcp` 工作流把已授权工作区的 MCP 启动配置作为 JSON 字符串传入命令，形状为 `{"mcpServers":{"yeyu":{"command":"…","args":["…"]}}}`。命令返回客户端配置文本，墨笺提供复制操作。实际的文档访问和修改建议仍由 MCP 服务检查工作区授权。 [OpenCode 示例](../examples/plugins/opencode.md)
 
 ## 试用和发布
 

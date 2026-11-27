@@ -80,7 +80,7 @@ const editorControls = headerControls()
 const homeControls = headerControls()
 const homeDetail = el('p', { className: 'yy-mobile-detail', attrs: { role: 'status', hidden: '' } })
 const header = screenHeader(title, detail, [fileOpen, fileSave, ...editorControls])
-const homeHeader = screenHeader(el('h1', { className: 'yy-mobile-title', text: '页屿' }), homeDetail, homeControls)
+const homeHeader = screenHeader(el('h1', { className: 'yy-mobile-title', text: '墨笺' }), homeDetail, homeControls)
 const canvas = document.createElement('canvas')
 canvas.width = canvas.height = 1
 const colorPixel = canvas.getContext('2d', { willReadFrequently: true })

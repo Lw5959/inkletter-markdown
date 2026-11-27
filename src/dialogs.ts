@@ -45,7 +45,7 @@ function present(element: HTMLDialogElement) {
       if (previous instanceof HTMLElement && previous.isConnected) previous.focus({ preventScroll: true })
     }
     const popup = openDesktopWindow(element, {
-      title: element.getAttribute('aria-label') ?? '页屿', width: review ? 820 : 440,
+      title: element.getAttribute('aria-label') ?? '墨笺', width: review ? 820 : 440,
       height: review ? 560 : element.querySelector('input') ? 200 : 152, modal: true, onClose: done,
     })
     if (!popup) {

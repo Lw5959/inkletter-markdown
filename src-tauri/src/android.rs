@@ -373,5 +373,5 @@ pub fn run() {
             mcp::mcp_call,
         ])
         .run(tauri::generate_context!())
-        .expect("无法启动页屿 Android");
+        .expect("无法启动墨笺 Android");
 }

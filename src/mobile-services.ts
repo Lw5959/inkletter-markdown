@@ -7,6 +7,7 @@ import { reviewChanges } from './dialogs'
 import { interval } from './document-tools'
 import { Protocol } from './mcp'
 import { invoke, reason } from './native'
+import { officialPluginMarket, resolvePluginMarketSource } from './plugin-market-source'
 import { bind, chooseHunks, relocate, suggestion } from './suggestions'
 import { AiPanel } from './ui/ai-panel'
 import { el } from './ui/helpers'
@@ -14,8 +15,6 @@ import { McpPanel } from './ui/mcp-panel'
 import type { createPages } from './ui/pages'
 import { PluginManager } from './ui/plugins'
 import './ui/ai.css'
-
-const officialMarket = 'https://lw5959.github.io/yeyu-plugin-market/index.json'
 
 export type MobileServiceSettings = { aiPrompts?: AiPrompts; aiSkills?: AiSkill[]; aiAgentApprovalMode?: AiAgentApprovalMode; mcp?: McpServer[]; marketSource?: string }
 export type MobileServicePage = 'ai' | 'mcp' | 'plugins'
@@ -48,14 +47,22 @@ export function createMobileServices(options: Options) {
   protocol.configure((settings.mcp ?? []).filter(server => server.transport === 'http'))
   let plugins: PluginInfo[] = []
   const pluginManager = new PluginManager({ open: pages.replace, back: pages.closeAll }, dispatch, {
-    official: officialMarket,
-    source: () => settings.marketSource ?? officialMarket,
+    official: officialPluginMarket,
+    source: () => resolvePluginMarketSource(settings.marketSource),
     bundled: () => invoke<PluginCatalog>('plugin_market_list', { source: null, refresh: false }),
     async load(source, refresh = false) {
-      const catalog = await invoke<PluginCatalog>('plugin_market_list', { source: source || settings.marketSource || officialMarket, refresh })
+      const catalog = await invoke<PluginCatalog>('plugin_market_list', {
+        source: resolvePluginMarketSource(source || settings.marketSource), refresh,
+      })
       if (source !== undefined) {
-        settings.marketSource = catalog.source ?? undefined
-        await options.persist()
+        const previous = settings.marketSource
+        settings.marketSource = catalog.source && catalog.source !== officialPluginMarket ? catalog.source : undefined
+        try {
+          await options.persist()
+        } catch (failure) {
+          settings.marketSource = previous
+          throw failure
+        }
       }
       return catalog
     },

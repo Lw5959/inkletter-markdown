@@ -1773,7 +1773,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
   }, 15000)
 
   it('软件更新从帮助菜单进入，支持签名更新和 DEB 应用内下载', async () => {
-    const api = 'https://api.github.com/repos/Lw5959/yeyu/releases/latest'
+    const api = 'https://api.github.com/repos/Lw5959/inkletter-markdown/releases/latest'
     await page.route(api, route => route.abort())
     try {
       await page.goto(baseUrl + '/__ui_harness__')
@@ -1968,7 +1968,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
 
   it('Android 从首页手动打开文档，工具使用独立页面并支持系统返回', async () => {
     await page.setViewportSize({ width: 390, height: 736 })
-    const updates = 'https://api.github.com/repos/Lw5959/yeyu/releases/latest'
+    const updates = 'https://api.github.com/repos/Lw5959/inkletter-markdown/releases/latest'
     try {
       await page.route(updates, route => route.abort())
       await page.goto(`${baseUrl}/__ui_harness__`)
@@ -1980,6 +1980,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
         const reads = []
         const installed = []
         const modelRequests = []
+        const markets = window.__mobileMarkets = []
         const bundled = { id: 'table-format', name: '表格排版', version: '1.0.0', apiVersion: 1, sha256: 'a'.repeat(64),
           description: '整理表格', author: '页屿', license: 'MIT' }
         const builtins = () => ({ name: '内置插件', source: null, plugins: [{ ...bundled,
@@ -1991,7 +1992,8 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
           if (cmd === 'android_pick') { picks++; return path }
           if (cmd === 'android_read') { reads.push(payload.uri); return document }
           if (cmd === 'android_write') { writes.push(payload); return { ...document, text: payload.text, version: '2' } }
-          if (cmd === 'android_load_session') return { uri: 'content://qa/last-note', theme: 'default', animations: true, mode: 'live' }
+          if (cmd === 'android_load_session') return { uri: 'content://qa/last-note', theme: 'default', animations: true, mode: 'live',
+            services: { marketSource: 'https://lw5959.github.io/yeyu-plugin-market/index.json' } }
           if (cmd === 'android_insets') return { top: 26, bottom: 10, left: 0, right: 0 }
           if (cmd === 'plugin:app|version') return '0.2.8'
           if (cmd === 'update_check_package') return { version: '0.2.14', notes: '## 应用内更新\\n\\n1. **更新说明支持 Markdown**' }
@@ -2013,7 +2015,14 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
           if (cmd === 'ai_settings') return { providers: [], active: null }
           if (cmd === 'ai_list_models') { modelRequests.push(payload.request); return [{ id: 'local-edit', metadata: {} }] }
           if (cmd === 'plugin_list') return installed
-          if (cmd === 'plugin_market_list') return payload.source ? { name: '页屿插件市场', source: payload.source, plugins: [] } : builtins()
+          if (cmd === 'plugin_market_list') {
+            if (!payload.source) return builtins()
+            markets.push(payload.source)
+            return { name: '墨笺插件市场', source: payload.source, plugins: [
+              { ...bundled, availability: 'install' },
+              { ...bundled, id: 'toc', name: '文档目录', description: '生成标题大纲', availability: 'install' },
+            ] }
+          }
           if (cmd === 'plugin_market_install' && payload.source === null && payload.id === bundled.id && payload.sha256 === bundled.sha256) {
             installed.push({ id: bundled.id, name: bundled.name, version: bundled.version, enabled: false, commands: [] })
             return { installed, catalog: builtins() }
@@ -2106,6 +2115,21 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
 
       await menu.getByRole('button', { name: '插件市场', exact: true }).click()
       const plugins = page.getByRole('region', { name: '插件管理', exact: true })
+      await expect.poll(() => page.evaluate('window.__mobileMarkets')).toEqual([
+        'https://lw5959.github.io/inkletter-plugin-market/index.json',
+      ])
+      const directory = plugins.getByRole('region', { name: '插件目录' })
+      const columns = () => directory.evaluate(list => getComputedStyle(list).gridTemplateColumns.split(' ').length)
+      await directory.getByRole('article', { name: '文档目录' }).waitFor()
+      expect(await columns()).toBe(1)
+      await page.setViewportSize({ width: 820, height: 736 })
+      await expect.poll(columns).toBe(2)
+      const search = plugins.getByRole('searchbox', { name: '搜索插件' })
+      await search.fill('大纲')
+      await expect.poll(() => directory.getByRole('article').count()).toBe(1)
+      expect(await plugins.getByText('1 / 2 个插件', { exact: true }).isVisible()).toBe(true)
+      await search.fill('')
+      await page.setViewportSize({ width: 390, height: 736 })
       const market = plugins.getByRole('button', { name: '内置插件', exact: true })
       await market.click()
       expect(await market.getAttribute('aria-pressed')).toBe('true')

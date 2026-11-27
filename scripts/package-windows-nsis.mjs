@@ -78,7 +78,7 @@ try {
   const data = {
     product_name: name, version, version_with_build: version + '.0', manufacturer: 'yeyu',
     bundle_id: config.identifier, arch: 'x64', main_binary_name: 'yeyu', main_binary_path: binary,
-    homepage: 'https://github.com/Lw5959/yeyu', out_file: installer, estimated_size: Math.ceil(size / 1024),
+    homepage: 'https://github.com/Lw5959/inkletter-markdown', out_file: installer, estimated_size: Math.ceil(size / 1024),
     installer_hooks: 'markdown.nsh', install_mode: windows.nsis.installMode,
     additional_plugins_path: '.', compression: 'lzma', display_language_selector: 'false',
     allow_downgrades: String(windows.allowDowngrades ?? true), languages: ['English'], language_files: ['English.nsh'],

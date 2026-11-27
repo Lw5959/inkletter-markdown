@@ -90,7 +90,7 @@ export class ModalManager {
     this.onCloseCallback = options?.onClose ?? null
     const [width, height] = options?.size ?? [720, 580]
     this.popup = openDesktopWindow(dialog, {
-      title: dialog.getAttribute('aria-label') ?? '页屿', width, height, modal: true, onClose: () => this.close(),
+      title: dialog.getAttribute('aria-label') ?? '墨笺', width, height, modal: true, onClose: () => this.close(),
     })
     if (this.popup) this.popup.child.addEventListener('keydown', this.keydownHandler, true)
     else {

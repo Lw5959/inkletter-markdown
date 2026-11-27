@@ -216,7 +216,7 @@ impl Catalog {
             })
             .collect::<Result<_, _>>()?;
         Ok(Self {
-            name: "页屿内置市场".into(),
+            name: "墨笺内置市场".into(),
             source: None,
             offers,
         })

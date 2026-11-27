@@ -36,7 +36,7 @@ for (const notice of ['LICENSE', 'THIRD-PARTY-NOTICES.txt']) {
 }
 // 先就绪所有包，再切换目录，使用旧目录的客户端仍可下载旧版本。
 const temporary = join(destination, `.index-${randomUUID()}.json`)
-const index = { schemaVersion: 1, name: '页屿插件市场', plugins: plugins.map(({ entry }) => entry) }
+const index = { schemaVersion: 1, name: '墨笺插件市场', plugins: plugins.map(({ entry }) => entry) }
 const json = JSON.stringify(index, null, 2) + '\n'
 if (Buffer.byteLength(json) > 1024 * 1024) throw new Error('市场目录超过 1 MiB')
 writeFileSync(temporary, json)

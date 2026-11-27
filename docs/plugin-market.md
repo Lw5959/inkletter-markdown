@@ -1,10 +1,10 @@
 # 插件市场目录与发布
 
-「编辑 → 插件市场」默认连接官方目录。批量格式化、图片整理和表格排版等插件可在「内置插件」中离线安装。桌面端也内置 OpenCode 工作区接入。在线目录连接失败时会切到内置插件，并保留原市场源。新安装的插件默认停用，点击卡片上的「已安装」进入管理页启用，再从「编辑 → 运行插件」执行命令。[官方市场页面](https://lw5959.github.io/yeyu-plugin-market/) · [应用目录](https://lw5959.github.io/yeyu-plugin-market/index.json)
+「编辑 → 插件市场」默认连接官方目录。批量格式化、图片整理和表格排版等插件可在「内置插件」中离线安装。桌面端也内置 OpenCode 工作区接入。在线目录连接失败时会切到内置插件，并保留原市场源。新安装的插件默认停用，点击卡片上的「已安装」进入管理页启用，再从「编辑 → 运行插件」执行命令。[官方市场页面](https://lw5959.github.io/inkletter-plugin-market/) · [应用目录](https://lw5959.github.io/inkletter-plugin-market/index.json)
 
 ## 向官方市场提交
 
-官方目录通过 GitHub Pages 发布，开源仓库的 `main` 分支下 `docs/` 是发布目录。通过 Pull Request 提交插件包、源码、许可证、重建步骤和可复测样例。更新包沿用原 ID，并递增 SemVer。[开源市场仓库](https://github.com/Lw5959/yeyu-plugin-market) · [GitHub Pages 发布源说明](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site)
+官方目录通过 GitHub Pages 发布，开源仓库的 `main` 分支下 `docs/` 是发布目录。通过 Pull Request 提交插件包、源码、许可证、重建步骤和可复测样例。更新包沿用原 ID，并递增 SemVer。[开源市场仓库](https://github.com/Lw5959/inkletter-plugin-market) · [GitHub Pages 发布源说明](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site)
 
 在市场仓库根目录运行以下命令，生成新的目录和按摘要命名的插件包。保留旧包，已经打开前一份目录的用户可以继续下载。合并到 `main` 后，检查 Pages 发布状态，并从公网下载核对 `index.json` 与各包的 SHA-256。
 
@@ -36,10 +36,10 @@ python3 -m http.server 8750 --bind 127.0.0.1 --directory release/plugin-market
 
 ## 准备插件包
 
-1. 按[插件开发指南](plugins.md)制作并在页屿试用插件包。
+1. 按[插件开发指南](plugins.md)制作并在墨笺试用插件包。
 2. 在清单中增加 `market`，填写用途、作者和许可证。和插件包一起提供对应源码、构建步骤和许可证文本。
 3. 把包加入目录的输入文件夹。同一个目录为每个 ID 发布一个版本。替换已有 ID 时递增 SemVer，再生成并发布目录。
-4. 在页屿刷新市场。核对「安装」或「更新」按钮、版本及运行结果。更新沿用插件的启用状态。
+4. 在墨笺刷新市场。核对「安装」或「更新」按钮、版本及运行结果。更新沿用插件的启用状态。
 
 ```json
 {
@@ -57,7 +57,7 @@ python3 -m http.server 8750 --bind 127.0.0.1 --directory release/plugin-market
 
 | 插件字段 | 用途 |
 | --- | --- |
-| `id`、`name`、`version`、`apiVersion` | 与包内清单一致。版本遵循 SemVer。接口 1 为 WebAssembly，接口 2 为 JavaScript，接口 3 支持多文档和图片，接口 4 支持桌面 MCP 配置命令（页屿 0.2.21 起） |
+| `id`、`name`、`version`、`apiVersion` | 与包内清单一致。版本遵循 SemVer。接口 1 为 WebAssembly，接口 2 为 JavaScript，接口 3 支持多文档和图片，接口 4 支持桌面 MCP 配置命令（墨笺 0.2.21 起） |
 | `description`、`author`、`license` | 显示用途、作者和许可证。描述最多 600 字符 |
 | `download` | 插件包的直达 URL，可相对于 `index.json`。公网用 HTTPS，本机 HTTP 要与目录同源 |
 | `sha256` | 对下载的完整文件字节计算的 SHA-256，写成 64 个十六进制字符 |

@@ -42,35 +42,35 @@ fn master(store: &Store, create: bool) -> Result<LessSafeKey, String> {
         Err(error) if create && error.kind() == io::ErrorKind::NotFound => {
             fs::create_dir_all(&dir)
                 .and_then(|_| fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)))
-                .map_err(|_| "无法创建页屿密钥库")?;
+                .map_err(|_| "无法创建墨笺密钥库")?;
             let mut bytes = [0; KEY_BYTES];
             SystemRandom::new()
                 .fill(&mut bytes)
-                .map_err(|_| "无法初始化页屿密钥库")?;
+                .map_err(|_| "无法初始化墨笺密钥库")?;
             let mut temp =
-                tempfile::NamedTempFile::new_in(&dir).map_err(|_| "无法写入页屿密钥库")?;
+                tempfile::NamedTempFile::new_in(&dir).map_err(|_| "无法写入墨笺密钥库")?;
             temp.write_all(&bytes)
                 .and_then(|_| temp.as_file().sync_all())
-                .map_err(|_| "无法写入页屿密钥库")?;
+                .map_err(|_| "无法写入墨笺密钥库")?;
             // 多个进程同时首次写入时共用第一个生成的主密钥，绝不覆盖。
             match temp.persist_noclobber(&path) {
                 Ok(_) => {
                     fs::File::open(&dir)
                         .and_then(|dir| dir.sync_all())
-                        .map_err(|_| "无法保存页屿密钥库")?;
+                        .map_err(|_| "无法保存墨笺密钥库")?;
                     bytes.to_vec()
                 }
                 Err(error) if error.error.kind() == io::ErrorKind::AlreadyExists => {
-                    fs::read(&path).map_err(|_| "无法读取页屿密钥库")?
+                    fs::read(&path).map_err(|_| "无法读取墨笺密钥库")?
                 }
-                Err(_) => return Err("无法保存页屿密钥库".into()),
+                Err(_) => return Err("无法保存墨笺密钥库".into()),
             }
         }
-        Err(_) => return Err("无法读取页屿密钥库，请重新填写 API 密钥".into()),
+        Err(_) => return Err("无法读取墨笺密钥库，请重新填写 API 密钥".into()),
     };
     UnboundKey::new(&AES_256_GCM, &bytes)
         .map(LessSafeKey::new)
-        .map_err(|_| "页屿密钥库格式无效".into())
+        .map_err(|_| "墨笺密钥库格式无效".into())
 }
 
 pub(super) fn set(store: &Store, account: &str, secret: &str) -> Result<(), String> {
@@ -116,7 +116,7 @@ pub(super) fn remove(store: &Store, account: &str) -> Result<(), String> {
     match fs::remove_file(record_path(store, account)?) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(_) => Err("无法删除页屿密钥记录".into()),
+        Err(_) => Err("无法删除墨笺密钥记录".into()),
     }
 }
 

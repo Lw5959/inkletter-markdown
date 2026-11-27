@@ -226,7 +226,7 @@ export function openModelSettings(modals: DialogPresenter, settings: () => AiSet
         if (!migrate.isConnected) return
         if (failure) status.textContent = failure
         else {
-          notice = '密钥已移至页屿密钥库'
+          notice = '密钥已移至墨笺密钥库'
           render()
         }
       } catch (error) {
@@ -236,7 +236,7 @@ export function openModelSettings(modals: DialogPresenter, settings: () => AiSet
     editor.replaceChildren(
       labelled('供应商名称', name),
       el('div', { className: 'yy-ai-endpoint-fields' }, labelled('API 协议', protocol.button), labelled('API 地址', address)),
-      labelled('API 密钥（可选）', key, detectMac() ? '密钥加密保存在页屿密钥库。' : '密钥保存在系统凭据存储中。'),
+      labelled('API 密钥（可选）', key, detectMac() ? '密钥加密保存在墨笺密钥库。' : '密钥保存在系统凭据存储中。'),
       clearLabel, migrate, modelFields, status,
     )
     if (saved) {
@@ -343,7 +343,7 @@ export function openPromptSettings(modals: DialogPresenter, prompts: AiPrompts, 
   body.append(tasks, editor)
   openSettings(modals, {
     title: '默认提示词',
-    description: '页屿在运行对应操作时使用这里的提示词。留空会使用内置内容。',
+    description: '墨笺在运行对应操作时使用这里的提示词。留空会使用内置内容。',
     body,
     initialFocus: buttons.get(initial)!,
     submitLabel: '保存提示词',
