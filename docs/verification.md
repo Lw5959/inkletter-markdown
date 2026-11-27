@@ -126,6 +126,12 @@ Chrome 158 使用 `node tests/export-browser.mjs` 的固定样本，比较导出
 
 ## 平台验收范围
 
+### 0.2.25
+
+- Chromium 和 WebKit 各通过 59 项，Rust 通过 25 项。Linux x64 和 ARM64 的 DEB 在 X11 窗口通过打开、编辑、保存和 BOM 校验。
+- 两个 macOS 安装映像及应用签名通过校验。Windows NSIS 通过归档完整性测试。Android ARM64 使用 `versionCode` 2025，签名证书与 0.2.24 一致。
+- 六个目标平台的安装包构建源为 `f2bafa0`。五个桌面更新包的签名通过校验。GitHub 的 17 项、Gitee 的 18 项附件均可匿名下载并匹配 SHA-256。两边的应用内更新入口均返回 0.2.25。 [GitHub 发布](https://github.com/Lw5959/yeyu/releases/tag/v0.2.25) · [Gitee 发布](https://gitee.com/Lw5959/yeyu/releases/tag/v0.2.25)
+
 ### 0.2.24
 
 - Chromium、WebKit 各通过 57 项，Rust 通过 25 项。macOS 原生全量复测通过。放大和还原各记录到 7 个中间视口宽度。Finder 冷启动和已有空白主窗口时打开文件均通过，写作密钥重启后仍可鉴权。
@@ -156,7 +162,7 @@ Chrome 158 使用 `node tests/export-browser.mjs` 的固定样本，比较导出
 - Linux ARM64 容器中的原生窗口通过多文件、独立工具窗口、保存和草稿恢复。Linux ARM64 和 x64 的 DEB 与 AppImage 在隔离的 X11 会话通过打开、编辑、保存和 BOM 核对。
 - macOS Intel DMG、Windows x64 安装器和 Android ARM64 APK 完成构建及签名核对。Windows 安装器完成归档测试，Android 与 0.2.20 使用同一签名证书。三个目标的设备实测未执行。
 - OpenCode 1.19.6 使用插件生成的配置连接。OpenCode 2.4.2 通过运行时注册后显示已连接，配置文件的自动发现未通过。原生 QA 覆盖插件离线安装、搜索、读文档、读选区、提交建议、审阅和保存。 [OpenCode 接入说明](../examples/plugins/opencode.md)
-- Rust 21 项、WebKit 49 项、Chromium 4 项针对性测试通过。六种目标架构的发布构建记录均为零警告。构建源为 `e20e512`。 [GitHub 发布](https://github.com/Lw5959/yeyu/releases/tag/v0.2.21) · [Gitee 发布](https://gitee.com/Lw5959/yeyu/releases/tag/v0.2.21)
+- Rust 21 项、WebKit 49 项、Chromium 4 项针对性测试通过。六种目标架构的发布构建记录均为零警告。构建源为 `e20e512`。Gitee 发行版在 0.2.25 发布时下架。 [GitHub 发布](https://github.com/Lw5959/yeyu/releases/tag/v0.2.21)
 
 ### 0.2.10
 
