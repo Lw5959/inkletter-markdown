@@ -102,6 +102,28 @@
   padding-right: calc(var(--yy-safe-right) + clamp(18px, 5vw, 40px));
 }
 .yy-mobile .cm-content { min-height: 1.5em; }
+.yy-mobile .live-diagram-preview[tabindex]::after {
+  content: attr(aria-label);
+  display: grid;
+  place-items: center;
+  min-height: 44px;
+  width: fit-content;
+  margin: 4px auto 8px;
+  padding-inline: 12px;
+  border-radius: 8px;
+  background: var(--yy-accent-soft);
+  color: var(--yy-ink);
+  font-size: 14px;
+}
+.yy-mobile-image-preview {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  text-align: center;
+}
+.yy-mobile-image-preview .yy-image-preview-frame { min-height: 200px; }
+.yy-mobile-image-preview .yy-image-preview-frame img { max-height: 66dvh; }
 
 .yy-mobile-landing {
   min-height: 0;

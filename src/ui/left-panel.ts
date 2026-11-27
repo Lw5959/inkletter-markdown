@@ -1,4 +1,5 @@
 import type { OutlineEntry, SearchResult, ShellAction, WorkspaceEntry } from '../contracts'
+import { bindContextMenu, buttonCommand, copyCommand } from './context-menu'
 import type { ModalManager } from './dialogs'
 import { el } from './helpers'
 import { icons } from './icons'
@@ -9,7 +10,11 @@ export interface LeftPanelOptions {
   dispatch: (action: ShellAction) => void
   modals: ModalManager
   onAfterNavigate: () => void
+  onPreviewImage: (entry: WorkspaceEntry) => void
+  notify: (message: string) => void
 }
+
+type FileCommand = { label: string; accessibleName: string; icon: string; run: () => void; danger?: boolean }
 
 export class LeftPanel {
   readonly element: HTMLElement
@@ -123,6 +128,18 @@ export class LeftPanel {
       className: 'yy-scroll-area yy-file-tree',
       attrs: { role: 'tree', 'aria-label': '工作区文件树' },
     })
+    const workspaceMenu = () => {
+      const root = this.workspaceRoot
+      if (!root) return [buttonCommand('打开文件夹…', openFolderBtn)]
+      return [
+        { label: '新建文件', icon: icons.filePlus, run: () => this.promptCreate(false, root) },
+        { label: '新建文件夹', icon: icons.folderPlus, run: () => this.promptCreate(true, root) }, null,
+        copyCommand('复制路径', root, pane, this.options.notify), this.revealCommand(root),
+        buttonCommand('打开其他文件夹…', openFolderBtn),
+      ]
+    }
+    bindContextMenu(toolbar, '工作区操作', workspaceMenu, openFolderBtn)
+    bindContextMenu(this.treeContainer, '工作区操作', workspaceMenu, openFolderBtn)
     this.treeContainer.addEventListener('keydown', event => {
       if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
       const items = Array.from(this.treeContainer.querySelectorAll<HTMLButtonElement>('.yy-tree-main'))
@@ -273,6 +290,25 @@ export class LeftPanel {
     })
   }
 
+  private fileCommands(entry: WorkspaceEntry): FileCommand[] {
+    const commands: FileCommand[] = [
+      { label: '重命名', accessibleName: `重命名 ${entry.name}`, icon: icons.edit, run: () => this.promptRename(entry) },
+      { label: '移入废纸篓', accessibleName: `将 ${entry.name} 移入废纸篓`, icon: icons.trash, run: () => this.promptTrash(entry), danger: true },
+    ]
+    if (Array.isArray(entry.children)) {
+      commands.unshift(
+        { label: '新建文件', accessibleName: `在 ${entry.name} 中新建文件`, icon: icons.filePlus, run: () => this.promptCreate(false, entry.path) },
+        { label: '新建文件夹', accessibleName: `在 ${entry.name} 中新建文件夹`, icon: icons.folderPlus, run: () => this.promptCreate(true, entry.path) },
+      )
+    }
+    return commands
+  }
+
+  private revealCommand(path: string) {
+    return { label: '在文件管理器中显示', icon: icons.folderOpen,
+      run: () => this.options.dispatch({ type: 'workspace-reveal', path }) }
+  }
+
   getTab(): LeftTab {
     return this.activeTab
   }
@@ -303,6 +339,7 @@ export class LeftPanel {
 
   setContextState(workspace: string | null, activePath: string | null) {
     const rootChanged = this.workspaceRoot !== workspace
+    const activeFileChanged = this.activeFilePath !== activePath
     this.workspaceRoot = workspace
     this.activeFilePath = activePath
     if (rootChanged) {
@@ -313,7 +350,8 @@ export class LeftPanel {
     this.workspaceMetaEl.title = workspace ?? '点击右侧按钮打开文件夹'
     this.createFileBtn.disabled = !workspace
     this.createFolderBtn.disabled = !workspace
-    this.renderWorkspace()
+    // 统计和状态栏更新经常推送同一工作区状态，保留原行及其打开的菜单。
+    if (rootChanged || activeFileChanged) this.renderWorkspace()
   }
 
   setWorkspace(entries: WorkspaceEntry[]) {
@@ -355,11 +393,14 @@ export class LeftPanel {
         })
         const row = el('div', {
           className: `yy-tree-row${isCurrent ? ' is-active' : ''}${isSelectedDir ? ' is-selected-dir' : ''}`,
-          attrs: { 'data-path': entry.path },
+          attrs: { 'data-path': entry.path, 'data-name': entry.name },
         })
-        row.style.paddingLeft = `${10 + depth * 14}px`
+        row.style.paddingLeft = `min(${10 + depth * 14}px, max(10px, calc(100% - 160px)))`
 
-        const mainBtn = el('button', { className: 'yy-tree-main', type: 'button', title: entry.path })
+        const mainBtn = el('button', {
+          className: 'yy-tree-main', type: 'button', title: entry.path,
+          attrs: { 'aria-haspopup': 'menu' },
+        })
         if (isDir) {
           mainBtn.append(
             el('span', { className: 'yy-icon yy-tree-caret', html: isExpanded ? icons.chevronDown : icons.chevronRight }),
@@ -368,7 +409,7 @@ export class LeftPanel {
         } else {
           mainBtn.append(
             el('span', { className: 'yy-tree-spacer' }),
-            el('span', { className: 'yy-icon yy-tree-type', html: icons.file }),
+            el('span', { className: 'yy-icon yy-tree-type', html: entry.kind === 'image' ? icons.image : icons.file }),
           )
         }
         mainBtn.append(el('span', { className: 'yy-tree-label', text: entry.name }))
@@ -381,64 +422,32 @@ export class LeftPanel {
               this.expandedFolders.add(entry.path)
             }
             this.renderWorkspace()
+          } else if (entry.kind === 'image') {
+            this.options.onPreviewImage(entry)
           } else {
             this.options.dispatch({ type: 'open-path', path: entry.path })
             this.options.onAfterNavigate()
           }
         })
 
+        const commands = this.fileCommands(entry)
+        const primary = isDir ? (isExpanded ? '折叠' : '展开') : entry.kind === 'image' ? '预览图片' : '打开文件'
+        bindContextMenu(row, `${entry.name} 的操作`, () => [
+          buttonCommand(primary, mainBtn), null, ...commands, null,
+          copyCommand('复制路径', entry.path, row, this.options.notify), this.revealCommand(entry.path),
+        ], mainBtn)
         const rowActions = el('div', { className: 'yy-tree-actions' })
-        if (isDir) {
-          const addFileBtn = el('button', {
-            className: 'yy-icon-btn yy-icon-btn-xs',
-            type: 'button',
-            html: icons.filePlus,
-            title: '在此文件夹新建文件',
-            attrs: { 'aria-label': `在 ${entry.name} 中新建文件` },
+        for (const { label, accessibleName, icon, run, danger } of commands) {
+          const button = el('button', {
+            className: `yy-icon-btn yy-icon-btn-xs${danger ? ' yy-icon-btn-danger' : ''}`,
+            type: 'button', html: icon, title: label, attrs: { 'aria-label': accessibleName },
           })
-          addFileBtn.addEventListener('click', event => {
-            event.stopPropagation()
-            this.promptCreate(false, entry.path)
+          button.addEventListener('click', () => {
+            mainBtn.focus({ preventScroll: true })
+            run()
           })
-          const addFolderBtn = el('button', {
-            className: 'yy-icon-btn yy-icon-btn-xs',
-            type: 'button',
-            html: icons.folderPlus,
-            title: '在此文件夹新建子文件夹',
-            attrs: { 'aria-label': `在 ${entry.name} 中新建文件夹` },
-          })
-          addFolderBtn.addEventListener('click', event => {
-            event.stopPropagation()
-            this.promptCreate(true, entry.path)
-          })
-          rowActions.append(addFileBtn, addFolderBtn)
+          rowActions.append(button)
         }
-
-        const renameBtn = el('button', {
-          className: 'yy-icon-btn yy-icon-btn-xs',
-          type: 'button',
-          html: icons.edit,
-          title: '重命名',
-          attrs: { 'aria-label': `重命名 ${entry.name}` },
-        })
-        renameBtn.addEventListener('click', event => {
-          event.stopPropagation()
-          this.promptRename(entry)
-        })
-
-        const trashBtn = el('button', {
-          className: 'yy-icon-btn yy-icon-btn-xs yy-icon-btn-danger',
-          type: 'button',
-          html: icons.trash,
-          title: '移入废纸篓',
-          attrs: { 'aria-label': `将 ${entry.name} 移入废纸篓` },
-        })
-        trashBtn.addEventListener('click', event => {
-          event.stopPropagation()
-          this.promptTrash(entry)
-        })
-
-        rowActions.append(renameBtn, trashBtn)
         row.append(mainBtn, rowActions)
         itemWrap.append(row)
 
@@ -490,6 +499,9 @@ export class LeftPanel {
         this.options.dispatch({ type: 'outline', from: entry.from })
         this.options.onAfterNavigate()
       })
+      bindContextMenu(btn, '大纲操作', () => [
+        buttonCommand('跳转到标题', btn), copyCommand('复制标题', entry.title, btn, this.options.notify),
+      ])
       this.outlineList.append(btn)
     }
   }
@@ -529,6 +541,10 @@ export class LeftPanel {
         this.options.dispatch({ type: 'open-path', path: result.path, line: result.line })
         this.options.onAfterNavigate()
       })
+      bindContextMenu(item, '检索结果操作', () => [
+        buttonCommand('打开并跳转', item), copyCommand('复制匹配内容', result.preview, item, this.options.notify),
+        copyCommand('复制路径', result.path, item, this.options.notify), this.revealCommand(result.path),
+      ])
       this.searchList.append(item)
     }
   }

@@ -1,12 +1,12 @@
 import { Compartment, EditorState, Prec, StateEffect, StateField, Transaction } from '@codemirror/state'
 import { EditorView, highlightActiveLine, keymap } from '@codemirror/view'
-import { defaultKeymap, history, historyKeymap, invertedEffects, isolateHistory, redo, undo } from '@codemirror/commands'
+import { defaultKeymap, history, historyKeymap, invertedEffects, isolateHistory, redo, redoDepth, undo, undoDepth } from '@codemirror/commands'
 import { markdown } from '@codemirror/lang-markdown'
-import { defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language'
+import { defaultHighlightStyle, syntaxHighlighting, syntaxTree } from '@codemirror/language'
 import { languages } from '@codemirror/language-data'
 import { parser } from '@lezer/markdown'
 import { markdownSyntax } from './syntax'
-import type { Editor, EditorMode, EditorOptions, OutlineEntry, Presentation, Selection } from '../contracts'
+import type { Editor, EditorContext, EditorMode, EditorOptions, OutlineEntry, Presentation, Selection } from '../contracts'
 import { coalesceEndings, encode, encodedOffset, locate, originalOffset, originalSlice, rawBuffer, rawHistory, restoreRaw } from './buffer'
 import { applyFormat, blockFormats, lineFormats } from './formats'
 import { liveDecoration, liveInsertionPoint } from './live'
@@ -87,32 +87,87 @@ export function createEditor(host: HTMLElement, options: EditorOptions): Editor 
         const value = data.getData(clipboardType) || data.getData('text/plain')
         if (!value) return false
         const { anchor, head } = getSelection()
-        const point = editor.state.selection.main.head
-        const shift = currentMode === 'live' && anchor === head ? liveInsertionPoint(editor, point) - point : 0
-        const from = Math.min(anchor, head) + shift
         event.preventDefault()
-        const cursor = from + value.length
-        replace(from, Math.max(anchor, head) + shift, value, { anchor: cursor, head: cursor }, 'input.paste')
+        pasteText(Math.min(anchor, head), Math.max(anchor, head), value)
         return true
       },
       click(event) {
         if (!(event.target instanceof window.Element)) return false
         const anchor = event.target.closest<HTMLAnchorElement>('a[href]')
-        const textLink = event.target.closest<HTMLElement>('[data-markdown-url]')
-        const url = anchor?.getAttribute('href') ?? textLink?.dataset.markdownUrl
-        if (!url || !safeUrl(url) || (!anchor && !display.readonly && !event.metaKey && !event.ctrlKey)) return false
+        const url = linkUrl(event.target)
+        if (!url || (!anchor && !display.readonly && !event.metaKey && !event.ctrlKey)) return false
         event.preventDefault()
-        if (url.startsWith('#')) {
-          // 文档内锚点使用原文偏移跳转，也适用于混合换行的大纲。
-          const target = getOutline().find(entry => '#' + entry.id === url || '#' + encodeURIComponent(entry.id ?? '') === url)
-          if (target) select({ anchor: target.from, head: target.from })
-        } else options.onOpenLink?.(url)
+        openLink(url)
         return true
       },
     })),
   ]
   const view = new EditorView({ parent: host, state: EditorState.create({ extensions: extensions() }) })
   host.dataset.mode = currentMode
+
+  function linkUrl(target: Element) {
+    const link = target.closest<HTMLElement>('a[href], [data-markdown-url]')
+    const url = link?.getAttribute('href') ?? link?.dataset.markdownUrl
+    return url && safeUrl(url) ? url : undefined
+  }
+
+  function openLink(url: string) {
+    if (url.startsWith('#')) {
+      // 文档内锚点使用原文偏移跳转，也适用于混合换行的大纲。
+      const target = getOutline().find(entry => '#' + entry.id === url || '#' + encodeURIComponent(entry.id ?? '') === url)
+      if (target) select({ anchor: target.from, head: target.from })
+    } else options.onOpenLink?.(url)
+  }
+
+  function contextAt(target: Element, point?: { x: number; y: number }): EditorContext | null {
+    // 表格行内编辑器在失焦时提交。让系统菜单在单元格内保持原来的选区。
+    if (view.composing || target.closest('.live-cell-editor')) return null
+    const { state } = view
+    const raw = state.field(rawBuffer)
+    const offset = (position: number) => originalOffset(state.doc, raw, position)
+    const selection = state.selection.main
+    const position = point ? view.posAtCoords(point, false) : selection.head
+    const preview = target.closest<HTMLElement>('.live-media-preview')
+    const diagram = target.closest<HTMLElement>('.live-diagram-preview[tabindex]')
+    const image = target.closest<HTMLImageElement>('img[src]') ?? target.closest('.live-image-preview')?.querySelector('img[src]')
+    if (position != null && point && !preview && !diagram && !state.readOnly &&
+      (selection.empty || position < selection.from || position > selection.to)) {
+      select({ anchor: offset(position), head: offset(position) }, false)
+    }
+    const context: EditorContext = {
+      readonly: state.readOnly, selected: !view.state.selection.main.empty || getSelection().anchor !== getSelection().head,
+      canUndo: undoDepth(state) > 0, canRedo: redoDepth(state) > 0,
+      selectAll: () => { select({ anchor: 0, head: offset(state.doc.length) }, false); view.focus() },
+    }
+    const url = linkUrl(target)
+    if (url) context.link = { url, open: () => openLink(url) }
+    if (image?.naturalWidth) context.image = { src: image.currentSrc || image.src, name: image.alt || '图片' }
+    if (diagram && !state.readOnly) context.editDiagram = () => diagram.click()
+    if (!state.readOnly) {
+      // 组件位于源码末尾。源码上右键则直接使用该位置对应的语法节点。
+      const tree = syntaxTree(state)
+      const at = preview ? view.posAtDOM(preview) : position
+      if (at != null) {
+        let node = tree.resolveInner(at, preview ? -1 : 1)
+        const media = () => /^(?:Image|Link|Autolink)$/.test(node.name) ||
+          (node.name === 'URL' && !/^(?:Image|Link|Autolink|LinkReference)$/.test(node.parent?.name ?? ''))
+        while (node.parent && !media()) node = node.parent
+        if (media()) {
+          const { from, to } = node
+          const destination = node.name === 'URL' ? node : node.getChild('URL')
+          if (!context.link && node.name !== 'Image' && destination) {
+            const address = state.doc.sliceString(destination.from, destination.to).replace(/^<|>$/g, '')
+            const url = node.name === 'Autolink' && /^[^:@]+@/.test(address) ? 'mailto:' + address : address
+            if (safeUrl(url)) context.link = { url, open: () => openLink(url) }
+          }
+          context.media = { image: !!image || node.name === 'Image', select: () => {
+            select({ anchor: offset(from), head: offset(to) }); view.focus()
+          } }
+        }
+      }
+    }
+    return context
+  }
 
   async function pasteAssets(files: File[]) {
     try {
@@ -142,6 +197,22 @@ export function createEditor(host: HTMLElement, options: EditorOptions): Editor 
     const a = locate(state.doc, raw, from)
     const b = locate(state.doc, raw, to)
     return originalSlice(state.doc, raw, a.pos, b.pos + b.inside).slice(a.inside, b.inside ? -1 : undefined)
+  }
+
+  function pasteText(from: number, to: number, value: string) {
+    const { state } = view
+    if (!value || state.readOnly) return
+    if (currentMode === 'live' && from === to) {
+      const raw = state.field(rawBuffer)
+      const pos = locate(state.doc, raw, from).pos
+      const point = liveInsertionPoint(view, pos)
+      if (point !== pos) {
+        from = originalOffset(state.doc, raw, point)
+        to = from
+      }
+    }
+    const cursor = from + value.length
+    replace(from, to, value, { anchor: cursor, head: cursor }, 'input.paste')
   }
 
   function getSelection(): Selection {
@@ -241,8 +312,10 @@ export function createEditor(host: HTMLElement, options: EditorOptions): Editor 
     },
     getMarkdown: () => originalSlice(view.state.doc, view.state.field(rawBuffer)),
     getSelection,
+    contextAt,
     select,
     replace,
+    pasteText,
     setMode(next) {
       if (currentMode === next) return
       currentMode = next

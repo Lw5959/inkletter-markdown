@@ -173,6 +173,8 @@ fn main() {
             titlebar::titlebar_zoom,
             workspace::workspace_root,
             workspace::workspace_tree,
+            workspace::workspace_image,
+            workspace::workspace_reveal,
             workspace::workspace_search,
             workspace::workspace_create,
             workspace::workspace_rename,

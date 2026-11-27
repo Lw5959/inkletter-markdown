@@ -44,7 +44,7 @@
 .yy-sidebar-slot-right > aside { right: 0; transform: translateX(100%); }
 .yy-sidebar-slot[data-open="true"] > aside { transform: none; }
 
-.yy-shell :is(.yy-menu-popover, .yy-submenu-panel, .yy-picker-list, .yy-pane, .yy-ai-context, .yy-suggestion-host),
+.yy-shell :is(.yy-menu-popover, .yy-submenu-panel, .yy-context-menu, .yy-picker-list, .yy-pane, .yy-ai-context, .yy-suggestion-host),
 .yy-shell:not(.yy-mobile) .yy-tool-page {
   animation: var(--yy-motion-disabled, yy-reveal var(--yy-motion-fast) var(--yy-motion-ease));
 }
@@ -59,7 +59,7 @@
   animation: var(--yy-motion-disabled, yy-enter var(--yy-motion-dialog) var(--yy-motion-ease));
 }
 
-.yy-shell :is(.yy-tree-actions, .yy-topbar, .yy-statusbar) {
+.yy-shell :is(.yy-topbar, .yy-statusbar) {
   transition: var(--yy-motion-disabled, opacity var(--yy-motion-fast) ease);
 }
 

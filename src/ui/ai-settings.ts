@@ -4,6 +4,7 @@ import type { AiIntent, AiModelOptions, AiPrompts, AiProtocol, AiProviderDraft, 
 import type { DialogPresenter } from './dialogs'
 import { modelDiscovery } from './ai-model-discovery'
 import { ChoicePicker } from './choice-picker'
+import { bindContextMenu, buttonCommand, copyCommand, selectedText, type ContextItem } from './context-menu'
 import { el, selectWithIcon } from './helpers'
 import { icons } from './icons'
 import { detectMac } from './shortcuts'
@@ -70,6 +71,19 @@ export function openModelSettings(modals: DialogPresenter, settings: () => AiSet
         select(row.id)
         // 列表更新后让键盘焦点仍停在刚选中的供应商。
         list.querySelector<HTMLElement>('[aria-pressed="true"]')?.focus()
+      })
+      bindContextMenu(button, '供应商操作', () => {
+        const commands: ContextItem[] = [buttonCommand('编辑供应商', button)]
+        const provider = settings().providers.find(item => item.id === row.id)
+        if (provider) {
+          commands.push(copyCommand('复制 API 地址', provider.endpoint, button), {
+            label: '删除供应商', run: () => {
+              select(row.id)
+              editor.querySelector<HTMLButtonElement>('[data-provider-remove]')?.click()
+            },
+          })
+        }
+        return commands
       })
       list.append(button)
     }
@@ -192,6 +206,11 @@ export function openModelSettings(modals: DialogPresenter, settings: () => AiSet
           el('div', { className: 'yy-ai-model-entry' }, labelled('模型 ID', input), labelled('显示名', displayName), remove),
           el('div', { className: 'yy-ai-model-limits' }, labelled('输入上限（Token）', inputTokens),
             labelled('输出上限（Token）', outputTokens), labelled('思考强度', selectWithIcon(effort)), labelled('图片输入', selectWithIcon(imageInput))))
+        bindContextMenu(row, '模型操作', () => [
+          { label: '编辑模型 ID', run: () => { input.focus(); input.select() } },
+          ...(input.value.trim() ? [copyCommand('复制模型 ID', input.value.trim(), row)] : []),
+          buttonCommand('移除模型', remove),
+        ], remove)
         if (focus === index) queueMicrotask(() => input.focus())
         return row
       }))
@@ -240,7 +259,7 @@ export function openModelSettings(modals: DialogPresenter, settings: () => AiSet
       clearLabel, migrate, modelFields, status,
     )
     if (saved) {
-      const remove = el('button', { className: 'yy-btn yy-btn-sm yy-btn-ghost', type: 'button', text: '删除供应商' })
+      const remove = el('button', { className: 'yy-btn yy-btn-sm yy-btn-ghost', type: 'button', text: '删除供应商', attrs: { 'data-provider-remove': '' } })
       const confirm = el('button', { className: 'yy-btn yy-btn-sm yy-btn-danger', type: 'button', text: '确认删除' })
       const cancel = el('button', { className: 'yy-btn yy-btn-sm yy-btn-ghost', type: 'button', text: '取消' })
       const alert = el('div', { className: 'yy-ai-provider-remove', attrs: { hidden: '' } },
@@ -338,6 +357,13 @@ export function openPromptSettings(modals: DialogPresenter, prompts: AiPrompts, 
     delete drafts[intent]
     showTask()
     input.focus()
+  })
+  bindContextMenu(editor, '提示词操作', () => {
+    const selection = selectedText(preview)
+    return [
+      ...(selection ? [copyCommand('复制所选文字', selection, preview)] : []),
+      copyCommand('复制完整提示词', preview.textContent, preview), buttonCommand('恢复默认', reset),
+    ]
   })
   showTask()
   body.append(tasks, editor)

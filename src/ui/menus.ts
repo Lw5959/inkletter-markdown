@@ -10,6 +10,7 @@ import type {
   DocumentWidth,
 } from '../contracts'
 import { el } from './helpers'
+import type { ContextItem } from './context-menu'
 import { icons } from './icons'
 import { detectMac, type ShortcutCommandId, type ShortcutRegistry } from './shortcuts'
 
@@ -41,21 +42,22 @@ export const IMAGE_MODES: readonly { mode: ImageMode; label: string }[] = [
   { mode: 'upload', label: '按配置上传图片' },
 ]
 
+type MenuItem = {
+  kind: 'item'
+  label: string
+  location?: string
+  shortcutId?: ShortcutCommandId
+  checked?: boolean
+  disabled?: boolean
+  icon?: string
+  count?: number
+  theme?: Pick<Theme, 'id' | 'swatch'>
+  onSelect: () => void
+}
 type MenuCommand =
   | { kind: 'separator' }
   | { kind: 'heading'; label: string }
-  | {
-      kind: 'item'
-      label: string
-      location?: string
-      shortcutId?: ShortcutCommandId
-      checked?: boolean
-      disabled?: boolean
-      icon?: string
-      count?: number
-      theme?: Pick<Theme, 'id' | 'swatch'>
-      onSelect: () => void
-    }
+  | MenuItem
 
 type MenuItems = MenuCommand[] | (() => MenuCommand[])
 type MenuEntry = MenuCommand | { kind: 'submenu'; label: string; items: MenuItems }
@@ -225,7 +227,6 @@ export class MenuBar {
   private buildEntries(key: TopMenuKey): MenuEntry[] {
     const state = this.ctx.getState()
     const imageMode = this.ctx.getImageMode()
-    const dispatchFormat = (format: EditorFormat) => this.ctx.dispatch({ type: 'format', format })
     const togglePres = (field: keyof ShellState['presentation']) => {
       const next = { ...state.presentation, [field]: !state.presentation[field] }
       this.ctx.dispatch({ type: 'presentation', value: next })
@@ -319,37 +320,15 @@ export class MenuBar {
     }
 
     if (key === 'format') {
+      const { inline, blocks, media } = this.formatItems()
       return [
         { kind: 'heading', label: '行内样式' },
-        { kind: 'item', label: '加粗', shortcutId: 'format.bold', onSelect: () => dispatchFormat('bold') },
-        { kind: 'item', label: '斜体', shortcutId: 'format.italic', onSelect: () => dispatchFormat('italic') },
-        { kind: 'item', label: '下划线', shortcutId: 'format.underline', onSelect: () => dispatchFormat('underline') },
-        { kind: 'item', label: '高亮', onSelect: () => dispatchFormat('highlight') },
-        { kind: 'item', label: '上标', onSelect: () => dispatchFormat('superscript') },
-        { kind: 'item', label: '下标', onSelect: () => dispatchFormat('subscript') },
-        { kind: 'item', label: '删除线', shortcutId: 'format.strike', onSelect: () => dispatchFormat('strike') },
-        { kind: 'item', label: '行内代码', shortcutId: 'format.inlineCode', onSelect: () => dispatchFormat('inline-code') },
-        { kind: 'item', label: '插入链接', shortcutId: 'format.link', onSelect: () => dispatchFormat('link') },
-        { kind: 'item', label: '清除格式', onSelect: () => dispatchFormat('clear') },
+        ...inline,
         { kind: 'separator' },
         { kind: 'heading', label: '段落与块级结构' },
-        { kind: 'item', label: '一级标题', shortcutId: 'format.heading1', onSelect: () => dispatchFormat('heading-1') },
-        { kind: 'item', label: '二级标题', shortcutId: 'format.heading2', onSelect: () => dispatchFormat('heading-2') },
-        { kind: 'item', label: '三级标题', shortcutId: 'format.heading3', onSelect: () => dispatchFormat('heading-3') },
-        { kind: 'item', label: '引用块', shortcutId: 'format.quote', onSelect: () => dispatchFormat('quote') },
-        { kind: 'item', label: '无序列表', onSelect: () => dispatchFormat('bullet-list') },
-        { kind: 'item', label: '有序列表', onSelect: () => dispatchFormat('ordered-list') },
-        { kind: 'item', label: '任务列表', onSelect: () => dispatchFormat('task') },
-        { kind: 'item', label: '表格', onSelect: () => dispatchFormat('table') },
-        { kind: 'item', label: '代码块', shortcutId: 'format.codeBlock', onSelect: () => dispatchFormat('code-block') },
-        { kind: 'item', label: '数学公式块 (LaTeX)', onSelect: () => dispatchFormat('math') },
-        { kind: 'item', label: 'Mermaid 图表', onSelect: () => dispatchFormat('mermaid') },
-        { kind: 'item', label: '分割线', onSelect: () => dispatchFormat('rule') },
-        { kind: 'item', label: '插入目录 [TOC]', onSelect: () => dispatchFormat('toc') },
-        { kind: 'item', label: '插入脚注', onSelect: () => dispatchFormat('footnote') },
+        ...blocks,
         { kind: 'separator' },
-        { kind: 'item', label: '插入图片语法', onSelect: () => dispatchFormat('image') },
-        { kind: 'item', label: '导入本地图片…', onSelect: () => this.ctx.dispatch({ type: 'image-import' }) },
+        ...media,
         {
           kind: 'submenu',
           label: '图片资源策略',
@@ -458,7 +437,7 @@ export class MenuBar {
       {
         kind: 'submenu', label: '文件树筛选', items: [
           { kind: 'item', label: '显示隐藏项', checked: state.workspaceFilter?.hidden ?? false, onSelect: () => this.ctx.dispatch({ type: 'workspace-filter', option: 'hidden' }) },
-          { kind: 'item', label: '显示非 Markdown 项', checked: state.workspaceFilter?.all ?? false, onSelect: () => this.ctx.dispatch({ type: 'workspace-filter', option: 'all' }) },
+          { kind: 'item', label: '显示其他文件', checked: state.workspaceFilter?.all ?? false, onSelect: () => this.ctx.dispatch({ type: 'workspace-filter', option: 'all' }) },
           { kind: 'item', label: '设置路径规则…', checked: !!state.workspaceFilter?.glob, onSelect: () => this.ctx.dispatch({ type: 'workspace-filter', option: 'glob' }) },
         ],
       },
@@ -477,6 +456,39 @@ export class MenuBar {
           { kind: 'item' as const, label: '液态玻璃', checked: titlebar.material === 'liquid', disabled: !titlebar.liquidAvailable, onSelect: () => this.ctx.dispatch({ type: 'titlebar-material', material: 'liquid' }) },
         ],
       }] : []),
+    ]
+  }
+
+  private formatItems() {
+    const item = (label: string, format: EditorFormat, shortcutId?: ShortcutCommandId): MenuItem => ({
+      kind: 'item', label, shortcutId, onSelect: () => this.ctx.dispatch({ type: 'format', format }),
+    })
+    return {
+      inline: [
+        item('加粗', 'bold', 'format.bold'), item('斜体', 'italic', 'format.italic'), item('下划线', 'underline', 'format.underline'),
+        item('高亮', 'highlight'), item('上标', 'superscript'), item('下标', 'subscript'), item('删除线', 'strike', 'format.strike'),
+        item('行内代码', 'inline-code', 'format.inlineCode'), item('插入链接', 'link', 'format.link'), item('清除格式', 'clear'),
+      ],
+      blocks: [
+        item('一级标题', 'heading-1', 'format.heading1'), item('二级标题', 'heading-2', 'format.heading2'),
+        item('三级标题', 'heading-3', 'format.heading3'), item('引用块', 'quote', 'format.quote'), item('无序列表', 'bullet-list'),
+        item('有序列表', 'ordered-list'), item('任务列表', 'task'), item('表格', 'table'), item('代码块', 'code-block', 'format.codeBlock'),
+        item('数学公式块 (LaTeX)', 'math'), item('Mermaid 图表', 'mermaid'), item('分割线', 'rule'),
+        item('插入目录 [TOC]', 'toc'), item('插入脚注', 'footnote'),
+      ],
+      media: [item('插入图片语法', 'image'), {
+        kind: 'item' as const, label: '导入本地图片…', onSelect: () => this.ctx.dispatch({ type: 'image-import' }),
+      }],
+    }
+  }
+
+  editorFormatCommands(): ContextItem[] {
+    const { inline, blocks, media } = this.formatItems()
+    const commands = (items: MenuItem[]) => items.map(({ label, onSelect }) => ({ label, run: onSelect }))
+    return [
+      { label: '行内样式', items: commands(inline) },
+      { label: '段落与块级结构', items: commands(blocks) },
+      ...commands(media),
     ]
   }
 

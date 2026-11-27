@@ -1,5 +1,6 @@
 import type { AiSkill, ShellAction, ShellActions } from '../contracts'
 import type { DialogPresenter } from './dialogs'
+import { bindContextMenu, buttonCommand, copyCommand, type ContextItem } from './context-menu'
 import { el } from './helpers'
 import { icons } from './icons'
 
@@ -36,15 +37,25 @@ export function openSkills(modals: DialogPresenter, skills: () => AiSkill[], dis
       const use = el('button', { className: 'yy-btn yy-btn-sm yy-btn-primary', type: 'button', text: '本轮使用', attrs: { 'aria-label': '使用 ' + label } })
       use.onclick = () => { modals.close(); select(skill.name) }
       const actions = el('div', { className: 'yy-ai-chat-controls' }, use)
-      if (!skill.builtIn) {
-        const remove = el('button', { className: 'yy-btn yy-btn-sm yy-btn-ghost', type: 'button', text: '移除', attrs: { 'aria-label': '移除 ' + label } })
+      const remove = skill.builtIn ? null : el('button', {
+        className: 'yy-btn yy-btn-sm yy-btn-ghost', type: 'button', text: '移除', attrs: { 'aria-label': '移除 ' + label },
+      })
+      if (remove) {
         remove.onclick = () => { void update({ type: 'ai-skill-remove', name: skill.name }) }
         actions.append(remove)
       }
       const preview = el('details', {}, el('summary', { text: '查看技能内容' }),
         el('pre', { className: 'yy-context-fulltext', text: skill.instructions, attrs: { tabindex: '0' } }))
-      return el('article', { className: 'yy-ai-skill-row', attrs: { 'aria-label': label } }, el('strong', { text: label }),
+      const row = el('article', { className: 'yy-ai-skill-row', attrs: { 'aria-label': label } }, el('strong', { text: label }),
         el('p', { className: 'yy-ai-setting-help', text: skill.description }), preview, actions)
+      bindContextMenu(row, '写作技能操作', () => {
+        const commands: ContextItem[] = [buttonCommand('本轮使用', use),
+          { label: preview.open ? '收起技能内容' : '查看技能内容', run: () => { preview.open = !preview.open } },
+          copyCommand('复制技能内容', skill.instructions, row)]
+        if (remove) commands.push(buttonCommand('移除技能', remove))
+        return commands
+      }, use)
+      return row
     }))
   }
   close.onclick = () => modals.close()

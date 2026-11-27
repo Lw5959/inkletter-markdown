@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import '../dialogs.css'
 import './update-dialog.css'
 import { el } from './helpers'
+import { bindContextMenu, closeContextMenu, copyCommand, selectedText, type ContextItem } from './context-menu'
 import { dismissOnBackdrop } from './dialog-dismiss'
 import { openDesktopWindow } from './desktop-window'
 import { markdownLink, renderMarkdownContent } from './markdown-content'
@@ -80,6 +81,7 @@ export function showUpdate(check: UpdateCheck, pages?: UpdatePages, preferences?
   const closeDialog = () => {
     if (!dialog || dismissed) return
     dismissed = true
+    closeContextMenu(dialog.ownerDocument)
     updateWindows.delete(document)
     if (popup) {
       popup.close()
@@ -142,6 +144,7 @@ export function showUpdate(check: UpdateCheck, pages?: UpdatePages, preferences?
   panel.append(body, el('div', { className: 'app-dialog-actions' }, dismiss, primary))
 
   let installedVersion: string | undefined
+  let releaseNotes = ''
   let applying = false
   let checkId = 0
 
@@ -275,6 +278,7 @@ export function showUpdate(check: UpdateCheck, pages?: UpdatePages, preferences?
       showAction(installs ? '安装更新' : '下载更新', () => apply(release))
       const rendered = release.notes.trim() ? await renderMarkdownContent(release.notes) : '暂无发布说明。'
       if (!currentCheck()) return
+      releaseNotes = release.notes
       notesBody.replaceChildren(rendered)
       notes.hidden = false
       popup?.setHeight(releaseHeight)
@@ -294,6 +298,16 @@ export function showUpdate(check: UpdateCheck, pages?: UpdatePages, preferences?
     })
   })
   if (dialog) {
+    bindContextMenu(current, '版本信息', () => installedVersion ? [copyCommand('复制当前版本', installedVersion, current)] : [])
+    bindContextMenu(notesBody, '发布说明操作', target => {
+      const link = target.closest<HTMLAnchorElement>('a[href]')
+      const text = selectedText(notesBody)
+      const commands: ContextItem[] = []
+      if (link) commands.push({ label: '打开链接', run: () => link.click() }, copyCommand('复制链接地址', link.getAttribute('href')!, notesBody))
+      if (text) commands.push(copyCommand('复制所选文字', text, notesBody))
+      if (releaseNotes.trim()) commands.push(copyCommand('复制发布说明', releaseNotes, notesBody))
+      return commands
+    })
     dismiss.onclick = closeDialog
     dialog.addEventListener('keydown', event => event.stopPropagation())
     dialog.addEventListener('cancel', event => {

@@ -367,6 +367,9 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
   top: calc(100% + 5px);
   min-width: 224px;
   max-height: min(74vh, 520px);
+}
+
+:is(.yy-shell, .app-dialog) :is(.yy-menu-popover, .yy-submenu-panel, .yy-context-menu) {
   overflow-y: auto;
   padding: 5px;
   background: var(--yy-chrome-elevated);
@@ -384,7 +387,7 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
   border-radius: 3px;
 }
 
-.yy-shell .yy-menu-item {
+:is(.yy-shell, .app-dialog) .yy-menu-item {
   width: 100%;
   display: flex;
   align-items: center;
@@ -400,16 +403,12 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
   cursor: pointer;
 }
 
-.yy-shell .yy-menu-item.is-selected,
-.yy-shell .yy-menu-item[aria-checked="true"],
-.yy-shell .yy-menu-item[aria-expanded="true"],
-.yy-shell .yy-menu-item:hover:not(:disabled),
-.yy-shell .yy-menu-item:focus-visible {
+:is(.yy-shell, .app-dialog) .yy-menu-item:is(.is-selected, [aria-checked="true"], [aria-expanded="true"], :hover:not(:disabled), :focus-visible) {
   background: var(--yy-accent-soft);
   color: var(--yy-ink);
 }
 
-.yy-shell .yy-menu-item:focus-visible {
+:is(.yy-shell, .app-dialog) .yy-menu-item:focus-visible {
   outline: 1px solid var(--yy-accent);
   outline-offset: -1px;
 }
@@ -422,12 +421,12 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
   background: var(--yy-accent-soft-pressed);
 }
 
-.yy-shell .yy-menu-item:disabled {
+:is(.yy-shell, .app-dialog) .yy-menu-item:disabled {
   opacity: 0.48;
   cursor: default;
 }
 
-.yy-shell .yy-menu-check {
+:is(.yy-shell, .app-dialog) .yy-menu-check {
   width: 15px;
   height: 15px;
   display: inline-flex;
@@ -437,7 +436,7 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
   flex-shrink: 0;
 }
 
-.yy-shell .yy-menu-label {
+:is(.yy-shell, .app-dialog) .yy-menu-label {
   flex: 1;
   min-width: 0;
   white-space: nowrap;
@@ -453,7 +452,7 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
   border-radius: 4px;
 }
 
-.yy-shell .yy-menu-sep {
+:is(.yy-shell, .app-dialog) .yy-menu-sep {
   height: 1px;
   margin: 4px 6px;
   background: var(--yy-border);
@@ -1074,14 +1073,16 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 
 /* File Tree */
 .yy-shell .yy-tree-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 4px;
-  padding-right: 6px;
   border-radius: var(--yy-radius-sm);
+  font-size: 12.5px;
+  line-height: 1.4;
 }
 
-.yy-shell .yy-tree-row:hover {
+.yy-shell .yy-tree-row:hover,
+.yy-shell .yy-tree-row:has(> [aria-expanded="true"]) {
   background: var(--yy-chrome-subtle);
 }
 
@@ -1102,7 +1103,8 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 }
 
 .yy-shell .yy-tree-main {
-  flex: 1;
+  grid-area: 1 / 1;
+  align-self: stretch;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -1111,14 +1113,17 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
   border: none;
   background: transparent;
   color: var(--yy-ink);
-  font-size: 12.5px;
+  font-size: inherit;
+  line-height: inherit;
   text-align: left;
   cursor: pointer;
 }
 
-.yy-shell .yy-tree-row.is-active .yy-tree-main {
+.yy-shell .yy-tree-row.is-active {
   font-weight: 600;
 }
+
+.yy-shell .yy-tree-main { font-weight: inherit; }
 
 .yy-shell .yy-tree-spacer {
   width: 15px;
@@ -1134,21 +1139,47 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 }
 
 .yy-shell .yy-tree-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* 悬停时保留完整名称的行高，鼠标从第二行进入也不会导致该行跳动。 */
+.yy-shell .yy-tree-row:hover::before {
+  content: attr(data-name);
+  grid-area: 1 / 1 / 2 / -1;
+  padding: 5px 4px 5px 44px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  visibility: hidden;
+}
+
+.yy-shell .yy-tree-row:hover .yy-tree-label {
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: pre;
 }
 
+/* 操作区只在悬停时参与布局，让名称使用整行的空余宽度。 */
 .yy-shell .yy-tree-actions {
-  display: inline-flex;
+  display: none;
+  grid-area: 1 / 2;
   align-items: center;
   gap: 1px;
-  opacity: 0;
+  margin-inline: 4px 6px;
 }
 
-.yy-shell .yy-tree-row:hover .yy-tree-actions,
-.yy-shell .yy-tree-row:focus-within .yy-tree-actions {
-  opacity: 1;
+.yy-shell .yy-tree-row:hover > .yy-tree-actions {
+  display: inline-flex;
+}
+
+:is(.yy-shell, .app-dialog) .yy-context-menu {
+  position: fixed;
+  box-sizing: border-box;
+  width: min(204px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  overscroll-behavior: contain;
+  z-index: 320;
 }
 
 /* Outline */
@@ -1932,6 +1963,39 @@ html[data-yeyu-titlebar] .yy-shell[data-mac-titlebar="true"] .yy-topbar {
 .yy-shell .yy-modal-prompt {
   width: min(420px, 100%);
 }
+
+.yy-shell .yy-image-preview {
+  width: min(900px, 100%);
+  height: min(680px, 78vh);
+}
+
+.yy-shell .yy-image-preview h2 { overflow-wrap: anywhere; }
+
+.yy-shell .yy-image-preview-frame {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  background: var(--yy-chrome-subtle);
+  color: var(--yy-ink-muted);
+}
+
+.yy-shell .yy-image-preview-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.yy-shell .yy-image-preview-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 36px;
+  padding: 6px 12px;
+}
+
+.yy-shell .yy-image-preview-actions { display: flex; gap: 8px; }
 
 .yy-shell .yy-modal-header {
   display: flex;

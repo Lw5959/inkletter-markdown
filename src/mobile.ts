@@ -3,6 +3,7 @@ import { builtinThemes } from './builtin-themes'
 import type { EditorFormat, EditorMode, Presentation, Selection } from './contracts'
 import { count, find, lineOffset } from './document-tools'
 import { createEditor } from './editor'
+import { localImage } from './images'
 import { createMobileMotion } from './mobile-motion'
 import type { MobileServicePage, MobileServiceSettings, createMobileServices } from './mobile-services'
 import { installMobileViewport } from './mobile-viewport'
@@ -12,6 +13,7 @@ import { cancelDialog } from './ui/dialog-dismiss'
 import { FindBar } from './ui/find-bar'
 import { el } from './ui/helpers'
 import { icons } from './ui/icons'
+import { createImagePreview } from './ui/image-preview'
 import { createPages } from './ui/pages'
 import { showAutomaticUpdate, showUpdate, type UpdatePreferences, type UpdateSource } from './ui/update-dialog'
 import './ui/shell.css'
@@ -21,7 +23,7 @@ import './mobile.css'
 type Origin = { uri: string; name: string; bom: boolean; version: string; writable: boolean }
 type Document = Origin & { text: string }
 type Draft = { origin: Origin | null; text: string; selection: Selection }
-type WorkspaceFile = { uri: string; name: string; path: string }
+type WorkspaceFile = { uri: string; name: string; path: string; kind?: 'image' }
 type RecentFile = { uri: string; name: string }
 type Session = { theme: string; animations: boolean; autoCheckUpdates?: boolean; mode: EditorMode; draft?: Draft; recoveries?: Draft[];
   recent?: RecentFile[]; workspace?: string; presentation?: Presentation; services?: MobileServiceSettings }
@@ -40,6 +42,8 @@ let hasDocument = false
 let recoveries: Draft[] = []
 let recent: RecentFile[] = []
 let workspace: string | undefined
+let workspaceFiles: { root: string; request: Promise<WorkspaceFile[]> } | undefined
+const imageSources = new Map<string, Promise<string>>()
 let presentation: Presentation = { focus: false, typewriter: false, spellcheck: false }
 let serviceSettings: MobileServiceSettings = {}
 let services: ReturnType<typeof createMobileServices> | undefined
@@ -71,6 +75,8 @@ const editor = createEditor(host, {
     scheduleCheckpoint()
   },
   onSelectionChange: () => { if (dirty && !replacing) scheduleCheckpoint() },
+  resolveImage: resolveMobileImage,
+  onOpenLink: url => operate(() => followLink(url)),
 })
 
 const fileOpen = iconButton('打开文件', icons.folderOpen, () => operate(openFile))
@@ -239,6 +245,7 @@ function showDocument(value: Document | null, draft?: Draft, opened = true) {
       saved = ''
     }
     if (draft) origin = draft.origin
+    imageSources.clear()
     editor.setMarkdown(draft?.text ?? saved)
     if (draft) editor.select(draft.selection, false)
     dirty = !!draft
@@ -279,6 +286,60 @@ function operate(action: () => Promise<unknown>) {
 
 const read = (uri: string) => invoke<Document>('android_read', { uri })
 const pick = (name?: string, mime?: string) => invoke<string | null>('android_pick', { name, mime })
+
+function loadWorkspace(root: string, refresh = false) {
+  if (!refresh && workspaceFiles?.root === root) return workspaceFiles.request
+  const request = invoke<{ entries: WorkspaceFile[] }>('android_workspace', { uri: root }).then(value => value.entries)
+  workspaceFiles = { root, request }
+  void request.catch(() => { if (workspaceFiles?.request === request) workspaceFiles = undefined })
+  return request
+}
+
+async function workspaceResource(uri: string, url: string) {
+  const path = localImage(url)
+  if (!workspace || !path || path.startsWith('/')) return
+  const entries = await loadWorkspace(workspace)
+  // 文件选择器和工作区可返回同一文档的单文件 URI 和树 URI。
+  const key = (value: string) => value.replace(/\/tree\/[^/]+(?=\/document\/)/, '')
+  const document = entries.find(file => key(file.uri) === key(uri))
+  if (!document) return
+  const parts = document.path.split('/').slice(0, -1)
+  for (const part of path.split('/')) {
+    if (part === '..') {
+      if (!parts.length) return
+      parts.pop()
+    } else if (part && part !== '.') parts.push(part)
+  }
+  const relative = parts.join('/')
+  return entries.find(file => file.path === relative)
+}
+
+function resolveMobileImage(url: string) {
+  if (/^(?:https?:\/\/|data:image\/)/i.test(url)) return url
+  const uri = origin?.uri
+  if (!uri) return ''
+  const cached = imageSources.get(url)
+  if (cached) return cached
+  const source = workspaceResource(uri, url)
+    .then(file => file?.kind === 'image' ? invoke<string>('android_image', { uri: file.uri }) : '')
+    .catch(() => '')
+  imageSources.set(url, source)
+  void source.then(value => { if (!value && imageSources.get(url) === source) imageSources.delete(url) })
+  return source
+}
+
+async function followLink(url: string) {
+  if (/^(https?:|mailto:)/i.test(url)) return invoke('visit_link', { url })
+  const uri = origin?.uri
+  const [path, anchor] = url.split('#', 2)
+  const file = uri && await workspaceResource(uri, path)
+  if (!file) throw new Error('找不到链接文件，请先打开它所在的工作区')
+  if (file.kind === 'image') { previewWorkspaceImage(file); return }
+  if (await openUri(file.uri) && anchor) {
+    const heading = editor.getOutline().find(item => item.id === anchor || encodeURIComponent(item.id ?? '') === anchor)
+    if (heading) editor.select({ anchor: heading.from, head: heading.from })
+  }
+}
 
 async function canLeave() {
   if (!dirty || editor.getMarkdown() === saved) return true
@@ -491,7 +552,7 @@ async function exportDocument(format: 'html' | 'pdf') {
   refresh('正在准备 ' + format.toUpperCase())
   const { exportHtml } = await import('./export')
   const name = origin?.name.replace(/\.[^.]+$/, '') ?? '未命名'
-  const html = await exportHtml(editor.getMarkdown(), name, {}, builtinThemes.find(item => item.id === theme), false, appearance.get())
+  const html = await exportHtml(editor.getMarkdown(), name, { resolveImage: resolveMobileImage }, builtinThemes.find(item => item.id === theme), false, appearance.get())
   if (format === 'pdf') {
     await invoke('android_print', { name, html })
     refresh('已打开系统打印预览')
@@ -532,11 +593,17 @@ async function openService(page: MobileServicePage) {
   await services.open(page)
 }
 
+function previewWorkspaceImage(file: WorkspaceFile) {
+  const { frame, detail } = createImagePreview(file.name, () => invoke('android_image', { uri: file.uri }))
+  pages.push('图片预览', el('div', { className: 'yy-mobile-brief-page yy-mobile-image-preview' },
+    el('strong', { text: file.name }), frame, detail))
+}
+
 async function showWorkspace(reselect = false) {
   const parent = pages.active
   const root = !workspace || reselect ? await invoke<string | null>('android_pick_workspace') : workspace
   if (!root || pages.active !== parent) return
-  const { entries } = await invoke<{ entries: WorkspaceFile[] }>('android_workspace', { uri: root })
+  const entries = await loadWorkspace(root, true)
   if (pages.active !== parent) return
   workspace = root
   scheduleCheckpoint()
@@ -548,8 +615,12 @@ async function showWorkspace(reselect = false) {
     el('div', { className: 'yy-mobile-workspace-tools' }, search, searchText), notice, results,
     el('div', { className: 'yy-mobile-file-actions' }, launchButton('更换文件夹', icons.folderOpen, () => operate(() => showWorkspace(true)))))
   const row = (file: WorkspaceFile, preview?: string, line?: number) => {
-    const button = el('button', { className: 'yy-mobile-row', type: 'button', text: preview ? `${file.path} · ${preview}` : file.path })
-    button.addEventListener('click', () => operate(async () => {
+    const label = preview ? `${file.path} · ${preview}` : file.path
+    const button = el('button', { className: 'yy-mobile-row', type: 'button' }, el('span', { text: label }))
+    if (file.kind === 'image') {
+      button.prepend(el('span', { className: 'yy-mobile-row-icon', html: icons.image }))
+      button.addEventListener('click', () => previewWorkspaceImage(file))
+    } else button.addEventListener('click', () => operate(async () => {
       if (await openUri(file.uri, line) && content.isConnected) pages.closeAll()
     }))
     return button
@@ -560,7 +631,7 @@ async function showWorkspace(reselect = false) {
     const term = search.value.trim().toLocaleLowerCase()
     const matches = entries.filter(file => file.path.toLocaleLowerCase().includes(term))
     results.replaceChildren(...matches.map(file => row(file)))
-    notice.textContent = matches.length ? `${matches.length} 个文档` : '没有匹配的 Markdown 文件'
+    notice.textContent = matches.length ? `${matches.length} 个文件` : '没有匹配的文件'
   }
   function runSearch() {
     const term = search.value.trim().toLocaleLowerCase()
@@ -574,6 +645,7 @@ async function showWorkspace(reselect = false) {
       let skipped = 0
       for (const file of entries) {
         if (!content.isConnected || matches >= 100) break
+        if (file.kind === 'image') continue
         const value = await read(file.uri).catch(() => null)
         if (!value) { skipped++; continue }
         const lines = value.text.split(/\r\n|[\r\n]/)

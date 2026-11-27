@@ -15,6 +15,7 @@ import android.print.PrintManager
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.provider.Settings
+import android.webkit.MimeTypeMap
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.result.ActivityResult
@@ -148,10 +149,14 @@ class MarkdownDocuments(private val activity: Activity) : Plugin(activity) {
                         require(++visited <= 4096 && depth <= 24) { "目录项过多，请打开更具体的文件夹" }
                         val name = cursor.getString(1)
                         val path = prefix + name
-                        if (cursor.getString(2) == DocumentsContract.Document.MIME_TYPE_DIR) scan(cursor.getString(0), "$path/", depth + 1)
-                        else if (name.contains('.') && name.substringAfterLast('.').lowercase() in markdownExtensions) {
+                        val mime = cursor.getString(2)
+                        val image = imageMime(name, mime) != null
+                        if (mime == DocumentsContract.Document.MIME_TYPE_DIR) scan(cursor.getString(0), "$path/", depth + 1)
+                        else if (image || (name.contains('.') && name.substringAfterLast('.').lowercase() in markdownExtensions)) {
                             val uri = DocumentsContract.buildDocumentUriUsingTree(tree, cursor.getString(0))
-                            entries.put(JSObject().put("uri", uri.toString()).put("path", path).put("name", name))
+                            val entry = JSObject().put("uri", uri.toString()).put("path", path).put("name", name)
+                            if (image) entry.put("kind", "image")
+                            entries.put(entry)
                         }
                     }
                 } ?: error("文件提供方无法列出目录")
@@ -161,6 +166,12 @@ class MarkdownDocuments(private val activity: Activity) : Plugin(activity) {
         } catch (error: Exception) {
             invoke.reject(error.message ?: "无法读取工作区，请重新选取文件夹", error)
         }
+    }
+
+    private fun imageMime(name: String, reported: String?): String? {
+        if (reported?.startsWith("image/") == true) return reported
+        val extension = name.substringAfterLast('.', "").lowercase()
+        return MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)?.takeIf { it.startsWith("image/") }
     }
 
     @Command
@@ -182,12 +193,13 @@ class MarkdownDocuments(private val activity: Activity) : Plugin(activity) {
             val name = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
                 if (cursor.moveToFirst()) cursor.getString(0) else null
             } ?: "未命名.md"
+            val imageMime = imageMime(name, runCatching { resolver.getType(uri) }.getOrNull())
             val fd = resolver.openFileDescriptor(uri, if (args.write) "rw" else "r")?.use { it.detachFd() }
             if (fd == null) {
                 invoke.reject("文件提供方没有返回本机可读的文档")
                 return
             }
-            invoke.resolve(JSObject().put("fd", fd).put("name", name).put("writable", canWrite))
+            invoke.resolve(JSObject().put("fd", fd).put("name", name).put("writable", canWrite).put("imageMime", imageMime))
         } catch (error: Exception) {
             invoke.reject("无法访问文档，请检查文件位置和权限", error)
         }

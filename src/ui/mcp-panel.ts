@@ -1,4 +1,5 @@
 import type { McpConnection, McpItem, McpServer, McpView, ShellAction } from '../contracts'
+import { bindContextMenu, buttonCommand, copyCommand, selectedText } from './context-menu'
 import {
   buildSchemaStarterArgs,
   copyTextToClipboard,
@@ -135,6 +136,7 @@ export class McpPanel {
     cmdHead.append(this.copyCommandBtn)
     this.commandCodeEl = el('code', { className: 'yy-cmd-code', text: '尚未生成启动命令' })
     cmdBlock.append(cmdHead, this.commandCodeEl)
+    bindContextMenu(cmdBlock, 'MCP 启动命令', () => this.view.command ? [buttonCommand('复制启动命令', this.copyCommandBtn)] : [], this.copyCommandBtn)
 
     const proposalRow = el('div', { className: 'yy-bridge-row' })
     this.proposalsBtn = el('button', {
@@ -444,27 +446,12 @@ export class McpPanel {
       }
 
       const actions = el('div', { className: 'yy-conn-actions' })
-      if (conn.status === 'connected' || conn.status === 'connecting') {
-        const disconnectBtn = el('button', {
-          className: 'yy-btn yy-btn-xs',
-          type: 'button',
-          text: '断开',
-        })
-        disconnectBtn.addEventListener('click', () => {
-          this.options.dispatch({ type: 'mcp-disconnect', id: conn.server.id })
-        })
-        actions.append(disconnectBtn)
-      } else {
-        const connectBtn = el('button', {
-          className: 'yy-btn yy-btn-xs yy-btn-primary',
-          type: 'button',
-          text: '连接',
-        })
-        connectBtn.addEventListener('click', () => {
-          this.options.dispatch({ type: 'mcp-connect', id: conn.server.id })
-        })
-        actions.append(connectBtn)
-      }
+      const connected = conn.status === 'connected' || conn.status === 'connecting'
+      const connectionLabel = connected ? '断开' : '连接'
+      const connectionBtn = el('button', { className: `yy-btn yy-btn-xs${connected ? '' : ' yy-btn-primary'}`, type: 'button', text: connectionLabel })
+      connectionBtn.addEventListener('click', () => {
+        this.options.dispatch({ type: connected ? 'mcp-disconnect' : 'mcp-connect', id: conn.server.id })
+      })
 
       const editBtn = el('button', { className: 'yy-btn yy-btn-xs yy-btn-ghost', type: 'button', text: '编辑' })
       editBtn.addEventListener('click', () => this.openForm(conn.server))
@@ -474,8 +461,13 @@ export class McpPanel {
         this.options.dispatch({ type: 'mcp-remove', id: conn.server.id })
       })
 
-      actions.append(editBtn, removeBtn)
+      actions.append(connectionBtn, editBtn, removeBtn)
       card.append(actions)
+      bindContextMenu(card, 'MCP 服务操作', () => [
+        buttonCommand(connectionLabel, connectionBtn), buttonCommand('编辑服务', editBtn),
+        ...(endpoint ? [copyCommand(conn.server.transport === 'http' ? '复制服务地址' : '复制启动命令', endpoint, card, this.options.onNotify)] : []),
+        buttonCommand('删除服务', removeBtn),
+      ], connectionBtn)
       this.connectionsWrap.append(card)
     }
   }
@@ -531,6 +523,9 @@ export class McpPanel {
         this.renderCallReview()
         this.renderItems()
       })
+      bindContextMenu(card, 'MCP 项目操作', () => [
+        buttonCommand('参数与调用', prepareBtn), copyCommand('复制名称', item.name, card, this.options.onNotify),
+      ], prepareBtn)
       head.append(meta, prepareBtn)
       card.append(head)
       if (item.title && item.title !== item.name) {
@@ -686,6 +681,11 @@ export class McpPanel {
     head.append(copyBtn)
     const pre = el('pre', { className: 'yy-result-pre', text: this.view.result })
     card.append(head, pre)
+    bindContextMenu(card, 'MCP 结果操作', () => {
+      const selection = selectedText(pre)
+      return selection ? [copyCommand('复制所选文字', selection, pre, this.options.onNotify), buttonCommand('复制全部', copyBtn)]
+        : [buttonCommand('复制结果', copyBtn)]
+    }, copyBtn)
     this.resultWrap.append(card)
   }
 }

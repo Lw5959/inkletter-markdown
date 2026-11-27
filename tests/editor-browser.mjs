@@ -179,6 +179,20 @@ try {
   })
   assert.ok(diagram.width >= 180 && diagram.width < 300, JSON.stringify(diagram))
   assert.ok(Math.abs(diagram.graphOffset) < 1 && Math.abs(diagram.labelOffset) < 1, JSON.stringify(diagram))
+  assert.doesNotMatch(await page.locator('#write .cm-content').innerText(), /```mermaid/)
+  await graph.click()
+  await page.locator('#write .cm-line').getByText('```mermaid', { exact: true }).waitFor()
+  await graph.waitFor()
+  const oldGraph = await page.evaluate(() => window.editor.getMarkdown())
+  const labelAt = oldGraph.indexOf('完成')
+  await page.evaluate(at => window.editor.select({ anchor: at, head: at + '完成'.length }), labelAt)
+  await page.keyboard.insertText('复核')
+  await graph.getByText('复核', { exact: true }).waitFor()
+  assert.equal(await page.evaluate(() => window.editor.getMarkdown()), oldGraph.replace('完成', '复核'))
+  await page.evaluate(() => { window.editor.undo(); window.editor.select({ anchor: 0, head: 0 }) })
+  await graph.getByText('完成', { exact: true }).waitFor()
+  assert.equal(await page.evaluate(() => window.editor.getMarkdown()), oldGraph)
+  assert.doesNotMatch(await page.locator('#write .cm-content').innerText(), /```mermaid/)
 
   if (!isWebKit) {
     await page.evaluate(() => {

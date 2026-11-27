@@ -22,44 +22,113 @@ const blocks: Record<string, string> = {
 const previewLimits: Record<string, number> = {
   Table: 128_000, FencedCode: 32_000, CodeBlock: 32_000, Blockquote: 32_000, HorizontalRule: 8192,
 }
-type PreviewKind = 'inline' | 'block' | 'metadata'
+type PreviewKind = 'inline' | 'block' | 'metadata' | 'image' | 'link' | 'diagram'
+type MarkdownTree = ReturnType<typeof syntaxTree>
+type MarkdownNode = MarkdownTree['topNode']
+const mediaNodes = new Set(['Image', 'Link', 'Autolink'])
+const diagramLanguages = new Set(['mermaid', 'flowchart', 'sequence'])
+const diagramRenders = new WeakMap<HTMLElement, object>()
+
+function fenceLanguage(node: MarkdownNode, doc: EditorState['doc']) {
+  const info = node.getChild('CodeInfo')
+  return info ? doc.sliceString(info.from, info.to).trim().split(/\s+/, 1)[0].toLowerCase() : ''
+}
+
+function isDiagramFence(node: MarkdownNode, doc: EditorState['doc']) {
+  return node.name === 'FencedCode' && node.to - doc.lineAt(node.from).from <= previewLimits.FencedCode &&
+    diagramLanguages.has(fenceLanguage(node, doc))
+}
 
 class Preview extends LiveBlock {
-  constructor(readonly source: string, readonly options: EditorOptions, readonly kind: PreviewKind, readonly editOffset?: number) { super() }
-  eq(other: Preview) { return other.source === this.source && other.kind === this.kind && other.editOffset === this.editOffset }
+  constructor(readonly source: string, readonly options: EditorOptions, readonly kind: PreviewKind,
+    readonly editOffset?: number, readonly definitions = '') { super() }
+  eq(other: Preview) {
+    return other.source === this.source && other.kind === this.kind && other.editOffset === this.editOffset && other.definitions === this.definitions
+  }
   toDOM(view: EditorView) {
-    const inline = this.kind === 'inline'
+    const media = this.kind === 'image' || this.kind === 'link'
+    const inline = media || this.kind === 'inline'
     const element = view.dom.ownerDocument.createElement(inline ? 'span' : 'div')
     element.className = inline ? 'live-inline-preview' : 'live-block-preview'
     if (this.kind === 'metadata') element.classList.add('live-metadata-preview')
+    if (this.kind === 'diagram') element.classList.add('live-diagram-preview')
+    if (media) {
+      element.classList.add('live-media-preview', `live-${this.kind}-preview`)
+    }
     element.contentEditable = 'false'
     if (!inline) this.reserveHeight(element)
     const offset = this.editOffset
     if (!inline && offset !== undefined) {
       element.tabIndex = 0
-      element.setAttribute('aria-label', '编辑此 Markdown 块')
+      element.setAttribute('aria-label', this.kind === 'diagram' ? '编辑图表' : '编辑此 Markdown 块')
+      if (this.kind === 'diagram') {
+        element.setAttribute('role', 'button')
+        element.title = '点击编辑图表代码'
+      }
       const edit = (event: Event) => {
         if ((event.target as HTMLElement)?.closest?.('a[href]')) return
         event.preventDefault()
         event.stopPropagation()
         const anchor = view.posAtDOM(element) + offset
-        view.dispatch({ selection: { anchor } })
+        view.dispatch({ selection: { anchor }, scrollIntoView: this.kind === 'diagram' })
         view.focus()
       }
       element.addEventListener('click', edit)
-      element.addEventListener('keydown', event => { if ((event as KeyboardEvent).key === 'Enter') edit(event) })
+      element.addEventListener('keydown', event => {
+        const { key } = event as KeyboardEvent
+        if (key === 'Enter' || (this.kind === 'diagram' && key === ' ')) edit(event)
+      })
     }
-    void renderMarkdown(this.source, this.options).then(html => {
-      if (!element.isConnected) return
+    this.render(element, view)
+    return element
+  }
+
+  updateDOM(element: HTMLElement, view: EditorView, previous: Preview) {
+    if (this.kind !== 'diagram' || previous.kind !== this.kind || previous.editOffset !== this.editOffset) return false
+    // 保留当前图表的 DOM，直到新版本完成渲染。较早的渲染结果不能覆盖新输入。
+    this.height = previous.height
+    this.render(element, view)
+    return true
+  }
+
+  private render(element: HTMLElement, view: EditorView) {
+    const media = this.kind === 'image' || this.kind === 'link'
+    const inline = media || this.kind === 'inline'
+    const request = {}
+    if (this.kind === 'diagram') diagramRenders.set(element, request)
+    const active = () => element.isConnected && (this.kind !== 'diagram' || diagramRenders.get(element) === request)
+    void renderMarkdown(this.source + this.definitions, this.options).then(html => {
+      if (!active()) return
       element.innerHTML = html
+      if (this.kind === 'diagram' && this.editOffset !== undefined && !element.querySelector('.markdown-diagram > svg')) {
+        element.textContent = '图表无法渲染，请检查代码。'
+      }
+      if (media) {
+        for (const link of element.querySelectorAll<HTMLAnchorElement>('a[href]')) link.dataset.markdownUrl = link.getAttribute('href')!
+        for (const image of element.querySelectorAll<HTMLImageElement>('img')) {
+          const unavailable = () => {
+            const note = element.ownerDocument.createElement('span')
+            note.className = 'live-media-unavailable'
+            note.textContent = '图片无法预览'
+            image.replaceWith(note)
+            view.requestMeasure()
+          }
+          const src = image.getAttribute('src')
+          if (!src) unavailable()
+          else {
+            image.addEventListener('error', unavailable, { once: true })
+            image.addEventListener('load', () => view.requestMeasure(), { once: true })
+          }
+        }
+        if (!element.querySelector('a[href], img, .live-media-unavailable')) element.replaceChildren()
+      }
       if (inline) view.requestMeasure()
       else this.measureHeight(view, element)
     }).catch(() => {
-      if (!element.isConnected) return
+      if (!active()) return
       element.textContent = '暂时无法渲染此内容'
       if (!inline) this.measureHeight(view, element)
     })
-    return element
   }
   ignoreEvent(event: Event) { return event.type !== 'click' }
 }
@@ -152,6 +221,14 @@ function frontMatterEnd(doc: EditorState['doc'], viewportFrom: number) {
   return frontMatter(doc.sliceString(0, Math.min(doc.length, 65_536)))?.[0].length ?? 0
 }
 
+function referenceName(node: MarkdownNode, doc: EditorState['doc']) {
+  const label = node.getChild('LinkLabel')
+  const [open, close] = node.getChildren('LinkMark')
+  const text = label && label.to - label.from > 2 ? doc.sliceString(label.from + 1, label.to - 1)
+    : open && close ? doc.sliceString(open.to, close.from) : ''
+  return text.trim().replace(/\s+/g, ' ').toUpperCase()
+}
+
 const replaceBlocks = StateEffect.define<ReturnType<typeof Decoration.set>>()
 const blockPreviews = StateField.define<ReturnType<typeof Decoration.set>>({
   create: () => Decoration.none,
@@ -182,6 +259,19 @@ function visibleBlocks(view: EditorView, options: EditorOptions, cellInline: Ext
   const pinned = state.readOnly ? null : editingTable(view)
   let projectedFrom = start.from
   let projectedTo = end.to
+  function insertDiagram(node: MarkdownNode) {
+    const first = doc.lineAt(node.from)
+    const text = node.getChildren('CodeText')
+    const marker = node.getChild('CodeMark')!
+    const fence = doc.sliceString(marker.from, marker.to)
+    const code = text.map(part => doc.sliceString(part.from, part.to)).join('')
+    // 引用和列表的容器标记保留在原文，只把图表代码交给渲染器。
+    const source = `${fence}${fenceLanguage(node, doc)}\n${code}\n${fence}`
+    const body = first.number < doc.lines && first.to < node.to ? doc.line(first.number + 1).from : first.to
+    const offset = state.readOnly ? undefined : (text[0]?.from ?? body) - first.from
+    projectedFrom = Math.min(projectedFrom, first.from)
+    ranges.push(Decoration.widget({ widget: new Preview(source, options, 'diagram', offset), block: true, side: -1 }).range(first.from))
+  }
   function insert(from: number, to: number, widget: WidgetType, editAsLines = false) {
     if (from >= to || (editAsLines && overlapsSelection(state, from, to))) return
     let existing: Decoration | undefined
@@ -207,6 +297,10 @@ function visibleBlocks(view: EditorView, options: EditorOptions, cellInline: Ext
     enter(node) {
       const limit = previewLimits[node.name]
       if (!limit || node.from < yamlEnd) return
+      if (isDiagramFence(node.node, doc)) {
+        insertDiagram(node.node)
+        return false
+      }
       // 只替换完整块。缩进列表里的局部语法继续保留原本的行结构。
       const first = doc.lineAt(node.from)
       const last = doc.lineAt(node.to)
@@ -216,15 +310,23 @@ function visibleBlocks(view: EditorView, options: EditorOptions, cellInline: Ext
         insert(first.from, last.to, new LargePreview())
         return false
       }
+      if (node.name === 'Blockquote') {
+        let hasInlinePreview = false
+        node.node.cursor().iterate(child => {
+          if (isDiagramFence(child.node, doc) || (!state.readOnly && (mediaNodes.has(child.name) || child.name === 'URL'))) hasInlinePreview = true
+          return !hasInlinePreview
+        })
+        // 引用中的图表、图片和链接有自己的预览，保留其中的可编辑原文。
+        if (hasInlinePreview) return
+      }
       const source = doc.sliceString(first.from, last.to)
       if (node.name === 'Table') insert(first.from, last.to, new LiveTable(source, options, state.readOnly, cellInline))
       else {
         let editOffset: number | undefined
         if (!state.readOnly && node.name === 'Blockquote') editOffset = /^[ \t]*>[ \t]?/.exec(first.text)?.[0].length
         if (!state.readOnly && (node.name === 'FencedCode' || node.name === 'CodeBlock')) {
-          const info = node.node.getChild('CodeInfo')
           const text = node.node.getChild('CodeText')
-          const language = info ? doc.sliceString(info.from, info.to).trim().split(/\s+/)[0].toLowerCase() : ''
+          const language = fenceLanguage(node.node, doc)
           if (text && !['mermaid', 'flowchart', 'sequence', 'latex', 'math'].includes(language)) editOffset = text.from - first.from
         }
         insert(first.from, last.to, new Preview(source, options, 'block', editOffset), editOffset !== undefined)
@@ -306,6 +408,7 @@ function inlineDecoration(options: EditorOptions, outline?: () => OutlineEntry[]
   return ViewPlugin.fromClass(class {
     decorations: ReturnType<typeof Decoration.set>
     atomic = Decoration.none
+    private references?: { tree: MarkdownTree; entries: Map<string, string> }
 
     constructor(view: EditorView) { this.decorations = this.build(view) }
 
@@ -317,6 +420,25 @@ function inlineDecoration(options: EditorOptions, outline?: () => OutlineEntry[]
         || update.focusChanged || update.startState.readOnly !== update.state.readOnly || syntaxTree(update.startState) !== syntaxTree(update.state)) {
         this.decorations = this.build(update.view)
       }
+    }
+
+    private mediaDefinitions(node: MarkdownNode, doc: EditorState['doc'], tree: MarkdownTree) {
+      const used = new Set<string>()
+      node.cursor().iterate(child => {
+        if (!mediaNodes.has(child.name) || child.node.getChild('URL')) return
+        if (this.references?.tree !== tree) {
+          const entries = new Map<string, string>()
+          tree.iterate({ enter(definition) {
+            if (definition.name !== 'LinkReference') return
+            const key = referenceName(definition.node, doc)
+            if (key && !entries.has(key)) entries.set(key, doc.sliceString(definition.from, definition.to))
+          } })
+          this.references = { tree, entries }
+        }
+        const definition = this.references.entries.get(referenceName(child.node, doc))
+        if (definition) used.add(definition)
+      })
+      return used.size ? '\n\n' + [...used].join('\n') : ''
     }
 
     build(view: EditorView) {
@@ -360,9 +482,37 @@ function inlineDecoration(options: EditorOptions, outline?: () => OutlineEntry[]
               if (from < first.to) ranges.push(Decoration.mark({ tagName: 'h' + heading[1] }).range(from, first.to))
             }
             if (outline && blocks[name]) {
+              const last = doc.lineAt(to)
+              const diagram = isDiagramFence(node.node, doc)
+              const cursor = selection.main.head
+              const open = diagram && !view.state.readOnly && cursor >= first.from && cursor <= last.to
               for (let n = Math.max(first.number, doc.lineAt(visible.from).number); n <= doc.lineAt(Math.min(visible.to, to)).number; n++) {
                 addLine(doc.line(n).from, blocks[name])
                 if (name === 'FencedCode' || name === 'CodeBlock') opaqueLines.add(n)
+                if (diagram && !open) addLine(doc.line(n).from, 'diagram-source-hidden')
+              }
+              // 图表代码展开时连同围栏一起显示，可直接修改语言、方向和各节点。
+              if (diagram) return false
+            }
+            const footnote = name === 'Link' && doc.sliceString(from, from + 2) === '[^'
+            const bareUrl = name === 'URL' && !parent?.match(/^(?:Link|Autolink|Image|LinkReference)$/)
+            if (!footnote && (mediaNodes.has(name) || bareUrl) && to - from <= 128_000) {
+              const definitions = this.mediaDefinitions(node.node, doc, tree)
+              const source = doc.sliceString(from, to)
+              const kind = name === 'Image' ? 'image' : 'link'
+              const hasPreview = bareUrl || Boolean(node.node.getChild('URL')) || Boolean(definitions)
+              if (!view.state.readOnly && (hasPreview || kind === 'image')) {
+                // 预览是行内组件，源码继续使用 CodeMirror 的真实选区、编辑和撤销。
+                mark(from, to, 'media-source')
+                if (hasPreview) {
+                  ranges.push(Decoration.widget({ widget: new Preview(source, options, kind, undefined, definitions), side: 1 }).range(to))
+                  if (kind === 'image' && first.text.trim() === source) addLine(first.from, 'standalone-image')
+                }
+                return false
+              }
+              if (view.state.readOnly && (definitions || name === 'Image' || bareUrl)) {
+                replace(from, to, new Preview(source, options, kind, undefined, definitions))
+                return false
               }
             }
             if (inlineTags[name] && from < to) {
@@ -370,7 +520,7 @@ function inlineDecoration(options: EditorOptions, outline?: () => OutlineEntry[]
             }
             // 与 HTML 导出共享行内标签，使同一套主题选择器命中实时文本。
             if (marks[name]) mark(Math.max(from, visible.from), Math.min(to, visible.to), marks[name], markTags[name])
-            if (name === 'Link' && doc.sliceString(from, from + 2) === '[^') mark(from, to, 'footnote')
+            if (footnote) mark(from, to, 'footnote')
             // 目录插件使用引用定义标注旧目录的边界，标记只在源码中显示。
             if (name === 'LinkReference' && /^\[yeyu-toc-(begin|end)\]: #yeyu-toc-\1$/.test(first.text)) {
               replace(from, to)
@@ -466,7 +616,7 @@ function inlineDecoration(options: EditorOptions, outline?: () => OutlineEntry[]
               const from = line.from + match.index
               const to = from + match[0].length
               let node = tree.resolveInner(from, 1)
-              while (node.parent && !/^(?:InlineCode|Image|Link)$/.test(node.name)) node = node.parent
+              while (node.parent && !/^(?:InlineCode|Image|Link|Autolink|URL)$/.test(node.name)) node = node.parent
               if (node.parent) continue
               replace(from, to, new Preview(match[0], options, 'inline'))
             }

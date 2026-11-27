@@ -1,10 +1,16 @@
-use crate::store::{canonical, err, file_name};
+use crate::{
+    assets::image_mime,
+    store::{canonical, err, file_name},
+    themes::data_uri,
+};
 use regex::RegexBuilder;
 use serde::Serialize;
 use std::{
     fs,
     path::{Component, Path, PathBuf},
 };
+use tauri::AppHandle;
+use tauri_plugin_opener::OpenerExt;
 
 #[derive(Serialize)]
 pub struct Entry {
@@ -12,6 +18,8 @@ pub struct Entry {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub children: Option<Vec<Entry>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<&'static str>,
 }
 
 #[derive(Serialize)]
@@ -76,11 +84,14 @@ fn read_tree(
                     path,
                     name,
                     children: Some(children),
+                    kind: None,
                 });
             }
-        } else if kind.is_file()
-            && filter.map_or_else(
-                || all || markdown(&path),
+        } else if kind.is_file() {
+            // 图片可以在文件树预览，全文检索仍只读取文本文档。
+            let image = image_mime(&path).is_some();
+            if filter.map_or_else(
+                || all || image || markdown(&path),
                 |pattern| {
                     let relative = path.strip_prefix(root).unwrap_or(&path);
                     pattern.matches_path_with(
@@ -92,13 +103,14 @@ fn read_tree(
                         },
                     )
                 },
-            )
-        {
-            output.push(Entry {
-                path,
-                name,
-                children: None,
-            });
+            ) {
+                output.push(Entry {
+                    path,
+                    name,
+                    children: None,
+                    kind: image.then_some("image"),
+                });
+            }
         }
     }
     output.sort_by(|a, b| {
@@ -205,6 +217,18 @@ pub async fn workspace_tree(
         .transpose()
         .map_err(|error| format!("文件过滤规则有误：{error}"))?;
     read_tree(&root, &root, hidden, all, filter.as_ref())
+}
+
+#[tauri::command]
+pub async fn workspace_image(root: PathBuf, path: PathBuf) -> Result<String, String> {
+    let path = inside(&canonical(&root).map_err(err)?, &path)?;
+    data_uri(&path, false)
+}
+
+#[tauri::command]
+pub async fn workspace_reveal(app: AppHandle, root: PathBuf, path: PathBuf) -> Result<(), String> {
+    let path = inside(&canonical(&root).map_err(err)?, &path)?;
+    app.opener().reveal_item_in_dir(path).map_err(err)
 }
 
 #[tauri::command]

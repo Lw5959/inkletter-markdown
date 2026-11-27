@@ -1,4 +1,5 @@
 import type { WorkspaceEntry } from '../contracts'
+import { bindContextMenu, buttonCommand, closeContextMenu, copyCommand, isContextMenuTarget } from './context-menu'
 import { el, filterWorkspaceFiles, flattenWorkspaceFiles, type FlatFileEntry } from './helpers'
 import { icons } from './icons'
 import { openDesktopWindow } from './desktop-window'
@@ -45,7 +46,7 @@ export class ModalManager {
     this.host.append(this.backdrop)
 
     this.keydownHandler = event => {
-      if (!this.activeDialog) return
+      if (!this.activeDialog || isContextMenuTarget(event.target)) return
       if (event.key === 'Escape') {
         // 先关闭展开的选项列表，快捷键录制也有自己的取消处理。
         if (this.activeDialog.dataset.recording === 'true') return
@@ -106,6 +107,7 @@ export class ModalManager {
 
   close(restoreFocus = true) {
     if (!this.activeDialog) return
+    closeContextMenu(this.activeDialog.ownerDocument)
     const cb = this.onCloseCallback
     this.activeDialog = null
     this.onCloseCallback = null
@@ -130,12 +132,14 @@ export class ModalManager {
     entries: WorkspaceEntry[]
     workspaceRoot: string | null
     activePath: string | null
-    onSelect: (path: string) => void
+    onSelect: (file: FlatFileEntry) => void
     onOpenFolder: () => void
+    onReveal: (path: string) => void
   }) {
     const allFiles = flattenWorkspaceFiles(params.entries, params.workspaceRoot)
     let filtered: FlatFileEntry[] = allFiles
     let activeIndex = 0
+    const byPath = new Map(allFiles.map(file => [file.path, file]))
 
     const dialog = el('div', {
       className: 'yy-modal yy-modal-quickopen',
@@ -167,6 +171,21 @@ export class ModalManager {
       className: 'yy-quickopen-list',
       attrs: { role: 'listbox', 'aria-label': '匹配文件列表' },
     })
+
+    const selectFile = (file: FlatFileEntry) => {
+      this.close(false)
+      this.fallbackFocus()
+      params.onSelect(file)
+    }
+    const itemButton = (target: Element) => target.closest<HTMLButtonElement>('.yy-quickopen-item')
+    bindContextMenu(list, '文件操作', target => {
+      const item = itemButton(target)
+      const file = item && byPath.get(item.dataset.path ?? '')
+      return item && file ? [
+        buttonCommand(file.kind === 'image' ? '预览图片' : '打开文件', item), copyCommand('复制路径', file.path, item),
+        { label: '在文件管理器中显示', icon: icons.folderOpen, run: () => params.onReveal(file.path) },
+      ] : []
+    }, target => itemButton(target) ?? input, { target: input, selected: () => list.querySelector('.yy-quickopen-item.is-active') })
 
     const renderList = () => {
       list.replaceChildren()
@@ -200,16 +219,12 @@ export class ModalManager {
         })
         const main = el('span', { className: 'yy-quickopen-name', text: file.name })
         const sub = el('span', { className: 'yy-quickopen-rel', text: file.relative })
-        item.append(el('span', { className: 'yy-icon', html: icons.file }), main, sub)
+        item.append(el('span', { className: 'yy-icon', html: file.kind === 'image' ? icons.image : icons.file }), main, sub)
         item.addEventListener('mouseenter', () => {
           activeIndex = index
           updateSelection()
         })
-        item.addEventListener('click', () => {
-          this.close(false)
-          params.onSelect(file.path)
-          this.fallbackFocus()
-        })
+        item.addEventListener('click', () => selectFile(file))
         list.append(item)
       })
     }
@@ -247,11 +262,7 @@ export class ModalManager {
       } else if (event.key === 'Enter') {
         event.preventDefault()
         const picked = filtered[activeIndex]
-        if (picked) {
-          this.close(false)
-          params.onSelect(picked.path)
-          this.fallbackFocus()
-        }
+        if (picked) selectFile(picked)
       }
     })
 
@@ -501,6 +512,10 @@ export class ModalManager {
 
           controls.append(recordBtn, clearBtn, resetBtn)
           row.append(info, controls)
+          bindContextMenu(row, `${def.label} 快捷键`, () => recordingId ? [] : [
+            buttonCommand(combo ? '更改快捷键' : '设置快捷键', recordBtn),
+            buttonCommand('清除快捷键', clearBtn), buttonCommand('恢复默认', resetBtn),
+          ], recordBtn)
           group.append(row)
         }
         listWrap.append(group)

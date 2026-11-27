@@ -5,6 +5,7 @@ export const icons = {
   folder: `<svg ${SVG_ATTR}><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3H6l1.4 1.6h5.1A1.5 1.5 0 0 1 14 6.1v5.4a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5v-7z"/></svg>`,
   folderOpen: `<svg ${SVG_ATTR}><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3H6l1.4 1.6h4.6a1.5 1.5 0 0 1 1.5 1.5v.9H4.1L2.4 12A1.5 1.5 0 0 1 2 11V4.5z"/><path d="M2.4 12.2 4 7h10l-1.5 5.2a1 1 0 0 1-1 .8H3.3a.9.9 0 0 1-.9-.8z"/></svg>`,
   file: `<svg ${SVG_ATTR}><path d="M4 2.5h5.5L12.5 5.5v8a1 1 0 0 1-1 1h-7.5a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1z"/><path d="M9.5 2.5v3h3"/></svg>`,
+  image: `<svg ${SVG_ATTR}><rect x="2" y="2.5" width="12" height="11" rx="1.5"/><circle cx="5.5" cy="6" r="1"/><path d="m3 11 3-2.5 2 1.5 2.5-3 3 3.5"/></svg>`,
   filePlus: `<svg ${SVG_ATTR}><path d="M4 2.5h5l3 3v8a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1z"/><path d="M7.5 8v3.5M5.75 9.75h3.5"/></svg>`,
   save: `<svg ${SVG_ATTR}><path d="M3.5 2.5h7.4l2.6 2.6v7.4a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1zM5.5 2.5V6h5V2.5M5.2 13.5V9h5.6v4.5"/></svg>`,
   more: `<svg ${SVG_ATTR}><circle cx="3.5" cy="8" r=".8"/><circle cx="8" cy="8" r=".8"/><circle cx="12.5" cy="8" r=".8"/></svg>`,

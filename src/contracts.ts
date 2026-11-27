@@ -14,12 +14,22 @@ export type EditorOptions = {
   resolveImage?: (url: string) => string | Promise<string>
   onOpenLink?: (url: string) => void
 }
+export type EditorContext = {
+  readonly: boolean; selected: boolean; canUndo: boolean; canRedo: boolean
+  selectAll(): void
+  media?: { image: boolean; select(): void }
+  editDiagram?: () => void
+  link?: { url: string; open(): void }
+  image?: { src: string; name: string }
+}
 export interface Editor {
   setMarkdown(markdown: string): void
   getMarkdown(): string
   getSelection(): Selection
+  contextAt(target: Element, point?: { x: number; y: number }): EditorContext | null
   select(selection: Selection, scroll?: boolean): void
   replace(from: number, to: number, markdown: string): void
+  pasteText(from: number, to: number, markdown: string): void
   setMode(mode: EditorMode): void
   setPresentation(presentation: Presentation): void
   format(format: EditorFormat): void
@@ -35,7 +45,7 @@ export type TitlebarView = { material: TitlebarMaterial; liquidAvailable: boolea
 export type Theme = { id: string; name: string; styles: string[]; swatch?: { paper: string; ink: string } }
 export type SidebarTab = 'files' | 'outline' | 'search'
 export type DocumentWidth = 'default' | 'wide' | 'extra-wide' | 'full'
-export type WorkspaceEntry = { path: string; name: string; children?: WorkspaceEntry[] }
+export type WorkspaceEntry = { path: string; name: string; children?: WorkspaceEntry[]; kind?: 'image' }
 export type SearchResult = { path: string; name: string; line: number; preview: string }
 export type FindQuery = { text: string; replacement: string; regex: boolean; matchCase: boolean; wholeWord: boolean }
 export type AiIntent = 'chat' | 'outline' | 'draft' | 'continue' | 'rewrite' | 'expand' | 'condense' | 'polish' | 'summary' | 'actions' | 'translate' | 'proofread'
@@ -117,7 +127,7 @@ export type PluginMarketPort = {
   install(source: string | null, plugin: MarketPlugin): Promise<PluginCatalog>
 }
 export type ShellAction =
-  | { type: 'new' | 'open' | 'open-folder' | 'save' | 'save-as' | 'reload' | 'print' | 'import' | 'theme-import' | 'undo' | 'redo' | 'export-again' | 'copy-markdown' | 'copy-html' | 'paste-plain' | 'reopen' }
+  | { type: 'new' | 'open' | 'open-folder' | 'save' | 'save-as' | 'reload' | 'print' | 'import' | 'theme-import' | 'undo' | 'redo' | 'export-again' | 'copy-markdown' | 'copy-html' | 'cut' | 'paste' | 'paste-plain' | 'reopen' }
   | { type: 'markdown-default' }
   | { type: 'check-update' }
   | { type: 'open-path'; path: string; line?: number }
@@ -140,6 +150,7 @@ export type ShellAction =
   | { type: 'workspace-create'; parent: string; name: string; folder: boolean }
   | { type: 'workspace-rename'; path: string; name: string }
   | { type: 'workspace-trash'; path: string }
+  | { type: 'workspace-reveal'; path: string }
   | { type: 'image-import'; files?: File[] }
   | { type: 'images'; mode: ImageMode }
   | { type: 'ai-provider-save'; provider: AiProviderDraft; key?: string }
@@ -188,6 +199,8 @@ export type ShellState = {
 }
 export type ShellActions = {
   dispatch: (action: ShellAction) => void | Promise<string | void>
+  getEditor?: () => Editor
+  loadWorkspaceImage?: (root: string, path: string) => Promise<string>
   loadRecentFiles?: () => Promise<readonly string[]>
   listAiModels?: (request: AiModelDiscovery) => Promise<AiDiscoveredModel[]>
   pluginMarket?: PluginMarketPort

@@ -1,4 +1,5 @@
 import type { MarketPlugin, PluginCatalog, PluginMarketPort } from '../contracts'
+import { bindContextMenu, buttonCommand, copyCommand } from './context-menu'
 import { el } from './helpers'
 import { icons } from './icons'
 
@@ -212,5 +213,9 @@ function pluginCard(plugin: MarketPlugin, busy: boolean, onSelect: () => Promise
     action,
   )
   row.append(heading, el('p', { className: 'yy-market-description', text: plugin.description }), footer)
+  bindContextMenu(row, '市场插件操作', () => [
+    buttonCommand(operation === 'installed' ? '管理插件' : labels[operation], action),
+    copyCommand('复制插件 ID', plugin.id, row),
+  ], action)
   return row
 }

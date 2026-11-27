@@ -62,8 +62,16 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       const actions = []
       const modelRequests = []
       const nativeThemes = []
+      const imageReads = []
+      const links = []
       const shell = mountShell(root, {
         macTitlebar: ${macTitlebar},
+        getEditor: () => editor,
+        async loadWorkspaceImage(root, path) {
+          imageReads.push({ root, path })
+          if (path.includes('missing')) throw new Error('找不到图片')
+          return '/assets/app-icon.png'
+        },
         listAiModels: ${discover} ? async request => {
           modelRequests.push(request)
           if (request.endpoint.includes('offline')) throw new Error('无法连接供应商')
@@ -79,9 +87,11 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       const editor = createEditor(shell.editorHost, {
         onChange() {},
         onSelectionChange() {},
+        resolveImage: url => url.endsWith('diagram.png') ? '/assets/app-icon.png' : url,
+        onOpenLink: url => links.push(url),
       })
       editor.setMarkdown('# 页屿测试文档\\n\\n第一段正文。\\n\\n## 二级标题\\n\\n第二段正文。\\n')
-      window.__test = { shell, editor, actions, nativeThemes, builtinThemes, modelRequests }
+      window.__test = { shell, editor, actions, nativeThemes, builtinThemes, modelRequests, imageReads, links }
     })()`)
   }
 
@@ -756,6 +766,91 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     expect(dispatched).toContainEqual({ type: 'theme-import' })
   })
 
+  it('通过文件树和快速打开预览图片，实时图片与链接原文可以就地编辑', async () => {
+    await mountTestHarness()
+    const source = '![界面截图](diagram.png)\r\n\r\n[使用指南][guide]\n\n[guide]: https://example.test/guide\r\n\r\n普通段落'
+    await page.evaluate(markdown => {
+      const test = (window as any).__test
+      const { shell, editor } = test
+      shell.setState({ title: 'guide.md', path: '/ws/guide.md', workspace: '/ws', dirty: true, mode: 'live',
+        detail: '', words: 1, characters: markdown.length, line: 1, column: 1, autosave: false,
+        presentation: { focus: false, typewriter: false, spellcheck: false } })
+      shell.setWorkspace([
+        { path: '/ws/diagram.png', name: '界面截图.png', kind: 'image' },
+        { path: '/ws/missing.png', name: '缺失图片.png', kind: 'image' },
+      ])
+      editor.setMarkdown(markdown)
+      test.dispatch = (action: { type: string; format: string }) => {
+        if (action.type === 'format') editor.format(action.format)
+        if (action.type === 'undo') editor.undo()
+      }
+    }, source)
+    const preview = page.getByRole('dialog', { name: '图片预览' })
+    const image = page.locator('[data-path="/ws/diagram.png"] .yy-tree-main')
+    await image.click()
+    await preview.getByRole('img', { name: '界面截图.png' }).waitFor()
+    expect(await preview.locator('img').evaluate((node: HTMLImageElement) => node.naturalWidth)).toBeGreaterThan(0)
+    expect(await preview.locator('header button').count()).toBe(0)
+    await page.keyboard.press('Escape')
+    await page.locator('[data-path="/ws/missing.png"] .yy-tree-main').click()
+    await preview.getByText('无法预览此图片', { exact: false }).waitFor()
+    await preview.getByRole('button', { name: '关闭图片预览' }).click()
+    await page.locator('.yy-doc-title-btn').click()
+    await page.locator('.yy-quickopen-input').fill('界面截图')
+    await page.locator('.yy-quickopen-input').press('Shift+F10')
+    await page.getByRole('menu', { name: '文件操作' }).getByRole('menuitem', { name: '预览图片' }).press('Enter')
+    await preview.getByRole('img', { name: '界面截图.png' }).waitFor()
+    await page.keyboard.press('Escape')
+    expect(await page.evaluate('window.__test.imageReads')).toEqual([
+      { root: '/ws', path: '/ws/diagram.png' }, { root: '/ws', path: '/ws/missing.png' }, { root: '/ws', path: '/ws/diagram.png' },
+    ])
+    expect(await page.evaluate('window.__test.editor.getMarkdown()')).toBe(source)
+
+    const menu = page.getByRole('menu', { name: '文档编辑操作' })
+    const picture = page.locator('#write .live-image-preview img')
+    const imageSource = '#write .live-media-source'
+    expect(await page.locator(imageSource).allTextContents()).toContain('![界面截图](diagram.png)')
+    await picture.click({ button: 'right' })
+    await menu.getByRole('menuitem', { name: '选中图片原文' }).click()
+    await page.keyboard.insertText('![更新截图](diagram.png)')
+    const revised = source.replace('界面截图', '更新截图')
+    expect(await page.evaluate('window.__test.editor.getMarkdown()')).toBe(revised)
+    await page.getByRole('link', { name: '使用指南' }).click({ button: 'right' })
+    await menu.getByRole('menuitem', { name: '打开链接' }).click()
+    expect(await page.evaluate('window.__test.links')).toEqual(['https://example.test/guide'])
+
+    const editable = page.getByRole('textbox', { name: 'Markdown 文档' })
+    await page.evaluate(() => {
+      const { editor } = (window as any).__test
+      const start = editor.getMarkdown().indexOf('普通段落')
+      editor.select({ anchor: start, head: start + '普通段落'.length })
+    })
+    await editable.press('Shift+F10')
+    await menu.getByRole('menuitem', { name: '行内样式' }).click()
+    await menu.getByRole('menuitem', { name: '加粗' }).click()
+    expect(await page.evaluate('window.__test.editor.getMarkdown()')).toBe(revised.replace('普通段落', '**普通段落**'))
+    await editable.press('Shift+F10')
+    await menu.getByRole('menuitem', { name: '撤销' }).click()
+    expect(await page.evaluate('window.__test.editor.getMarkdown()')).toBe(revised)
+
+    await page.evaluate('window.__test.editor.setPresentation({ focus: false, typewriter: false, spellcheck: false, readonly: true })')
+    await editable.press('Shift+F10')
+    expect(await menu.getByRole('menuitem', { name: '粘贴', exact: true }).count()).toBe(0)
+    await menu.getByRole('menuitem', { name: '全选' }).click()
+    expect(await page.evaluate('window.__test.editor.getSelection()')).toEqual({ anchor: 0, head: revised.length })
+    await page.evaluate(() => {
+      const { editor } = (window as any).__test
+      editor.setPresentation({ focus: false, typewriter: false, spellcheck: false })
+      editor.setMarkdown('## 活动安排\r\n\r\n```mermaid\r\nflowchart LR\r\n  A[布展] --> B[发布]\r\n```\r\n\r\n附记')
+      editor.select({ anchor: 0, head: 0 })
+    })
+    const diagram = page.locator('.live-diagram-preview svg')
+    await diagram.click({ button: 'right' })
+    await menu.getByRole('menuitem', { name: '编辑图表' }).click()
+    expect(await page.locator('#write .cm-line').getByText('```mermaid', { exact: true }).isVisible()).toBe(true)
+    expect(await diagram.isVisible()).toBe(true)
+  }, 20_000)
+
   it('文件树增删改、快速打开、大纲、跨文件检索与文内查找替换', async () => {
     await mountTestHarness()
 
@@ -778,13 +873,14 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       shell.setWorkspace([
         {
           path: '/ws/docs',
-          name: 'docs',
+          name: '01.项目交付验收资料',
           children: [
             { path: '/ws/docs/guide.md', name: 'guide.md' },
             { path: '/ws/docs/notes.md', name: 'notes.md' },
           ],
         },
         { path: '/ws/README.md', name: 'README.md' },
+        { path: '/ws/long.md', name: '这是一份需要完整显示名称的项目交付资料与现场验收记录.md' },
       ])
       shell.setOutline([
         { level: 1, title: '页屿测试文档', from: 0 },
@@ -795,6 +891,27 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       ])
     })
 
+    // 未悬停时目录名称占用整行，悬停后为操作按钮让位。
+    const folder = page.locator('[data-path="/ws/docs"]')
+    const folderLabel = folder.locator('.yy-tree-label')
+    await page.mouse.move(600, 100)
+    expect(await folder.locator('.yy-tree-actions').isVisible()).toBe(false)
+    expect(await folderLabel.evaluate(label => label.scrollWidth <= label.clientWidth)).toBe(true)
+    const fullWidth = (await folderLabel.boundingBox())!.width
+    await folder.hover()
+    expect(await folder.locator('.yy-tree-actions').isVisible()).toBe(true)
+    expect((await folderLabel.boundingBox())!.width).toBeLessThan(fullWidth)
+    await page.mouse.move(600, 100)
+    expect((await folderLabel.boundingBox())!.width).toBe(fullWidth)
+    const longRow = page.locator('[data-path="/ws/long.md"]')
+    const longLabel = longRow.locator('.yy-tree-label')
+    const idleHeight = (await longRow.boundingBox())!.height
+    expect(await longLabel.evaluate(label => label.scrollWidth <= label.clientWidth)).toBe(true)
+    await longRow.hover({ position: { x: 30, y: idleHeight - 5 } })
+    expect(await longRow.locator('.yy-tree-actions').isVisible()).toBe(true)
+    expect(await longLabel.evaluate(label => label.scrollWidth > label.clientWidth)).toBe(true)
+    expect((await longRow.boundingBox())!.height).toBe(idleHeight)
+
     // Expand folder and open notes.md
     await page.click('[data-path="/ws/docs"] .yy-tree-main')
     await page.click('[data-path="/ws/docs/notes.md"] .yy-tree-main')
@@ -804,14 +921,22 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     await page.fill('.yy-modal-prompt input', '草稿')
     await page.click('.yy-modal-prompt button[type="submit"]')
 
-    // Rename README.md
-    await page.click('[aria-label="重命名 README.md"]')
+    const menu = page.getByRole('menu', { name: 'README.md 的操作' })
+    const readme = page.locator('[data-path="/ws/README.md"] .yy-tree-main')
+    await readme.click({ button: 'right' })
+    await menu.getByRole('menuitem', { name: '重命名' }).click()
     await page.fill('.yy-modal-prompt input', 'INDEX.md')
     await page.click('.yy-modal-prompt button[type="submit"]')
 
-    // Move README.md to trash with confirmation dialog
-    await page.click('[aria-label="将 README.md 移入废纸篓"]')
+    // 键盘打开右键菜单，移入废纸篓仍须确认。
+    await readme.press('Shift+F10')
+    await menu.getByRole('menuitem', { name: '移入废纸篓' }).click()
     await page.click('.yy-modal-prompt .yy-btn-danger')
+
+    await folder.click({ button: 'right' })
+    await page.getByRole('menu', { name: '01.项目交付验收资料 的操作' }).getByRole('menuitem', { name: '新建文件夹' }).click()
+    await page.fill('.yy-modal-prompt input', '子目录')
+    await page.click('.yy-modal-prompt button[type="submit"]')
 
     // Quick Open via title button + keyboard Enter
     await page.click('.yy-doc-title-btn')
@@ -853,6 +978,7 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     expect(focusInEditor).toBe(true)
     expect(actions).toContainEqual({ type: 'open-path', path: '/ws/docs/notes.md' })
     expect(actions).toContainEqual({ type: 'workspace-create', parent: '/ws/docs', name: '草稿.md', folder: false })
+    expect(actions).toContainEqual({ type: 'workspace-create', parent: '/ws/docs', name: '子目录', folder: true })
     expect(actions).toContainEqual({ type: 'workspace-rename', path: '/ws/README.md', name: 'INDEX.md' })
     expect(actions).toContainEqual({ type: 'workspace-trash', path: '/ws/README.md' })
     expect(actions).toContainEqual({ type: 'open-path', path: '/ws/docs/guide.md' })
@@ -890,6 +1016,54 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
       value: { focus: false, typewriter: true, spellcheck: false, readonly: false },
     })
   })
+
+  it('从桌面右键菜单复制 HTML、剪切和原样粘贴后保留 Markdown 换行', async () => {
+    const markdown = '**第一行**\r\n第二行'
+    await page.goto(`${baseUrl}/__ui_harness__`)
+    await page.evaluate(`(async () => {
+      const { mockIPC, mockWindows } = await import('/node_modules/@tauri-apps/api/mocks.js')
+      const path = '/ws/剪贴板.md'
+      const text = ${JSON.stringify(markdown)}
+      let first = true
+      let copied = ''
+      mockWindows('main')
+      mockIPC((cmd, args) => {
+        switch (cmd) {
+          case 'settings_load': return { animations: false, autosave: false }
+          case 'theme_list': case 'plugin_list': case 'typora_theme_paths': case 'settings_recent': return []
+          case 'ai_settings': return { providers: [], active: null }
+          case 'open_document': return { path, name: '剪贴板.md', text, version: '1', bom: false }
+          case 'document_version': return '1'
+          case 'document_window_request': if (first) { first = false; return { path } } return null
+          default: return null
+        }
+      }, { shouldMockEvents: true })
+      Object.defineProperty(navigator, 'clipboard', { value: {
+        async writeText(value) { copied = value; window.__copiedMarkdown = value },
+        async readText() { return copied },
+        async write(items) { window.__copiedHtml = await (await items[0].getType('text/html')).text() },
+      } })
+      await import('/src/main.ts')
+    })()`)
+    await page.getByText('剪贴板.md', { exact: true }).waitFor()
+    const editor = page.getByRole('textbox', { name: 'Markdown 文档' })
+    const menu = page.getByRole('menu', { name: '文档编辑操作' })
+    async function command(name: string) {
+      await editor.press('Shift+F10')
+      await menu.getByRole('menuitem', { name, exact: true }).click()
+    }
+    await command('全选')
+    await command('复制为 HTML')
+    await expect.poll(() => page.evaluate('window.__copiedHtml')).toContain('<strong>第一行</strong>')
+    await command('剪切')
+    expect(await page.evaluate('window.__copiedMarkdown')).toBe(markdown)
+    await expect.poll(() => editor.innerText()).not.toContain('第一行')
+    await command('粘贴为纯文本')
+    await expect.poll(() => editor.innerText()).toContain('第二行')
+    await command('全选')
+    await command('复制')
+    await expect.poll(() => page.evaluate('window.__copiedMarkdown')).toBe(markdown)
+  }, 15_000)
 
   it('左右侧栏平滑展开收起，动画期间正文列宽固定，支持关闭动效', async () => {
     await page.emulateMedia({ reducedMotion: 'no-preference' })
@@ -1209,7 +1383,8 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     await page.getByRole('option', { name: /deepseek-v4\.1-flash/ }).click()
     await expect.poll(() => effort.textContent()).toBe('思考 · 低')
     await chats.click()
-    await manage.getByRole('button', { name: '重命名 原项目' }).click()
+    await manage.getByRole('button', { name: '原项目', exact: true }).click({ button: 'right' })
+    await manage.getByRole('menu', { name: '对话操作' }).getByRole('menuitem', { name: '重命名' }).click()
     await manage.getByLabel('对话标题').fill('设备复核')
     await manage.getByRole('button', { name: '保存标题' }).click()
     await manage.getByRole('button', { name: '设备复核', exact: true }).waitFor()
@@ -2922,6 +3097,59 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     })).toBe(markdown)
   })
 
+  it('Android 工作区可预览图片，触屏展开 Mermaid 后在短视口内编辑并保存', async () => {
+    const phone = await browser.newPage({ viewport: { width: 390, height: 736 }, isMobile: true, hasTouch: true })
+    const markdown = '# 交付\r\n\r\n![布局](插图/布局.png)\r\n\r\n[资料](https://example.test)\r\n\r\n```mermaid\r\nflowchart LR\r\n  A[备料] --> B[安装]\r\n```\r\n'
+    try {
+      await phone.addInitScript(text => {
+        const uri = 'content://qa/tree/folder/document/notes'
+        const image = 'content://qa/tree/folder/document/image'
+        const root = 'content://qa/tree/folder'
+        const document = { uri, name: '手册.md', text, version: '1', bom: false, writable: true }
+        const native = window as any
+        native.__visited = []
+        native.__TAURI_INTERNALS__ = { invoke: async (cmd: string, args: { url: string; text: string }) => {
+          if (cmd === 'android_pick_workspace') return root
+          if (cmd === 'android_workspace') return { entries: [
+            { uri, name: '手册.md', path: '手册.md' }, { uri: image, name: '布局.png', path: '插图/布局.png', kind: 'image' },
+          ] }
+          if (cmd === 'android_read') return document
+          if (cmd === 'android_image') return '/assets/app-icon.png'
+          if (cmd === 'visit_link') native.__visited.push(args.url)
+          if (cmd === 'android_write') { native.__written = args.text; return { ...document, text: args.text, version: '2' } }
+          return null
+        } }
+      }, markdown)
+      await phone.goto(`${baseUrl}/mobile.html`)
+      await phone.getByRole('button', { name: '打开工作区' }).tap()
+      const workspace = phone.getByRole('region', { name: '工作区', exact: true })
+      await workspace.getByRole('button', { name: '插图/布局.png' }).tap()
+      const preview = phone.getByRole('region', { name: '图片预览' })
+      await preview.getByRole('img', { name: '布局.png' }).waitFor()
+      await preview.getByRole('button', { name: '返回' }).tap()
+      await workspace.getByRole('button', { name: '手册.md' }).tap()
+      await phone.locator('#write img[alt="布局"]').waitFor()
+      await phone.getByRole('link', { name: '资料' }).tap()
+      expect(await phone.evaluate('window.__visited')).toEqual(['https://example.test'])
+
+      const graph = phone.getByRole('button', { name: '编辑图表' })
+      await graph.locator('svg').waitFor()
+      await graph.tap()
+      await phone.setViewportSize({ width: 390, height: 350 })
+      const editor = phone.getByRole('textbox', { name: 'Markdown 文档' })
+      await editor.getByText('```mermaid', { exact: true }).waitFor()
+      await phone.keyboard.press('End')
+      await phone.keyboard.insertText('\n  A --> C[验收]')
+      await graph.getByText('验收', { exact: true }).waitFor()
+      expect(await phone.locator('.yy-paper').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+      await phone.getByRole('button', { name: '保存文档' }).tap()
+      expect(await phone.evaluate('window.__written')).toContain('C[验收]')
+      expect(await phone.evaluate('window.__written')).toContain('![布局](插图/布局.png)\r\n')
+    } finally {
+      await phone.close()
+    }
+  }, 20_000)
+
   it('主题区块在实时编辑与导出中使用相同的标签和留白，点击区块可修改原文', async () => {
     await page.setViewportSize({ width: 1360, height: 1800 })
     const output = await browser.newPage({ viewport: page.viewportSize()! })
@@ -3076,7 +3304,8 @@ describe.skipIf(!hasBrowser)('页屿桌面界面浏览器集成验证', () => {
     await page.click('[data-mcp-action="open-proposal"]')
 
     // Select tool -> verify pre-call parameter preview & explicit consent gate
-    await page.click('[data-mcp-item="search_notes"] button')
+    await page.locator('[data-mcp-item="search_notes"]').click({ button: 'right' })
+    await page.getByRole('menu', { name: 'MCP 项目操作' }).getByRole('menuitem', { name: '参数与调用' }).click()
     const beforeConsent = await page.evaluate(() => ({
       disabled: (document.querySelector('[data-mcp-action="confirm-call"]') as HTMLButtonElement).disabled,
       preview: document.querySelector('.yy-args-preview')?.textContent,

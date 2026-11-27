@@ -20,7 +20,7 @@ fn resolved(document: &Path, image: &Path) -> Result<PathBuf, String> {
     .map_err(err)
 }
 
-fn image_mime(path: &Path) -> Option<&'static str> {
+pub(crate) fn image_mime(path: &Path) -> Option<&'static str> {
     mime_guess::from_path(path)
         .first_raw()
         .filter(|mime| mime.starts_with("image/"))

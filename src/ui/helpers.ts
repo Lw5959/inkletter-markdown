@@ -5,6 +5,7 @@ export interface FlatFileEntry {
   path: string
   name: string
   relative: string
+  kind?: WorkspaceEntry['kind']
 }
 
 export function selectWithIcon(select: HTMLSelectElement) {
@@ -26,7 +27,7 @@ export function flattenWorkspaceFiles(entries: WorkspaceEntry[], workspaceRoot?:
           const sliced = entry.path.slice(normalizedRoot.length).replace(/^[\\/]+/, '')
           if (sliced) relative = sliced
         }
-        out.push({ path: entry.path, name: entry.name, relative })
+        out.push({ path: entry.path, name: entry.name, relative, ...(entry.kind ? { kind: entry.kind } : {}) })
       }
     }
   }
@@ -181,29 +182,33 @@ export function buildSchemaStarterArgs(schema: unknown): Record<string, unknown>
   return starter
 }
 
-export async function copyTextToClipboard(text: string): Promise<boolean> {
+export async function copyTextToClipboard(text: string, owner = document): Promise<boolean> {
   try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text)
+    const clipboard = owner.defaultView?.navigator.clipboard
+    if (clipboard?.writeText) {
+      await clipboard.writeText(text)
       return true
     }
   } catch {
-    // Fallback below
+    // 原生子窗口的 Clipboard API 可用性不同，继续走同一窗口的复制命令。
   }
+  const area = owner.createElement('textarea')
+  const focused = owner.activeElement as HTMLElement | null
   try {
-    const area = document.createElement('textarea')
     area.value = text
     area.setAttribute('readonly', '')
     area.style.position = 'fixed'
     area.style.opacity = '0'
     area.style.pointerEvents = 'none'
-    document.body.append(area)
+    // dialog.showModal 时只有对话框里的控件能接收焦点。
+    ;(focused?.closest('dialog[open]') ?? owner.body).append(area)
     area.select()
-    const ok = document.execCommand('copy')
-    area.remove()
-    return ok
+    return owner.execCommand('copy')
   } catch {
     return false
+  } finally {
+    area.remove()
+    focused?.focus({ preventScroll: true })
   }
 }
 

@@ -90,6 +90,8 @@ const state: ShellState = {
 const macTitlebar = detectMac()
 const shell = mountShell(document.querySelector<HTMLElement>('#app')!, {
   dispatch: act,
+  getEditor: () => editor,
+  loadWorkspaceImage: (root, path) => invoke('workspace_image', { root, path }),
   loadRecentFiles: async () => (await native.preferences())?.recent ?? settings.recent,
   listAiModels,
   pluginMarket: {
@@ -503,10 +505,8 @@ async function visit(url: string) {
   }
 }
 
-async function addImages(files?: File[]) {
+async function addImages(files?: File[], target = bind(documentId, revision, text(), interval(editor.getSelection()))) {
   if (state.presentation.readonly) throw new Error('请先关闭只读模式')
-  const range = interval(editor.getSelection())
-  const target = bind(documentId, revision, text(), range)
   if (!state.path && !await saveFile()) return
   if (!state.path) return
   if (!files?.length) {
@@ -957,27 +957,59 @@ async function dispatch(action: ShellAction) {
       settings[action.side === 'left' ? 'leftSidebarWidth' : 'rightSidebarWidth'] = action.width
       await persist()
       break
-    case 'copy-markdown': {
-      const { from, to } = interval(editor.getSelection())
-      await navigator.clipboard.writeText(text().slice(from, to))
-      update('已复制 Markdown')
+    case 'copy-markdown': case 'cut': {
+      const range = interval(editor.getSelection())
+      if (range.from === range.to || (action.type === 'cut' && state.presentation.readonly)) break
+      const selected = text().slice(range.from, range.to)
+      const target = bind(documentId, revision, text(), range)
+      if (!await copyTextToClipboard(selected)) throw new Error('无法写入剪贴板')
+      if (action.type === 'cut' && !state.presentation.readonly) {
+        const location = relocate(target, documentId, revision, text())
+        if (!location) throw new Error('原选区已变化，请重新剪切')
+        editor.replace(location.from, location.to, '')
+        update('已剪切')
+      } else update('已复制 Markdown')
       break
     }
     case 'copy-html': {
       const { from, to } = interval(editor.getSelection())
-      const html = await renderMarkdown(text().slice(from, to), { resolveImage: renderedImage })
-      if ('ClipboardItem' in window && navigator.clipboard.write) {
-        await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html], { type: 'text/html' }) })])
-      } else await navigator.clipboard.writeText(html)
+      if (from === to) break
+      const html = renderMarkdown(text().slice(from, to), { resolveImage: renderedImage })
+      if ('ClipboardItem' in window && navigator.clipboard?.write) {
+        // WebKit 要求在点击回调中发起写入，异步渲染的结果由 ClipboardItem 接收。
+        const data = html.then(value => new Blob([value], { type: 'text/html' }))
+        await navigator.clipboard.write([new ClipboardItem({ 'text/html': data })])
+      } else if (!await copyTextToClipboard(await html)) throw new Error('无法写入剪贴板')
       update('已复制 HTML')
       break
     }
-    case 'paste-plain': {
+    case 'paste': case 'paste-plain': {
       if (state.presentation.readonly) break
       const target = bind(documentId, revision, text(), interval(editor.getSelection()))
-      const value = await navigator.clipboard.readText()
+      const clipboard = navigator.clipboard
+      let value = ''
+      let files: File[] = []
+      try {
+        if (action.type === 'paste' && clipboard?.read) {
+          const items = await clipboard.read()
+          const pictures = items.flatMap(item => {
+            const mediaType = item.types.find(type => type.startsWith('image/'))
+            return mediaType ? [item.getType(mediaType)] : []
+          })
+          if (pictures.length) {
+            files = (await Promise.all(pictures)).map(blob => new File([blob], '粘贴图片', { type: blob.type }))
+          } else {
+            const item = items.find(item => item.types.includes('text/plain'))
+            if (item) value = await (await item.getType('text/plain')).text()
+          }
+        } else value = await clipboard.readText()
+      } catch (error) {
+        if (error instanceof DOMException && error.name !== 'NotAllowedError') throw error
+        throw new Error(`无法读取剪贴板，可使用 ${macTitlebar ? '⌘V' : 'Ctrl+V'} 粘贴`)
+      }
+      if (files.length) { await addImages(files, target); break }
       const location = relocate(target, documentId, revision, text())
-      if (location) editor.replace(location.from, location.to, value)
+      if (location && value) editor.pasteText(location.from, location.to, value)
       break
     }
     case 'find':
@@ -1036,6 +1068,10 @@ async function dispatch(action: ShellAction) {
       const path = await invoke<string>('workspace_create', { root, parent: action.parent, name: action.name, folder: action.folder })
       await refreshTree()
       if (!action.folder) await openPath(path)
+      break
+    }
+    case 'workspace-reveal': {
+      if (state.workspace) await invoke('workspace_reveal', { root: state.workspace, path: action.path })
       break
     }
     case 'workspace-rename': {

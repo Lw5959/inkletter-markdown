@@ -11,6 +11,7 @@ import { AiBudget } from './ai-budget'
 import { openModelSettings, openPromptSettings } from './ai-settings'
 import { openSkills } from './ai-skills'
 import { ChoicePicker } from './choice-picker'
+import { bindContextMenu, buttonCommand, copyCommand, selectedText, type ContextItem } from './context-menu'
 import type { DialogPresenter } from './dialogs'
 import { copyTextToClipboard, el, groupDiffParts } from './helpers'
 import { icons } from './icons'
@@ -331,8 +332,14 @@ export class AiPanel {
           ? el('pre', { className: 'yy-context-fulltext', text: file.text, attrs: { tabindex: '0', 'aria-label': file.name + ' 预览' } })
           : image ? el('img', { className: 'yy-ai-attachment-image', attrs: { src: `data:${file.mediaType};base64,${file.data}`, alt: file.name } })
             : null
-        return el('div', { className: 'yy-ai-attachment' },
-          preview ? el('details', {}, summary, preview) : el('span', { className: 'yy-ai-attachment-name', title: file.name }, icon, el('span', { text: file.name })), remove)
+        const details = preview ? el('details', {}, summary, preview) : null
+        const item = el('div', { className: 'yy-ai-attachment' },
+          details ?? el('span', { className: 'yy-ai-attachment-name', title: file.name }, icon, el('span', { text: file.name })), remove)
+        bindContextMenu(item, `${file.name} 的操作`, () => [
+          ...(details ? [{ label: details.open ? '收起预览' : '查看附件', run: () => { details.open = !details.open } }] : []),
+          buttonCommand('移除附件', remove),
+        ], details ? summary : remove)
+        return item
       }))
     }
     this.attachmentHost.querySelectorAll('button').forEach(button => { button.disabled = pending })
@@ -435,13 +442,13 @@ export class AiPanel {
     }
   }
 
-  private replyActions(message: AiMessage) {
+  private replyActions(message: AiMessage, item: HTMLElement) {
     const copyLabel = el('span', { text: '复制 Markdown' })
     const copy = el('button', { className: 'yy-btn yy-btn-sm yy-btn-ghost', type: 'button' },
       el('span', { className: 'yy-icon', html: icons.copy }), copyLabel)
     let copiedTimer = 0
     copy.addEventListener('click', async () => {
-      if (await copyTextToClipboard(message.text)) {
+      if (await copyTextToClipboard(message.text, copy.ownerDocument)) {
         copyLabel.textContent = '已复制'
         window.clearTimeout(copiedTimer)
         copiedTimer = window.setTimeout(() => { copyLabel.textContent = '复制 Markdown' }, 1600)
@@ -453,6 +460,18 @@ export class AiPanel {
     const insert = el('button', { className: 'yy-btn yy-btn-sm yy-btn-ghost', type: 'button' },
       el('span', { className: 'yy-icon', html: icons.filePlus }), '插入文档')
     insert.addEventListener('click', () => { void this.request({ type: 'ai-insert-reply', message }) })
+    bindContextMenu(item, 'AI 回复操作', target => {
+      const urlLink = target.closest<HTMLAnchorElement>('a[href]')
+      const text = selectedText(item)
+      const commands: ContextItem[] = []
+      if (urlLink) commands.push(
+        { label: '打开链接', run: () => urlLink.click() },
+        copyCommand('复制链接地址', urlLink.getAttribute('href')!, item), null,
+      )
+      if (text) commands.push(copyCommand('复制所选文字', text, item))
+      commands.push(buttonCommand('复制 Markdown', copy), buttonCommand('插入文档', insert))
+      return commands
+    }, copy)
     const footer = el('footer', { className: 'yy-ai-reply-actions' }, copy, insert)
     const measured = message.usage?.filter(item => item.cachedTokens !== undefined)
     if (measured?.length) {
@@ -546,7 +565,10 @@ export class AiPanel {
           void renderReply(body, message.text)
         }
         item.append(body)
-        if (message.role === 'assistant' && message.text.trim()) item.append(this.replyActions(message))
+        if (message.role === 'assistant' && message.text.trim()) item.append(this.replyActions(message, item))
+        else if (message.role === 'user' && message.text.trim()) bindContextMenu(item, '消息操作', () => [
+          copyCommand('复制消息', selectedText(item) || message.text, item),
+        ])
         let entry: HTMLElement = item
         if (message.agentTrace?.length) {
           const steps = message.agentTrace === this.shownTrace ? [...this.liveTrace.children] : message.agentTrace.map(traceEntry)
@@ -700,6 +722,11 @@ export class AiPanel {
       applySingleBtn.addEventListener('click', () => {
         void this.request({ type: 'suggestion-apply', id: suggestion.id, hunks: [hunkId] })
       })
+      bindContextMenu(hunkCard, '差异操作', () => [
+        { label: checkbox.checked ? '取消选择此段' : '选择此段', run: () => checkbox.click() },
+        buttonCommand('仅应用此段', applySingleBtn),
+        copyCommand('复制建议文本', block.parts.filter(part => part.kind !== 'remove').map(part => part.text).join(''), hunkCard),
+      ], applySingleBtn)
 
       hunkHead.append(checkLabel, applySingleBtn)
 

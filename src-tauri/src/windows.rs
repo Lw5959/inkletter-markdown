@@ -156,6 +156,7 @@ fn create_editor(
     let panels = !cfg!(feature = "qa") || std::env::var_os("YEYU_QA_NATIVE_PANELS").is_some();
     let built = WebviewWindowBuilder::from_config(app, &config).and_then(|builder| {
         builder
+            .enable_clipboard_access()
             .initialization_script(format!("window.__YEYU_DESKTOP_WINDOWS__ = {panels};"))
             .on_new_window(move |mut url, features| {
                 use tauri::webview::NewWindowResponse;

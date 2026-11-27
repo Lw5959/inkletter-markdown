@@ -1,5 +1,6 @@
 import type { AiConversations, AiView, ShellAction, ShellActions } from '../contracts'
 import type { DialogPresenter } from './dialogs'
+import { bindContextMenu, buttonCommand } from './context-menu'
 import { el } from './helpers'
 import { icons } from './icons'
 
@@ -95,6 +96,9 @@ export function openConversations(modals: DialogPresenter, view: () => AiView, d
       keep.focus()
     }
     display()
+    bindContextMenu(entry, '对话操作', () => entry.contains(name) ? [
+      buttonCommand('打开对话', name), buttonCommand('重命名', rename), buttonCommand('删除对话', remove),
+    ] : [], name)
     return entry
   }
 

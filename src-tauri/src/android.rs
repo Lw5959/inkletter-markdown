@@ -5,6 +5,7 @@ use crate::{
     store::{Store, err},
     updates::package::{self, Downloads},
 };
+use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
@@ -36,6 +37,8 @@ struct Descriptor {
     fd: i32,
     name: String,
     writable: bool,
+    #[serde(rename = "imageMime")]
+    image_mime: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -157,6 +160,24 @@ async fn android_print(
 async fn android_read(uri: String, documents: State<'_, Documents>) -> Result<Document, String> {
     let (mut file, info) = documents.descriptor(&uri, false)?;
     snapshot(uri, info, read_bytes(&mut file)?)
+}
+
+#[tauri::command]
+async fn android_image(uri: String, documents: State<'_, Documents>) -> Result<String, String> {
+    let (mut file, info) = documents.descriptor(&uri, false)?;
+    let mime = info
+        .image_mime
+        .filter(|mime| {
+            mime.strip_prefix("image/").is_some_and(|suffix| {
+                !suffix.is_empty()
+                    && suffix
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || b"+.-".contains(&byte))
+            })
+        })
+        .ok_or("请选择受支持的图片")?;
+    let bytes = read_bytes(&mut file)?;
+    Ok(format!("data:{mime};base64,{}", STANDARD.encode(bytes)))
 }
 
 #[tauri::command]
@@ -339,6 +360,7 @@ pub fn run() {
             android_workspace,
             android_print,
             android_read,
+            android_image,
             android_ai_attachment,
             android_write,
             android_load_session,

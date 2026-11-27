@@ -1,4 +1,5 @@
 import type { PluginInfo, PluginMarketPort, ShellAction, ShellActions } from '../contracts'
+import { bindContextMenu, buttonCommand, copyCommand } from './context-menu'
 import { el, selectWithIcon } from './helpers'
 import type { createPages } from './pages'
 import { createPluginMarket, type MarketChannel } from './plugin-market'
@@ -127,8 +128,8 @@ export class PluginManager {
 
   private render() {
     if (!this.list) return
-    const active = this.list.contains(document.activeElement) && document.activeElement instanceof HTMLButtonElement
-      ? document.activeElement.dataset : null
+    const focused = this.list.ownerDocument.activeElement as HTMLButtonElement | null
+    const active = focused?.tagName === 'BUTTON' && this.list.contains(focused) ? focused.dataset : null
     this.list.replaceChildren()
     if (!this.installed.length) {
       this.list.append(el('p', { className: 'yy-plugin-empty', text: '暂无已安装插件' }))
@@ -144,7 +145,9 @@ export class PluginManager {
       )
       const controls = el('div', { className: 'yy-plugin-controls' })
       const toggle = actionButton(plugin.id, plugin.enabled ? 'disable' : 'enable', plugin.enabled ? '停用' : '启用')
-      controls.append(toggle, actionButton(plugin.id, 'remove', '卸载'))
+      const remove = actionButton(plugin.id, 'remove', '卸载')
+      const commandButtons: HTMLButtonElement[] = []
+      controls.append(toggle, remove)
       heading.append(info, controls)
       row.append(heading)
       if (plugin.enabled) {
@@ -152,10 +155,16 @@ export class PluginManager {
         for (const command of plugin.commands) {
           const button = actionButton(plugin.id, 'run', command.label)
           button.value = command.id
+          commandButtons.push(button)
           commands.append(button)
         }
         row.append(commands)
       }
+      bindContextMenu(row, '插件操作', () => [
+        ...commandButtons.map(button => buttonCommand(button.textContent!, button)),
+        ...(commandButtons.length ? [null] : []),
+        buttonCommand(toggle.textContent!, toggle), copyCommand('复制插件 ID', plugin.id, row), buttonCommand('卸载插件', remove),
+      ], toggle)
       this.list.append(row)
       if (plugin.id === active?.plugin && ['enable', 'disable'].includes(active.operation ?? '')) toggle.focus()
     }

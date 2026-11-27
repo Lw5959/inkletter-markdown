@@ -6,7 +6,7 @@
 .document-theme #write .cm-content { caret-color: currentColor; min-width: 0; padding-block: 0; }
 .document-theme #write .cm-line { padding-inline: 0; }
 :where(.document-theme #write) .cm-line.live-empty { min-height: .9em; font-size: .68em; line-height: .9; }
-.document-theme #write .cm-line.live-markup-only { display: none; }
+.document-theme #write .cm-line:is(.live-markup-only, .live-diagram-source-hidden) { display: none; }
 /* 主题的标题边框和内边距要计入行高，避免在标题文字末尾截断或盖住下一行。 */
 :where(.document-theme #write) .cm-line:is(.live-h1, .live-h2, .live-h3, .live-h4, .live-h5, .live-h6, .live-toc-line) { display: flow-root; }
 /* 隐藏的标题符号仍有光标缓冲节点。标题与这些节点共用一行，同时保留整行的主题边框和内边距。 */
@@ -36,6 +36,21 @@
 :where(.document-theme #write) :where(.live-inline-preview) { display: inline-block; vertical-align: middle; }
 :where(.document-theme #write) :where(.live-inline-preview p) { display: inline; margin: 0; }
 :where(.document-theme #write) :where(.live-inline-preview img) { max-width: 100%; max-height: 22rem; }
+:where(.document-theme #write) :where(.live-media-source) {
+  color: var(--doc-muted);
+  font: .85em var(--font-monospace, var(--doc-mono));
+  overflow-wrap: anywhere;
+}
+:where(.document-theme #write) :where(.live-media-preview) { max-width: 100%; margin-inline-start: .45em; }
+:where(.document-theme #write) :where(.live-media-preview a) { cursor: pointer; }
+:where(.document-theme #write) :where(.live-media-preview:empty) { margin: 0; }
+:where(.document-theme #write) :where(.live-standalone-image .live-image-preview) {
+  display: block;
+  width: fit-content;
+  margin: .3em 0;
+}
+:where(.document-theme #write) :where(.live-media-unavailable) { color: var(--doc-muted); font-size: .85em; }
+:where(.document-theme #write) :where(.live-diagram-preview[tabindex]) { cursor: text; }
 :where(.document-theme #write) :where(.live-block-preview) { display: flow-root; max-width: 100%; overflow-x: auto; }
 /* [TOC] 是行内替换，块级 nav 会把前后的光标缓冲节点各挤成一行。 */
 :where(.document-theme #write) .cm-line.live-toc-line :where(.live-toc) {

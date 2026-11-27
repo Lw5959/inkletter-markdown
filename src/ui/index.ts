@@ -16,11 +16,14 @@ import type {
 } from '../contracts'
 import { AiPanel } from './ai-panel'
 import { createAppearance } from './appearance'
+import { bindContextMenu, closeContextMenu, copyCommand } from './context-menu'
 import { ModalManager } from './dialogs'
 import { openDesktopWindow } from './desktop-window'
+import { bindEditorMenu } from './editor-menu'
 import { FindBar } from './find-bar'
 import { el, isEditableFormElement } from './helpers'
 import { icons } from './icons'
+import { showImagePreview } from './image-preview'
 import { LeftPanel, type LeftTab } from './left-panel'
 import { McpPanel } from './mcp-panel'
 import { MenuBar } from './menus'
@@ -148,6 +151,12 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   }
 
   const modals = new ModalManager(shellEl, focusEditor)
+  const previewWorkspaceImage = (entry: Pick<WorkspaceEntry, 'path' | 'name'>) => {
+    const root = state.workspace
+    if (!root || !actions.loadWorkspaceImage) return
+    showImagePreview(modals, entry.name, () => actions.loadWorkspaceImage!(root, entry.path),
+      () => dispatch({ type: 'workspace-reveal', path: entry.path }))
+  }
   const bodyEl = el('div', { className: 'yy-body' })
   const pages = createPages(bodyEl, focusEditor, current => {
     // 工具页接管整个工作区，返回后恢复原来的左右栏状态。
@@ -158,6 +167,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   let disposePluginPage: (() => void) | undefined
   function closePlugins() {
     if (!pluginWindow) return pages.back()
+    closeContextMenu(pluginWindow.host.ownerDocument)
     pluginWindow.close()
     pluginWindow = null
     disposePluginPage?.()
@@ -191,8 +201,9 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
       entries: workspaceEntries,
       workspaceRoot: state.workspace,
       activePath: state.path,
-      onSelect: path => dispatch({ type: 'open-path', path }),
+      onSelect: entry => entry.kind === 'image' ? previewWorkspaceImage(entry) : dispatch({ type: 'open-path', path: entry.path }),
       onOpenFolder: () => dispatch({ type: 'open-folder' }),
+      onReveal: path => dispatch({ type: 'workspace-reveal', path }),
     })
   }
 
@@ -313,6 +324,10 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   })
   titleBtn.append(titleTextEl, dirtyDotEl, readonlyBadgeEl)
   titleBtn.addEventListener('click', openQuickOpen)
+  bindContextMenu(titleBtn, '当前文档操作', () => [
+    { label: '快速打开…', icon: icons.search, run: openQuickOpen },
+    ...(state.path ? [copyCommand('复制文件路径', state.path, titleBtn, showNotice)] : []),
+  ])
   topCenter.append(titleBtn)
 
   const topRight = el('div', { className: 'yy-topbar-right' })
@@ -362,6 +377,8 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
     dispatch,
     modals,
     onAfterNavigate: focusEditor,
+    onPreviewImage: previewWorkspaceImage,
+    notify: showNotice,
   })
 
   // Center writing stage
@@ -369,6 +386,16 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   const findBar = new FindBar({
     dispatch,
     onClose: focusEditor,
+  })
+  bindEditorMenu(paperEl, {
+    editor: () => actions.getEditor?.(), dispatch,
+    formatting: () => menuBar.editorFormatCommands(), find: openFind,
+    preview: (name, src) => showImagePreview(modals, name, async () => src),
+    addToAi() {
+      dispatch({ type: 'ai-context', scope: 'selection' })
+      openRightTab('ai')
+    },
+    notify: showNotice,
   })
 
   const readonlyBanner = el('div', {
@@ -542,6 +569,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
   }
 
   function syncLayout() {
+    if (leftSlot.dataset.open === 'true' && !leftOpen) closeContextMenu(document, true)
     const leftChanged = syncPanel(leftSlot, leftOpen)
     leftToggleBtn.classList.toggle('is-active', leftOpen)
     leftToggleBtn.setAttribute('aria-pressed', String(leftOpen))
@@ -690,6 +718,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
     const matched = shortcuts.match(event, isEditableFormElement(event.target), isMac)
     if (!matched) return
     event.preventDefault()
+    closeContextMenu(document, true)
     menuBar.close(false)
     executeCommand(matched.id)
   }
@@ -768,6 +797,7 @@ export function mountShell(root: HTMLElement, actions: ShellActions): Shell {
     },
 
     destroy() {
+      closeContextMenu(document)
       if (noticeTimer) clearTimeout(noticeTimer)
       window.removeEventListener('keydown', onWindowKeyDown)
       appearance.destroy()
